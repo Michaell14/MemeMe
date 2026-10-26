@@ -192,26 +192,7 @@ private struct NamingRow: View {
                 .lineLimit(1)
             HStack(spacing: 8) {
                 ForEach(Array(prompt.candidates.prefix(3))) { candidate in
-                    let caption = Self.caption(for: candidate)
-                    Button {
-                        onPick(candidate.personID)
-                    } label: {
-                        HStack(spacing: 8) {
-                            NamingFace(sample: candidate.sample)
-                            Text(verbatim: caption)
-                                .font(.system(size: 11))
-                                .foregroundColor(Theme.text)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                        }
-                        .padding(.leading, 4)
-                        .padding(.trailing, 10)
-                        .padding(.vertical, 4)
-                        .overlay(Capsule().strokeBorder(Theme.chipBorder, lineWidth: 1))
-                        .contentShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("This is \(prompt.name) — \(caption)")
+                    candidateButton(candidate)
                 }
                 Spacer(minLength: 0)
             }
@@ -223,6 +204,34 @@ private struct NamingRow: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(Theme.surface)
         )
+    }
+
+    private func candidateButton(_ candidate: NamingCandidate) -> some View {
+        let caption = Self.caption(for: candidate)
+        let label = "This is \(prompt.name) — \(caption)"
+        return Button {
+            onPick(candidate.personID)
+        } label: {
+            candidateLabel(candidate, caption: caption)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(verbatim: label))
+    }
+
+    private func candidateLabel(_ candidate: NamingCandidate, caption: String) -> some View {
+        HStack(spacing: 8) {
+            NamingFace(sample: candidate.sample)
+            Text(verbatim: caption)
+                .font(.system(size: 11))
+                .foregroundColor(Theme.text)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .padding(.leading, 4)
+        .padding(.trailing, 10)
+        .padding(.vertical, 4)
+        .overlay(Capsule().strokeBorder(Theme.chipBorder, lineWidth: 1))
+        .contentShape(Capsule())
     }
 
     private static func caption(for candidate: NamingCandidate) -> String {
