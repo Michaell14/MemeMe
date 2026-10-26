@@ -800,6 +800,8 @@ struct StickerPopoverView: View { @ObservedObject var model: StickerPopoverModel
     func keepAsPhotoOnly()     // undoes the stickers and keeps the photo as a normal (maybe-tier) item via indexer.keep
     func undoKept()
     func close()
+    var store: LibraryStore?                    // set by AppDelegate; "Keep as photo only" files the photo as maybe-tier
+    func dismissGroupingQuestionIfUnanswered()  // called when the popover closes, so the grouping question is asked once
 }
 ```
 
@@ -875,11 +877,17 @@ enum DropOutcome { case kept(IndexBatch), stickers(StickerBatch), nothing }
 
     // Menu-bar drops
     func handleMenuBarDrop(urls: [URL]) async -> DropOutcome
+
+    // Persistence & menu helpers (internal extras)
+    func saveSoon()
+    func saveNow()
+    func forgetRestingFace()
 }
 ```
+Other internal helpers that exist outside the contract: `StickerBatchSources` (App/StickerPopoverModel.swift) and `TileDragEvents` (UI/PanelController.swift).
 Behavior summary (details in DESIGN.md):
 - `panelWillShow`: remember previous app + bundle id; reset query state; mode = `.cameraBusy` if `camera.isInUseByAnotherApplication`, `.prompt` if authorization is `.notDetermined`, `.cameraOff` if denied/restricted, else `.warming` (start camera); results = recent for that app (or GIPHY `reaction` cached items / newest own memes); footer per rules; on first run (`!settings.hasCompletedFirstRun`) request camera access 0.6 s after show (activate the app just for the prompt).
-- `camera.onSample` → `tracker.ingest`; publish `holdProgress`; on query change: mood → weights (`automatic(...).pinning(pins)`) → local rank immediately → web `cachedItems` merged → `web.items(for:)` merged later via `ResultMerger` with `lockedCount = max(strongOwnPrefix, userInteracted ? focusedIndex + 1 : 0)`; `newResultIDs` for ids not shown before (cleared after 600 ms); `web.prefetchForCopy(top 3)`. No face for 1.5 s → hint "Can’t see your face".
+- `camera.onSample` → `tracker.ingest`; publish `holdProgress`; on query change: mood → weights (`automatic(...).pinning(pins)`) → local rank immediately → web `cachedItems` merged → `web.items(for:)` merged later via `ResultMerger` with `lockedCount = max(strongOwnPrefix, focusedIndex + 1)`; `newResultIDs` for ids not shown before (cleared after 600 ms); `web.prefetchForCopy(top 3)`. No face for 1.5 s → hint "Can’t see your face".
 - Text changes (debounced 80 ms) → text mode; camera stops if typing began within 1 s of show, otherwise `showsFaceToken = true`; naming prompt when `TextQuery.possibleName` is set, no results, and `friends.unnamedPeople` is non-empty. Empty text → back to live (restart camera if it was stopped).
 - `commit`: resolve file (web → `await web.prepareForCopy`, HUD "Copying…" if it takes > 150 ms); `Clipboard.copy`; increment `timesSent`, set `lastSentAt`, `recents.record`; first run → `showSetupCard = true` and `hasCompletedFirstRun = true` (panel stays open); otherwise close and HUD "Copied “<displayName>” · ⌘V — not sent". ↵ is ignored within 300 ms of the last text edit.
 - Persist the store (debounced 2 s) after changes; persist `tracker.baseline` into settings on hide.

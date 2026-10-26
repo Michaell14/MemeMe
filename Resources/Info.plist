@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>MemeMe</string>
+	<key>CFBundleExecutable</key>
+	<string>MemeMe</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.mememe.app</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>MemeMe</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>GiphyAPIKey</key>
+	<string>$(GIPHY_API_KEY)</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.utilities</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>MemeMe uses the camera only while its panel is open, to match your expression. Nothing leaves your Mac.</string>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>MemeMe indexes images on your Desktop, including screenshots, so you can find your memes by face or by words. Files stay where they are and nothing leaves your Mac.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>MemeMe looks for memes in Documents only when you ask it to. Files stay where they are and nothing leaves your Mac.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>MemeMe indexes images in Downloads so you can find memes you saved by face or by words. Files stay where they are and nothing leaves your Mac.</string>
+	<key>NSRemovableVolumesUsageDescription</key>
+	<string>MemeMe indexes images in folders you add to it. Files stay where they are and nothing leaves your Mac.</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>MemeMe. Runs entirely on your Mac.</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>NSSupportsAutomaticGraphicsSwitching</key>
+	<true/>
+</dict>
+</plist>

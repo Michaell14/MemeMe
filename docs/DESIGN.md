@@ -91,7 +91,7 @@ On open, before a face is captured, the grid shows **Recent in this app** (per f
 ## Menu-bar icon
 
 - Template icon (SF Symbol `face.smiling`). Clicking shows the menu.
-- **Drop target:** dragging files or images onto the icon keeps them. Photos of people (not animated, little text, faces ≥ 6 % of the image height) become **stickers** (per the "Photos with people" setting, default automatic); everything else is kept as a meme.
+- **Drop target:** dragging files or images onto the icon keeps them. Photos of people (not animated, little text, faces ≥ 6 % of the image height) become **stickers** (per the "Photos with people" setting, default automatic); everything else is kept as a meme. With "Ask Each Time", one alert per drop: title "Make stickers from “IMG_2207”?" (or "Make stickers from 3 photos?"), text "MemeMe cuts out each person. Everything stays on this Mac.", buttons [Make Stickers] [Keep as Photo] (plural "Keep as Photos").
 - After a drop, a popover under the icon:
   - Stickers: header "Made 3 stickers" + "Undo all"; the first time ever, an inline question "Group stickers by person?" / "MemeMe matches faces only against stickers you made. Face data stays on this Mac." [Yes, group them] [Not now]; a row of die-cut stickers (checkerboard background), each with a name label: "Maya ✓" (confident match), "Jordan?" + [Yes, that’s Jordan] (likely), or "New face"; a × on each to remove (+ to restore); footer "Keep as photo only".
   - Kept memes: "Kept 23 · 4 duplicates merged" + "Undo".
