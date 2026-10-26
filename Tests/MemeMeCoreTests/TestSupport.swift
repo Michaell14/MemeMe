@@ -2,6 +2,10 @@ import Foundation
 import XCTest
 @testable import MemeMeCore
 
+/// XCTest on macOS re-exports DeveloperToolsSupport, which also declares a `LibraryItem`.
+/// This module-level alias shadows it for every test file.
+typealias LibraryItem = MemeMeCore.LibraryItem
+
 /// Population-neutral face with selected fields changed.
 func makeFace(brow: Double = 0.45, eye: Double = 0.45, mouth: Double = 0.05, width: Double = 0.45,
               smile: Double = 0.5, tilt: Double = 0, gaze: Double = 0.1) -> FaceFeatures {
