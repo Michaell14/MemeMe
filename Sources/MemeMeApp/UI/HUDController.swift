@@ -69,7 +69,6 @@ final class HUDController {
         newPanel.isOpaque = false
         newPanel.backgroundColor = .clear
         newPanel.hasShadow = false
-        newPanel.sharingType = .none
         newPanel.isReleasedWhenClosed = false
         newPanel.animationBehavior = .none
 

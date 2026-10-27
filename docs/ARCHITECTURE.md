@@ -787,11 +787,11 @@ enum Theme {
     init(model: AppModel)
     var isVisible: Bool { get }
     func toggle()
-    func show(centered: Bool = false)   // captures NSWorkspace.shared.frontmostApplication before showing; calls model.panelWillShow; non-activating NSPanel; top-center under the menu bar (or centered on screen when `centered`)
+    func show()   // captures NSWorkspace.shared.frontmostApplication before showing; calls model.panelWillShow; non-activating NSPanel; top-center under the menu bar
     func hide()                         // orders out, calls model.panelDidHide, reactivates the previous app if it is no longer frontmost
 }
 ```
-NSPanel subclass: `styleMask [.borderless, .nonactivatingPanel]`, `canBecomeKey true`, `canBecomeMain false`, `isFloatingPanel true`, `level .floating`, `collectionBehavior [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]`, `hidesOnDeactivate false`, `backgroundColor .clear`, `hasShadow true`, `sharingType .none`. Hosting: `NSHostingView(rootView: PanelView(model:))`, sized to fit (width 640). While visible: a local key-down monitor (keys in DESIGN.md: Esc, ↵/Enter, digits 1–9 as typed on the active keyboard layout, arrows, Space with empty query, Tab / Shift-Tab, ⌘V) and a global mouse-down monitor (outside click → hide). `model.onRequestClose = { [weak self] in self?.hide() }`.
+NSPanel subclass: `styleMask [.borderless, .nonactivatingPanel]`, `canBecomeKey true`, `canBecomeMain false`, `isFloatingPanel true`, `level .floating`, `collectionBehavior [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]`, `hidesOnDeactivate false`, `backgroundColor .clear`, `hasShadow true`; `sharingType` stays at the default, so screenshots and screen recordings include it. Hosting: `NSHostingView(rootView: PanelView(model:))`, sized to fit (width 640). While visible: a local key-down monitor (keys in DESIGN.md: Esc, ↵/Enter, digits 1–9 as typed on the active keyboard layout, arrows, Space with empty query, Tab / Shift-Tab, ⌘V) and a global mouse-down monitor (outside click → hide). `model.onRequestClose = { [weak self] in self?.hide() }`.
 
 Key handling:
 - Esc → `if !model.handleEscape() { hide() }`

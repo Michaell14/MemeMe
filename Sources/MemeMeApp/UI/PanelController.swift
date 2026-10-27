@@ -97,7 +97,7 @@ final class PanelController: NSObject {
         }
     }
 
-    func show(centered: Bool = false) {
+    func show() {
         guard !panel.isVisible else {
             panel.makeKeyAndOrderFront(nil)
             return
@@ -118,13 +118,9 @@ final class PanelController: NSObject {
             let full = screen.frame
             let visible = screen.visibleFrame
             anchorMidX = full.midX
-            if centered {
-                anchorTop = (visible.midY + size.height / 2).rounded()
-            } else {
-                // With the menu bar hidden (full screen, auto-hide), stay below the camera housing.
-                let usableTop = min(visible.maxY, full.maxY - screen.safeAreaInsets.top)
-                anchorTop = usableTop - menuBarGap
-            }
+            // With the menu bar hidden (full screen, auto-hide), stay below the camera housing.
+            let usableTop = min(visible.maxY, full.maxY - screen.safeAreaInsets.top)
+            anchorTop = usableTop - menuBarGap
         } else {
             anchorMidX = size.width / 2
             anchorTop = size.height
@@ -170,7 +166,6 @@ final class PanelController: NSObject {
         panel.backgroundColor = .clear
         panel.isOpaque = false
         panel.hasShadow = true
-        panel.sharingType = .none
         panel.isReleasedWhenClosed = false
         panel.isMovable = false
         panel.isMovableByWindowBackground = false

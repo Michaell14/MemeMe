@@ -43,13 +43,13 @@ private let launchLog = Logger(subsystem: "com.mememe.app", category: "app")
         model.setHotKeyAvailable(hotKey.register())
         model.start()
 
-        // First run: the panel opens by itself, centered, once per install. Later launches (login item)
+        // First run: the panel opens by itself, under the menu bar, once per install. Later launches (login item)
         // stay quiet until ⌃⌘M; the You're-set card still appears on the first pick (AppModel).
         let defaults = UserDefaults.standard
         if !store.settings.hasCompletedFirstRun,
            !defaults.bool(forKey: AppDelegate.firstRunPanelShownKey) {
             defaults.set(true, forKey: AppDelegate.firstRunPanelShownKey)
-            panel.show(centered: true)
+            panel.show()
         }
     }
 
@@ -60,7 +60,7 @@ private let launchLog = Logger(subsystem: "com.mememe.app", category: "app")
 
     /// Opening the app again (Finder, Spotlight) while it runs shows the panel.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        panel?.show(centered: true)
+        panel?.show()
         return false
     }
 

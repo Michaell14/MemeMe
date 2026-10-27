@@ -126,7 +126,7 @@ On open, before a face is captured, the grid shows **Recent in this app** (per f
 
 ## First run
 
-1. App launches (LSUIElement, no Dock icon). On the first launch per install only, the panel opens by itself (later login launches stay quiet until ⌃⌘M), centered on screen, in the prompt state, showing GIPHY "reaction" results (or an empty state "Drop memes here, or find the ones on this Mac" if offline / no key).
+1. App launches (LSUIElement, no Dock icon). On the first launch per install only, the panel opens by itself (later login launches stay quiet until ⌃⌘M), in its usual place under the menu bar, in the prompt state, showing GIPHY "reaction" results (or an empty state "Drop memes here, or find the ones on this Mac" if offline / no key).
 2. 0.6 s later the camera permission request (the app is activated for this one prompt so the system alert is in front).
 3. Make any face → results. Pick → the You're set card. ⌃⌘M is registered without any permission (Carbon hot key). If the shortcut can't be registered, the card says "⌃⌘M is taken by another app." (rebinding UI is out of scope for v1).
 4. Open at login is registered via `SMAppService.mainApp` (checked by default, toggle in card and menu).

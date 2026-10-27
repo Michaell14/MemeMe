@@ -90,6 +90,7 @@ jobs:
           NOTARY_KEY: ${{ secrets.NOTARY_KEY }}
           NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
           NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+          GIPHY_API_KEY: ${{ secrets.GIPHY_API_KEY }}
         run: |
           missing=""
           for name in DEVELOPER_ID_P12 DEVELOPER_ID_P12_PASSWORD NOTARY_KEY NOTARY_KEY_ID NOTARY_ISSUER_ID; do
@@ -102,6 +103,10 @@ jobs:
             exit 1
           fi
           echo "All five signing secrets are set"
+          # Not required to release, but without it the app never finds memes online.
+          if [[ -z "$GIPHY_API_KEY" ]]; then
+            echo "::warning::GIPHY_API_KEY is not set, so this release can't find memes online (Web Discover stays off). Add it under Settings > Secrets and variables > Actions (see README > GIPHY API key)."
+          fi
 
       - name: Build
         run: swift build
