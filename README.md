@@ -39,6 +39,12 @@ open build/MemeMe.app
 
 Run the app from the bundle rather than with `swift run`: camera access and Open at Login depend on the bundle's Info.plist and identity.
 
+## Website
+
+`site/index.html` is the one-page website, published as a claude.ai artifact with the download built in. The download is `site/MemeMe.zip`, which CI refreshes when you run the **CI** workflow by hand (**Actions → CI → Run workflow**): after the usual build and tests it commits the new zip to `site/`.
+
+`./scripts/build-site.sh` writes a standalone copy to `build/site/` (the page plus `MemeMe.zip`) that any static host can serve. It also writes `download.json`, the zip as base64 with its SHA-256, which the artifact version of the page uses because artifacts can't serve a `.zip`. After the zip changes, run the script and republish the page with `download.json` next to it.
+
 ## Using it
 
 | | |
