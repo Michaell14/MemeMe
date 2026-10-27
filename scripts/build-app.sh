@@ -129,7 +129,8 @@ else
 fi
 
 # 4. Bake in the GIPHY key (empty string when GIPHY_API_KEY is unset). The key is never printed.
-GIPHY_KEY="${GIPHY_API_KEY:-}"
+#    A pasted key often carries a trailing newline or spaces; keys have no whitespace, so drop it.
+GIPHY_KEY="$(printf '%s' "${GIPHY_API_KEY:-}" | tr -d '[:space:]')"
 if [[ -n "$GIPHY_KEY" && ! "$GIPHY_KEY" =~ ^[A-Za-z0-9_-]+$ ]]; then
   echo "warning: GIPHY_API_KEY contains unexpected characters; building without a key" >&2
   GIPHY_KEY=""

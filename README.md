@@ -68,6 +68,7 @@ Every change to the app on the default branch is released automatically. When `S
   - `NOTARY_KEY`: an App Store Connect API team key, `AuthKey_<id>.p8`, base64-encoded (`base64 -i AuthKey_<id>.p8 | pbcopy`).
   - `NOTARY_KEY_ID`: that key's ID.
   - `NOTARY_ISSUER_ID`: the issuer ID shown with the team keys (App Store Connect → Users and Access → Integrations).
+  - `GIPHY_API_KEY`: the GIPHY key built into releases (see [GIPHY API key](#giphy-api-key)).
 - **Certificate expiry.** The certificate expires on 2027-02-01. Releases signed before then stay valid (the signatures are timestamped), but CI can't sign new ones. Before then, create a new Developer ID Application certificate for the same team, export it with its private key as a .p12 and replace `DEVELOPER_ID_P12` and `DEVELOPER_ID_P12_PASSWORD`. Same team, so the updater and macOS permissions accept the new builds.
 
 ## Website
@@ -114,7 +115,7 @@ Web Discover finds reaction GIFs on GIPHY for the face you make, next to the mem
 1. Create an app at [developers.giphy.com](https://developers.giphy.com) (choose **API**) and copy its API key. A new key is a beta key: 100 calls per hour. MemeMe stays under 90 per rolling hour on each Mac and caches results for 24 hours, but GIPHY counts calls per key, so every copy of a release shares the built-in key's limit. That's fine for you and a few friends; before sharing MemeMe widely, use **Upgrade to Production** on the key in GIPHY's dashboard.
 2. Choose one way to provide it:
    - **Build time:** `GIPHY_API_KEY=your-key ./scripts/build-app.sh` writes it into the bundle's Info.plist (`GiphyAPIKey`).
-   - **CI:** add a repository secret named `GIPHY_API_KEY` (Settings → Secrets and variables → Actions). The workflow passes it to the build script. Builds without the secret, such as pull requests from forks, get an empty key.
+   - **CI:** add a repository secret named `GIPHY_API_KEY` (Settings → Secrets and variables → Actions). The workflow passes it to the build script. Release runs fail without it; other builds without the secret, such as pull requests from forks, get an empty key.
    - **At run time:** menu-bar icon → **Set GIPHY API Key…**. This overrides the built-in key; leave it empty to go back to the built-in one.
 
 Turn Web Discover off from the menu to keep MemeMe offline, apart from the update check.

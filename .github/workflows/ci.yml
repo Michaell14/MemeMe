@@ -103,10 +103,17 @@ jobs:
             exit 1
           fi
           echo "All five signing secrets are set"
-          # Not required to release, but without it the app never finds memes online.
-          if [[ -z "$GIPHY_API_KEY" ]]; then
-            echo "::warning::GIPHY_API_KEY is not set, so this release can't find memes online (Web Discover stays off). Add it under Settings > Secrets and variables > Actions (see README > GIPHY API key)."
+          # Without it a release can't find memes online. Checked the way build-app.sh reads it.
+          giphy_key="$(printf '%s' "$GIPHY_API_KEY" | tr -d '[:space:]')"
+          if [[ -z "$giphy_key" ]]; then
+            echo "::error::GIPHY_API_KEY is not set, so this release couldn't find memes online. Add it under Settings > Secrets and variables > Actions (see README > GIPHY API key)."
+            exit 1
           fi
+          if [[ ! "$giphy_key" =~ ^[A-Za-z0-9_-]+$ ]]; then
+            echo "::error::GIPHY_API_KEY has characters an API key never has; paste just the key from developers.giphy.com."
+            exit 1
+          fi
+          echo "GIPHY_API_KEY is set"
 
       - name: Build
         run: swift build
