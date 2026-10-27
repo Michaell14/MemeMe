@@ -2,39 +2,59 @@
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Funnel+Display:wght@500..700&family=Funnel+Sans:wght@400..600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&display=swap">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&text=OMGICAN%E2%80%99TSRYLDUFE%20&display=swap">
 <style>
-/* Layout: "Night shift". The top edge of a MacBook display at night: MemeMe's panel hangs from the notch on the right,
-   the promise sits left-aligned beside it. Then one spec-like section (three steps, three facts) and one download panel. */
+/* "Laptop lid": the promise on the left; on the right a lilac MacBook lid covered in stickers.
+   The face stickers are the face picker, and the big sticker is MemeMe's panel, working. */
 :root {
-  --bg: #F2F3F7;
-  --bg-2: #FFFFFF;
-  --fg: #0E1118;
-  --fg-2: #474E5E;
-  --fg-3: #5F6676;
-  --line: #E0E3EA;
-  --line-2: #C9CED9;
-  --accent: #3A5FD9;
-  --accent-hi: #2D50C2;
-  --accent-ink: #FFFFFF;
-  --accent-soft: rgba(58, 95, 217, .10);
-  --amber: #E2A11B;
-  --glow: rgba(58, 95, 217, .13);
-  --key-bg: #FFFFFF;
-  --key-line: #C9CED9;
-  --key-fg: #0E1118;
-  --rim: #B9BEC9;
-  --bezel: #22242A;
-  --seg-track: rgba(14, 17, 24, .055);
-  --seg-on: #FFFFFF;
-  --seg-shadow: 0 1px 2px rgba(14, 17, 24, .12), 0 0 0 .5px rgba(14, 17, 24, .1);
-  --wall-top: #C2CCE5;
-  --wall-bot: #E2E7F1;
-  --wall-light: rgba(255, 255, 255, .8);
-  --mbar: rgba(250, 251, 253, .6);
-  --mbar-fg: #13161D;
-  --mbar-hi: rgba(19, 22, 29, .1);
+  color-scheme: light;
+  --bg: #EDF1F7;
+  --ink: #161B2E;
+  --ink-2: #2A3150;
+  --ink-3: #3C4257;
+  --ink-4: #4A5270;
+  --ink-5: #4A5170;
+  --white: #FFFFFF;
+  --link: #4330C9;
+  --link-hi: #2E1F99;
+  --dl-sub: #C9CFE6;
+  --dash: #CDD3E1;
+  --row: #F2F4F9;
+  --kbd-line: #C3C9DA;
+
+  /* The lid (lilac). The step numbers in Install pick it up too. */
+  --lid-top: #CBC3F3;
+  --lid-edge: #A99EDD;
+  --lid-shadow: rgba(52, 40, 120, .22);
+  --lid-gloss: rgba(255, 255, 255, .55);
+  --lid-peel: rgba(255, 255, 255, .28);
+
+  /* Stickers */
+  --logo-chip: #FF9A5C;
+  --key: #FFD95A;
+  --key-edge: #D2A526;
+  --mb-bg: #ECEEF4;
+  --mb-ink: #1D1D1F;
+  --mb-hi: rgba(0, 0, 0, .14);
+  --art-ink: #1D1B20;
+  --tear: #7CC4F5;
+  --skin-1: #E8A85C;
+  --skin-2: #F2C9A0;
+  --skin-3: #A86B45;
+  --skin-4: #C68B5E;
+  --skin-5: #B88A5A;
+  --skin-6: #F5C451;
+  --hair-1: #C98A4B;
+  --hair-2: #2A1A12;
+  --hair-3: #D9B26A;
+
+  --sh-chip: rgba(30, 40, 80, .16);
+  --sh-pill: rgba(30, 40, 80, .12);
+  --sh-dl: rgba(22, 27, 46, .22);
+  --sh-num: rgba(22, 27, 46, .2);
+  --sh-card-1: rgba(22, 27, 46, .06);
+  --sh-card-2: rgba(40, 50, 90, .1);
 
   /* MemeMe's panel is always dark (the app's Theme). */
   --p-bg: #1E1F24;
@@ -47,215 +67,204 @@
   --p-muted: #A9ACB5;
   --p-place: #9A9DA6;
   --p-accent: #7AA2FF;
+  --p-accent-ink: #0E1324;
   --p-amber: #F5C451;
+  --p-amber-soft: rgba(245, 196, 81, .28);
+  --p-amber-glow: rgba(245, 196, 81, .35);
   --p-mirror: #0E0F12;
   --p-badge: rgba(14, 15, 18, .72);
+  --p-badge-ink: #FFFFFF;
+  --p-pin-hover: rgba(255, 255, 255, .55);
+  --p-dot-ring: rgba(14, 15, 18, .5);
+  --p-check-a: #2C2E34;
+  --p-check-b: #222328;
+  --p-tile-shadow: rgba(0, 0, 0, .45);
+  --p-hud: rgba(30, 31, 36, .97);
+  --p-hud-shadow: rgba(0, 0, 0, .5);
 
-  --display: "Funnel Display", "Funnel Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --body: "Funnel Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Funnel Sans", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font: "Bricolage Grotesque", "Avenir Next", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --mac: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+  --ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --sym: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Symbol", "Segoe UI", "DejaVu Sans", sans-serif;
-  --mono: ui-monospace, "SF Mono", Menlo, Consolas, "JetBrains Mono", "Liberation Mono", monospace;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #0B0D12; --bg-2: #10131A; --fg: #E8EBF1; --fg-2: #A3AABA; --fg-3: #858C9C;
-    --line: #1C2029; --line-2: #2A2F3A;
-    --accent: #7AA2FF; --accent-hi: #96B6FF; --accent-ink: #0A0E1A; --accent-soft: rgba(122, 162, 255, .12);
-    --amber: #F5C451; --glow: rgba(122, 162, 255, .16);
-    --key-bg: #151922; --key-line: #2A2F3A; --key-fg: #E8EBF1;
-    --rim: #262B35; --bezel: #040506;
-    --seg-track: rgba(255, 255, 255, .05); --seg-on: #222733; --seg-shadow: 0 1px 2px rgba(0, 0, 0, .5), 0 0 0 .5px rgba(255, 255, 255, .08);
-    --wall-top: #182036; --wall-bot: #0C0F16; --wall-light: rgba(122, 162, 255, .3);
-    --mbar: rgba(14, 17, 24, .5); --mbar-fg: #EDEFF4; --mbar-hi: rgba(255, 255, 255, .14);
-    color-scheme: dark;
-  }
-}
-:root[data-theme="dark"] {
-  --bg: #0B0D12; --bg-2: #10131A; --fg: #E8EBF1; --fg-2: #A3AABA; --fg-3: #858C9C;
-  --line: #1C2029; --line-2: #2A2F3A;
-  --accent: #7AA2FF; --accent-hi: #96B6FF; --accent-ink: #0A0E1A; --accent-soft: rgba(122, 162, 255, .12);
-  --amber: #F5C451; --glow: rgba(122, 162, 255, .16);
-  --key-bg: #151922; --key-line: #2A2F3A; --key-fg: #E8EBF1;
-  --rim: #262B35; --bezel: #040506;
-  --seg-track: rgba(255, 255, 255, .05); --seg-on: #222733; --seg-shadow: 0 1px 2px rgba(0, 0, 0, .5), 0 0 0 .5px rgba(255, 255, 255, .08);
-  --wall-top: #182036; --wall-bot: #0C0F16; --wall-light: rgba(122, 162, 255, .3);
-  --mbar: rgba(14, 17, 24, .5); --mbar-fg: #EDEFF4; --mbar-hi: rgba(255, 255, 255, .14);
-  color-scheme: dark;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
-html { scroll-behavior: smooth; }
+[hidden] { display: none !important; }
 body {
   margin: 0;
   background: var(--bg);
-  color: var(--fg);
-  font: 400 16px/1.6 var(--body);
+  color: var(--ink);
+  font-family: var(--font);
   -webkit-font-smoothing: antialiased;
   overflow-x: clip;
 }
-::selection { background: var(--accent); color: var(--accent-ink); }
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
-a { color: inherit; }
-p { margin: 0; }
-svg { display: block; }
+a { color: var(--link); }
+a:hover { color: var(--link-hi); }
+a:focus-visible, button:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
 button { font: inherit; color: inherit; }
+svg { display: block; }
+.sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
 .wrap {
-  max-width: 1280px; margin: 0 auto;
-  padding-left: max(clamp(16px, 3.4vw, 40px), env(safe-area-inset-left, 0px));
-  padding-right: max(clamp(16px, 3.4vw, 40px), env(safe-area-inset-right, 0px));
+  max-width: 1360px; margin: 0 auto;
+  padding-left: max(clamp(16px, 4vw, 56px), env(safe-area-inset-left, 0px));
+  padding-right: max(clamp(16px, 4vw, 56px), env(safe-area-inset-right, 0px));
 }
-.sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
-.nw { white-space: nowrap; }
-h1, h2, h3 { font-family: var(--display); margin: 0; text-wrap: balance; }
-h2 { font-weight: 600; font-size: clamp(30px, 3.3vw, 44px); line-height: 1.08; letter-spacing: -.025em; }
-h3 { font-weight: 600; font-size: 18px; line-height: 1.3; letter-spacing: -.01em; }
-
-kbd {
-  display: inline-flex; align-items: center; justify-content: center;
-  min-width: 1.75em; height: 1.6em; padding: 0 .38em; margin: 0 .05em;
-  font: 500 .8em/1 var(--sym);
-  color: var(--key-fg); background: var(--key-bg);
-  border: 1px solid var(--key-line); border-bottom-width: 2px; border-radius: 6px;
-  vertical-align: .1em;
-}
-.glyph { width: 1em; height: 1em; }
 
 /* ---------- Top bar ---------- */
-.top-in { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-block: 18px; }
-.brand { display: inline-flex; align-items: center; gap: 9px; text-decoration: none; font: 600 19px/1 var(--display); letter-spacing: -.015em; }
-.brand svg { width: 22px; height: 22px; }
-.top-links { display: flex; align-items: center; gap: 6px; }
-.top-links a { text-decoration: none; font: 500 14.5px/1 var(--body); padding: 9px 12px; border-radius: 9px; color: var(--fg-2); transition: color .15s, background .15s; }
-.top-links a:hover { color: var(--fg); }
-.top-links .ghost { color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); padding: 8px 14px; }
-.top-links .ghost:hover { color: var(--accent-hi); border-color: var(--accent); background: var(--accent-soft); }
+.top-in { min-height: 76px; padding-block: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: 10px; font-size: 22px; font-weight: 800; letter-spacing: -.02em; }
+.mark {
+  display: flex; align-items: center; justify-content: center; flex: none;
+  width: 34px; height: 34px; border-radius: 50%;
+  background: var(--white); color: var(--ink); transform: rotate(-8deg); box-shadow: 0 3px 6px var(--sh-chip);
+}
+.mark svg { width: 26px; height: 26px; }
+.nav { display: flex; align-items: center; gap: 4px; }
+.nav-gh, .nav-gh:hover { display: inline-flex; align-items: center; min-height: 44px; padding: 0 10px; color: var(--ink); font-size: 16px; font-weight: 600; text-decoration: none; }
+.nav-gh:hover { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 5px; }
+.pill, .pill:hover {
+  display: inline-flex; align-items: center; min-height: 44px; padding: 0 16px;
+  border: 2px solid var(--ink); border-radius: 999px; background: transparent;
+  color: var(--ink); font-size: 16px; font-weight: 700; text-decoration: none;
+}
+.pill:hover { background: var(--white); }
 
 /* ---------- Hero ---------- */
-.hero { position: relative; isolation: isolate; }
 .hero-in {
-  display: grid; grid-template-columns: minmax(360px, 1fr) minmax(0, 640px);
-  gap: clamp(40px, 5vw, 72px); align-items: center;
-  padding-block: clamp(28px, 4.5vw, 64px) clamp(64px, 7vw, 96px);
+  padding-block: clamp(20px, 3vw, 40px) clamp(56px, 7vw, 104px);
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 48px;
 }
-.kicker { display: inline-flex; align-items: center; gap: 9px; font: 500 14.5px/1 var(--body); color: var(--fg-2); }
-.kicker svg { width: 18px; height: 18px; color: var(--fg); }
-h1 { margin-top: 22px; font-weight: 600; font-size: clamp(42px, 4.4vw, 64px); line-height: 1; letter-spacing: -.035em; }
-h1 span { display: block; white-space: nowrap; }
-.lede { margin-top: 24px; max-width: 30em; font-size: clamp(17px, 1.3vw, 18.5px); line-height: 1.6; color: var(--fg-2); }
-.lede kbd { font-size: .78em; }
-.cta { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 22px; margin-top: 34px; }
-.dl {
-  display: inline-flex; align-items: center; gap: 12px;
-  padding: 12px 22px 12px 17px; border-radius: 12px;
-  background: var(--accent); color: var(--accent-ink); text-decoration: none;
-  font: 600 16px/1.15 var(--body);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, .22) inset, 0 10px 30px -12px var(--accent);
-  transition: background .15s, transform .15s;
+.copy { flex: 1 1 340px; max-width: 30rem; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; }
+.kicker {
+  margin: 0 0 22px; display: inline-flex; align-items: center; min-height: 32px; padding: 0 14px;
+  border-radius: 999px; background: var(--white); color: var(--ink);
+  font-size: 15px; line-height: 1.2; font-weight: 700;
+  box-shadow: 0 3px 8px var(--sh-pill); transform: rotate(-2deg);
 }
-.dl:hover { background: var(--accent-hi); }
-.dl:active { transform: translateY(1px); }
-.dl svg { width: 20px; height: 20px; flex: none; }
-.dl small { display: block; margin-top: 3px; font-size: 12.5px; font-weight: 500; opacity: .78; }
-.src { display: inline-flex; align-items: center; gap: 6px; text-decoration: none; font: 500 15px/1 var(--body); color: var(--fg); }
-.src svg { width: 13px; height: 13px; color: var(--fg-3); transition: transform .15s; }
-.src:hover { text-decoration: underline; text-underline-offset: 4px; text-decoration-color: var(--line-2); }
-.src:hover svg { transform: translate(1px, -1px); }
-.req { margin-top: 22px; font-size: 13.5px; color: var(--fg-3); font-variant-numeric: tabular-nums; }
+h1 { margin: 0; font-size: clamp(2.5rem, 6.5vw - 1.85rem, 4rem); line-height: 1.02; font-weight: 800; letter-spacing: -.035em; }
+h1 span { display: block; }
+.lede { margin: 24px 0 0; max-width: 26rem; font-size: clamp(1.0625rem, .95rem + .4vw, 1.25rem); line-height: 1.5; font-weight: 500; color: var(--ink-2); text-wrap: pretty; }
+.nw { white-space: nowrap; }
+.dl, .dl:hover {
+  margin-top: 32px; display: inline-flex; align-items: center; gap: 14px; min-height: 64px;
+  padding: 11px 28px 11px 22px; border-radius: 18px;
+  background: var(--ink); color: var(--white); text-decoration: none;
+  box-shadow: 0 10px 22px var(--sh-dl);
+}
+.dl svg { width: 22px; height: 22px; flex: none; }
+.dl-t { display: flex; flex-direction: column; gap: 2px; line-height: 1.15; }
+.dl-t b { font-size: 19px; font-weight: 750; }
+.dl-t small { font-size: 13.5px; font-weight: 500; color: var(--dl-sub); }
+.req { margin: 14px 0 0; font-size: 14.5px; line-height: 1.5; font-weight: 500; color: var(--ink-4); }
 
-/* The display */
-.hero-demo { position: relative; min-width: 0; }
-.callout {
-  position: relative; z-index: 4;
-  width: max-content; max-width: calc(100% - var(--co-r, 52px));
-  padding: 0 12px 0 0; margin: 0 var(--co-r, 52px) 18px auto;
-  font-size: 13px; line-height: 1.45; color: var(--fg-2); text-align: right; text-wrap: balance;
+/* ---------- The lid ---------- */
+.lid {
+  position: relative; flex: none; width: 760px; max-width: 100%; height: 520px; margin-bottom: 8px; margin-left: auto;
+  border-radius: 30px; background: var(--lid-top);
+  box-shadow: inset 0 0 0 1.5px var(--lid-gloss), 0 8px 0 var(--lid-edge), 0 30px 48px var(--lid-shadow);
 }
-.callout b { display: block; color: var(--fg); font-weight: 600; }
-.callout::after {
-  content: ""; position: absolute; right: -.5px; top: 3px; width: 1px; height: var(--co-h, 64px);
-  background: var(--fg-3);
+.hinge { position: absolute; left: 50%; bottom: 0; width: 96px; height: 8px; margin-left: -48px; border-radius: 48px 48px 0 0 / 8px 8px 0 0; background: var(--lid-edge); }
+
+/* Logo sticker */
+.lg { position: absolute; left: 58px; top: 124px; order: 1; z-index: 1; padding: 6px; border-radius: 999px; background: var(--white); transform: rotate(-5deg); box-shadow: 0 6px 12px var(--lid-shadow); }
+.lg-in { display: flex; align-items: center; gap: 10px; padding: 9px 22px 9px 10px; border-radius: 999px; background: var(--logo-chip); color: var(--ink); }
+.lgm { display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 50%; background: var(--white); }
+.lgm svg { width: 26px; height: 26px; }
+.lgt { font-size: 26px; line-height: 1; font-weight: 800; letter-spacing: -.02em; }
+
+/* Keycap sticker */
+.lk { position: absolute; left: 594px; top: 166px; order: 2; z-index: 1; display: flex; gap: 5px; padding: 8px; border-radius: 16px; background: var(--white); transform: rotate(6deg); box-shadow: 0 6px 12px var(--lid-shadow); }
+.lk > span {
+  display: flex; align-items: center; justify-content: center; width: 38px; height: 38px;
+  border-radius: 9px; border-bottom: 4px solid var(--key-edge); background: var(--key); color: var(--ink);
+  font-size: 19px; line-height: 1; font-weight: 800;
 }
-.callout::before {
-  content: ""; position: absolute; right: -2.5px; top: calc(3px + var(--co-h, 64px) - 2.5px); width: 5px; height: 5px; border-radius: 50%;
-  background: var(--fg-3);
+
+/* "Lives up here" speech bubble, with a sliver of menu bar */
+.lb { position: absolute; left: 272px; top: 18px; order: 3; z-index: 1; flex: none; width: 304px; height: 142px; transform: rotate(2.5deg); }
+.lb > svg { position: absolute; left: 0; top: 0; overflow: visible; filter: drop-shadow(0 6px 8px var(--lid-shadow)); }
+.b-cut { fill: var(--white); stroke: var(--white); stroke-width: 14; stroke-linejoin: round; }
+.b-line { fill: var(--white); stroke: var(--ink); stroke-width: 2.5; stroke-linejoin: round; }
+.lb-in { position: absolute; left: 36px; top: 21px; width: 246px; display: flex; flex-direction: column; align-items: flex-start; gap: 9px; }
+.mb {
+  display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px 0 4px; border-radius: 8px;
+  background: var(--mb-bg); color: var(--mb-ink); font-family: var(--mac); font-size: 12.5px; font-weight: 500; white-space: nowrap;
 }
-.hero-demo::before {
-  content: ""; position: absolute; z-index: -1; left: 4%; right: 4%; top: -6%; height: 78%; pointer-events: none;
-  background: radial-gradient(closest-side, var(--glow), transparent);
-}
-.device {
-  position: relative; padding: 9px 9px 0;
-  border: 1px solid var(--rim); border-bottom: 0; border-radius: 26px 26px 0 0;
-  background: var(--bezel);
-  -webkit-mask-image: linear-gradient(#000 calc(100% - 56px), transparent);
-  mask-image: linear-gradient(#000 calc(100% - 56px), transparent);
-}
-.display {
-  position: relative; overflow: hidden; border-radius: 17px 17px 0 0;
-  background:
-    radial-gradient(ellipse 52% 62% at 50% -6%, var(--wall-light), transparent 72%),
-    linear-gradient(var(--wall-top), var(--wall-bot));
-}
-.mbar {
-  position: relative; z-index: 2; height: 26px;
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 0 10px 0 16px;
-  background: var(--mbar); color: var(--mbar-fg);
-  -webkit-backdrop-filter: blur(18px) saturate(1.6); backdrop-filter: blur(18px) saturate(1.6);
-  font: 400 12.5px/1 var(--ui);
-}
-.mb-l, .mb-r { display: flex; align-items: center; min-width: 0; white-space: nowrap; }
-.mb-l { gap: 17px; }
-.mb-l b { font-weight: 700; }
-.mb-r { gap: 13px; }
-.mb-r svg { height: 12px; width: auto; }
-.mb-smiley {
-  display: inline-flex; align-items: center; height: 20px; padding: 0 5px; margin-right: -3px;
-  border: 0; border-radius: 5px; background: none; cursor: pointer; color: inherit;
-}
+.mb-smiley { display: flex; align-items: center; justify-content: center; width: 30px; height: 22px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: inherit; cursor: pointer; }
 .mb-smiley svg { width: 15px; height: 15px; }
-.mb-smiley:hover, .mb-smiley[aria-expanded="true"] { background: var(--mbar-hi); }
-.mb-smiley:focus-visible { outline-offset: 1px; }
-#clock { font-variant-numeric: tabular-nums; }
-.notch {
-  position: absolute; z-index: 3; left: 50%; top: 0; transform: translateX(-50%);
-  width: 24%; min-width: 92px; max-width: 168px; height: 27px;
-  background: var(--bezel); border-radius: 0 0 10px 10px;
-}
-.notch .lens {
-  position: absolute; left: 50%; top: 50%; width: 8px; height: 8px; transform: translate(-50%, -50%); border-radius: 50%;
-  background: radial-gradient(circle at 35% 35%, #3E4F72 0, #0E1119 55%, #040506 100%);
-  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, .04);
-}
-.notch .led {
-  position: absolute; left: calc(50% + 10px); top: 50%; width: 4px; height: 4px; margin-top: -2px; border-radius: 50%;
-  background: #33D467; box-shadow: 0 0 6px 1px rgba(51, 212, 103, .75);
-  opacity: 0; transition: opacity .25s;
-}
-.cam-on .notch .led { opacity: 1; }
+/* Invisible 44px hit areas for the small controls; the look stays the same. */
+.mb-smiley, .cap, .btn-accent { position: relative; }
+.mb-smiley::after, .cap::after, .btn-accent::after { content: ""; position: absolute; }
+.mb-smiley::after { inset: -11px -7px; }
+.cap::after { inset: -12px -4px; }
+.btn-accent::after { inset: -9px -2px; }
+.mb-smiley:hover, .mb-smiley[aria-expanded="true"] { background: var(--mb-hi); }
+.mb-smiley:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+.mb-ic { display: flex; align-items: center; justify-content: center; }
+.mb-wifi { width: 24px; }
+.mb-batt { width: 28px; }
+.mb-time { padding-left: 2px; }
+.cue { display: flex; align-items: flex-start; gap: 6px; padding-left: 9px; }
+.cue svg { flex: none; margin-top: 1px; }
+.cue p { margin: 0; font-size: 14px; line-height: 1.35; font-weight: 600; color: var(--ink); text-wrap: pretty; }
 
-.stage { position: relative; display: flex; justify-content: center; padding: 12px 22px 64px; }
+/* Face stickers: the face picker */
+.faces { order: 4; }
+.fs {
+  position: absolute; left: var(--x); top: var(--y); z-index: 2;
+  width: var(--s); height: var(--s); padding: 0; border: 0; border-radius: 50%;
+  background: none; cursor: pointer; transform: rotate(var(--r));
+  -webkit-tap-highlight-color: transparent;
+}
+.fs svg { width: 100%; height: 100%; overflow: visible; filter: drop-shadow(0 5px 6px var(--lid-shadow)); }
+.fs .ring { fill: var(--ink); stroke: var(--ink); stroke-width: 24; stroke-linejoin: round; opacity: 0; transition: opacity .15s; }
+.fs[aria-pressed="true"] .ring { opacity: 1; }
+.fs .cut { fill: var(--white); stroke: var(--white); stroke-width: 16; stroke-linejoin: round; }
+.fs .sk { fill: var(--sk); stroke: var(--art-ink); stroke-width: 2.5; stroke-linejoin: round; }
+.fs .hr { fill: var(--hr); stroke: var(--art-ink); stroke-width: 2.5; stroke-linejoin: round; }
+.fs .ln { fill: none; stroke: var(--art-ink); stroke-width: 2.5; stroke-linecap: round; }
+.fs .ey { stroke: var(--art-ink); stroke-width: 2.5; stroke-linecap: round; }
+.fs .pu { fill: var(--art-ink); }
+.fs .mo { stroke: var(--art-ink); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+.fs .f-white { fill: var(--white); }
+.fs .f-ink { fill: var(--art-ink); }
+.fs .f-none { fill: none; }
+.fs .tr { fill: var(--tear); }
+.fs-tag {
+  position: absolute; left: 50%; bottom: -3px; transform: translateX(-50%);
+  padding: 3px 9px 4px; border-radius: 999px; background: var(--ink); color: var(--white);
+  font-size: 12.5px; line-height: 1.15; font-weight: 700; white-space: nowrap;
+  opacity: 0; pointer-events: none; transition: opacity .15s;
+}
+.fs[aria-pressed="true"] .fs-tag { opacity: 1; }
+.faces-cap { position: absolute; left: 306px; top: 176px; z-index: 1; margin: 0; font-size: 14.5px; line-height: 1.2; font-weight: 700; color: var(--ink); transform: rotate(-2deg); white-space: nowrap; }
+
+/* The panel sticker */
+.lp {
+  position: absolute; left: 26px; top: 210px; order: 5; z-index: 1; max-width: 100%;
+  padding: 8px; border-radius: 22px; background: var(--white); transform: rotate(-1.5deg);
+  box-shadow: 0 16px 30px var(--lid-shadow);
+}
+/* Copied: the panel goes back to the menu bar and leaves the sticker's outline behind. */
+.lp.is-closed { background: var(--lid-peel); box-shadow: none; outline: 2px dashed var(--lid-edge); outline-offset: -2px; }
+.stage { position: relative; width: 525px; max-width: 100%; }
 
 /* ---------- The panel (demo) ---------- */
 .panel {
-  --m: 112px;
-  position: relative; width: min(572px, 100%);
+  --m: 100px;
+  position: relative; width: 100%;
   background: var(--p-bg); color: var(--p-text);
-  border: 1px solid var(--p-border); border-radius: 14px; padding: 14px;
-  box-shadow: 0 30px 60px -26px rgba(0, 0, 0, .7), 0 0 80px -16px rgba(122, 162, 255, .32);
-  font: 400 13px/1.35 var(--ui);
+  border: 1px solid var(--p-border); border-radius: 14px; padding: 12px;
+  font: 400 12.5px/1.35 var(--ui);
   transform-origin: 50% 0;
   transition: transform .24s cubic-bezier(.3, .8, .3, 1), opacity .2s;
 }
 .panel.closing { transform: translateY(-12px) scale(.97, .6); opacity: 0; }
-.p-main { display: grid; grid-template-columns: var(--m) minmax(0, 1fr); gap: 14px; }
+.panel button { font-family: var(--ui); }
+.p-main { display: grid; grid-template-columns: var(--m) minmax(0, 1fr); gap: 12px; }
 .mirror-box { position: relative; width: var(--m); height: var(--m); }
-.mirror {
-  width: 100%; height: 100%; border-radius: 17px; overflow: hidden;
-  background: var(--p-mirror); box-shadow: 0 0 0 3px var(--p-accent);
-}
+.mirror { width: 100%; height: 100%; border-radius: 16px; overflow: hidden; background: var(--p-mirror); box-shadow: 0 0 0 3px var(--p-accent); }
 .mirror svg { width: 100%; height: 100%; }
 .ring { position: absolute; inset: -3px; width: calc(100% + 6px); height: calc(100% + 6px); pointer-events: none; overflow: visible; }
 .ring rect { fill: none; stroke: var(--p-amber); stroke-width: 3; stroke-dasharray: 100; stroke-dashoffset: 100; }
@@ -264,294 +273,348 @@ h1 span { display: block; white-space: nowrap; }
 .pin { position: absolute; border: 1.5px dashed transparent; border-radius: 10px; background: none; padding: 0; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
 .pin.eyes { left: 24%; top: 27%; width: 52%; height: 31%; }
 .pin.mouth { left: 33%; top: 58%; width: 34%; height: 24%; }
-.mirror-box:hover .pin { border-color: rgba(255, 255, 255, .55); }
-.pin[aria-pressed="true"] { border: 1.5px solid var(--p-amber); box-shadow: 0 0 0 3px rgba(245, 196, 81, .28), 0 0 18px rgba(245, 196, 81, .35); }
+.mirror-box:hover .pin { border-color: var(--p-pin-hover); }
+.pin[aria-pressed="true"] { border: 1.5px solid var(--p-amber); box-shadow: 0 0 0 3px var(--p-amber-soft), 0 0 18px var(--p-amber-glow); }
 .pin:focus-visible { outline: 2px solid var(--p-accent); outline-offset: 1px; }
-.hint { margin-top: 12px; display: grid; gap: 3px; justify-items: start; }
-.hint b { font-size: 12.5px; font-weight: 600; line-height: 1.3; }
-.hint span { font-size: 11px; color: var(--p-muted); line-height: 1.35; }
+.hint { margin-top: 10px; display: grid; gap: 3px; justify-items: start; }
+.hint b { font-size: 12px; font-weight: 600; line-height: 1.3; }
+.hint span { font-size: 10.5px; color: var(--p-muted); line-height: 1.35; }
 .cap {
   margin-top: 4px; padding: 3px 9px; border-radius: 99px; border: 1px solid var(--p-chip); background: none;
-  color: var(--p-text); font-size: 11.5px; line-height: 1.2; cursor: pointer; white-space: nowrap;
+  color: var(--p-text); font-size: 11px; line-height: 1.2; cursor: pointer; white-space: nowrap;
 }
 .cap:hover { background: var(--p-surface); }
 .cap:focus-visible, .btn-accent:focus-visible { outline: 2px solid var(--p-accent); outline-offset: 2px; }
 .search {
-  display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px;
+  display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px;
   background: var(--p-surface); border: 1px solid var(--p-sep); border-radius: 9px;
 }
 .search.has-text, .search:focus-within { border-color: var(--p-accent); }
 .search svg { width: 14px; height: 14px; color: var(--p-place); flex: none; }
-.search input { flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: none; padding: 0; color: var(--p-text); font: 400 13px/1 var(--ui); }
+.search input { flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: none; padding: 0; color: var(--p-text); font: 400 12.5px/1 var(--ui); }
 .search input::placeholder { color: var(--p-place); opacity: 1; }
 .keys { display: flex; gap: 3px; flex: none; }
-.keys span { font: 500 11px/1.3 var(--sym); color: var(--p-muted); border: 1px solid var(--p-chip); border-radius: 4px; padding: 0 5px; }
-.grid { list-style: none; margin: 10px 0 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.keys span { font: 500 10.5px/1.3 var(--sym); color: var(--p-muted); border: 1px solid var(--p-chip); border-radius: 4px; padding: 0 5px; }
+.grid { position: relative; list-style: none; margin: 8px 0 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 7px; }
 .grid li { aspect-ratio: 1; min-width: 0; max-width: 100%; }
-.tile { position: relative; display: block; width: 100%; height: 100%; padding: 0; border: 0; border-radius: 10px; background: var(--p-surface); cursor: pointer; transition: box-shadow .12s; }
-.tile .thumb { position: absolute; inset: 0; border-radius: 10px; overflow: hidden; }
+.tile { position: relative; display: block; width: 100%; height: 100%; padding: 0; border: 0; border-radius: 9px; background: var(--p-surface); cursor: pointer; transition: box-shadow .12s; }
+.tile .thumb { position: absolute; inset: 0; border-radius: 9px; overflow: hidden; }
 .tile .thumb svg { width: 100%; height: 100%; }
-.tile.sticker .thumb { background: repeating-conic-gradient(#2C2E34 0 25%, #222328 0 50%) 0 0 / 14px 14px; }
-.tile.sticker .thumb svg { filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, .45)); }
+.tile.sticker .thumb { background: repeating-conic-gradient(var(--p-check-a) 0 25%, var(--p-check-b) 0 50%) 0 0 / 14px 14px; }
+.tile.sticker .thumb svg { filter: drop-shadow(0 1px 1.5px var(--p-tile-shadow)); }
 .tile.is-focus, .tile:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--p-bg), 0 0 0 4px var(--p-accent); }
 .tile.arrived:not(.is-focus) { box-shadow: 0 0 0 2px var(--p-amber); }
 .tile:hover .thumb { filter: brightness(1.06); }
-.num { position: absolute; top: 4px; left: 4px; min-width: 16px; height: 16px; padding: 0 3px; border-radius: 5px; background: var(--p-badge); color: #fff; font: 600 10px/16px var(--ui); text-align: center; }
-.own-dot { position: absolute; top: 6px; right: 6px; width: 9px; height: 9px; border-radius: 50%; background: var(--p-accent); box-shadow: 0 0 0 1.5px rgba(14, 15, 18, .5); }
-.friend-ring { position: absolute; top: 5px; right: 5px; width: 11px; height: 11px; border-radius: 50%; border: 2px solid var(--p-amber); }
-.gif-badge { position: absolute; left: 4px; bottom: 4px; padding: 1px 3px; border-radius: 3px; background: var(--p-badge); color: #fff; font: 800 8px/1.2 var(--ui); letter-spacing: .04em; }
+.num { position: absolute; top: 4px; left: 4px; min-width: 15px; height: 15px; padding: 0 3px; border-radius: 5px; background: var(--p-badge); color: var(--p-badge-ink); font: 600 9.5px/15px var(--ui); text-align: center; }
+.own-dot { position: absolute; top: 5px; right: 5px; width: 8px; height: 8px; border-radius: 50%; background: var(--p-accent); box-shadow: 0 0 0 1.5px var(--p-dot-ring); }
+.friend-ring { position: absolute; top: 4px; right: 4px; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--p-amber); }
+.gif-badge { position: absolute; left: 4px; bottom: 4px; padding: 1px 3px; border-radius: 3px; background: var(--p-badge); color: var(--p-badge-ink); font: 800 7.5px/1.2 var(--ui); letter-spacing: .04em; }
 .tile.gif.is-focus .fg { animation: bob .42s ease-in-out infinite alternate; transform-origin: 50% 85%; transform-box: view-box; }
 @keyframes bob { from { transform: rotate(-3deg); } to { transform: rotate(3deg) translateY(-1.5px); } }
-.grid { position: relative; }
 .grid .ph { visibility: hidden; }
 .grid .empty {
   position: absolute; inset: 0; aspect-ratio: auto; display: grid; place-items: center; text-align: center;
-  border: 1.5px dashed var(--p-chip); border-radius: 10px; color: var(--p-muted); padding: 12px; font-size: 12px;
+  border: 1.5px dashed var(--p-chip); border-radius: 9px; color: var(--p-muted); padding: 12px; font-size: 12px;
 }
-.p-foot { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--p-sep); display: flex; align-items: baseline; justify-content: space-between; gap: 6px 16px; flex-wrap: wrap; }
-.focusline { font-size: 12px; color: var(--p-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; max-width: 100%; }
-.legend { font-size: 11px; color: var(--p-muted); white-space: nowrap; }
+.p-foot { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--p-sep); display: flex; align-items: baseline; justify-content: space-between; gap: 4px 14px; flex-wrap: wrap; }
+.focusline { font-size: 11.5px; color: var(--p-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; max-width: 100%; }
+.legend { font-size: 10.5px; color: var(--p-muted); white-space: nowrap; }
 
 .closed {
-  position: absolute; left: 50%; top: 12px; transform: translateX(-50%);
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
   width: min(380px, calc(100% - 32px)); display: grid; gap: 12px; padding: 12px;
-  background: rgba(30, 31, 36, .96); color: var(--p-text); border: 1px solid var(--p-border); border-radius: 14px;
-  box-shadow: 0 24px 50px -24px rgba(0, 0, 0, .7);
+  background: var(--p-hud); color: var(--p-text); border: 1px solid var(--p-border); border-radius: 14px;
+  box-shadow: 0 24px 50px -24px var(--p-hud-shadow);
   font: 400 12.5px/1.4 var(--ui);
   animation: hudIn .24s ease-out;
 }
-@keyframes hudIn { from { opacity: 0; transform: translate(-50%, -6px); } }
+@keyframes hudIn { from { opacity: 0; transform: translate(-50%, calc(-50% - 6px)); } }
 .closed-msg { display: flex; align-items: center; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--p-sep); }
 .closed-msg .thumb { width: 44px; height: 44px; border-radius: 9px; overflow: hidden; flex: none; }
 .closed-msg .thumb svg { width: 100%; height: 100%; }
 .closed-msg b { display: block; font-weight: 600; font-size: 13px; }
 .closed-msg span span { color: var(--p-muted); }
 .closed-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--p-soft); }
-.btn-accent { flex: none; border: 0; border-radius: 8px; padding: 6px 11px; background: var(--p-accent); color: #0E1324; font: 600 12.5px/1.2 var(--ui); cursor: pointer; }
-
-/* Face picker under the display: a segmented control, the Mac way */
-.try {
-  display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 2px;
-  margin-top: 10px; padding: 3px; border-radius: 12px; background: var(--seg-track);
-}
-.chip {
-  display: grid; justify-items: center; gap: 3px; min-width: 0; padding: 7px 4px 6px;
-  border: 0; border-radius: 9px; background: none; color: var(--fg-2);
-  font: 500 12.5px/1.2 var(--body); cursor: pointer; transition: background .15s, color .15s, box-shadow .15s;
-}
-.chip span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chip svg { width: 24px; height: 24px; }
-.chip:hover { color: var(--fg); }
-.chip[aria-pressed="true"] { color: var(--fg); background: var(--seg-on); box-shadow: var(--seg-shadow); }
-.chip:focus-visible { outline-offset: 0; border-radius: 9px; }
-.demo-note { margin-top: 12px; font-size: 13px; color: var(--fg-3); }
-.demo-note b { font-weight: 600; color: var(--fg-2); }
+.closed-foot > span { text-wrap: pretty; }
+.btn-accent { flex: none; border: 0; border-radius: 8px; padding: 6px 11px; background: var(--p-accent); color: var(--p-accent-ink); font: 600 12.5px/1.2 var(--ui); cursor: pointer; }
 
 /* ---------- Install ---------- */
-.get { background: var(--bg-2); border-top: 1px solid var(--line); }
-.get .wrap {
-  padding-block: clamp(56px, 6.5vw, 92px);
-  display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 6fr); gap: clamp(40px, 5vw, 80px);
+.sheet { container: sheet / inline-size; background: var(--white); color: var(--ink); border-radius: 28px; padding: clamp(24px, 4.5vw, 56px); box-shadow: 0 1px 0 var(--sh-card-1), 0 18px 40px var(--sh-card-2); }
+.sheet-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 12px 32px; margin-bottom: 40px; }
+h2 { margin: 0; font-size: clamp(2.25rem, 1.6rem + 2vw, 3.25rem); line-height: 1; font-weight: 800; letter-spacing: -.03em; }
+.once { margin: 0; display: flex; align-items: center; gap: 10px; font-size: 16px; line-height: 1.45; color: var(--ink-3); }
+.once svg, .privacy svg { flex: none; width: 18px; height: 18px; }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 20px; }
+/* Two columns (the sheet is 620-939px inside): stack steps 1 and 3 on the left, the tall step 2 on the right. */
+@container sheet (620px <= width < 940px) {
+  .steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .steps li:nth-child(2) { grid-column: 2; grid-row: 1 / span 2; }
 }
-.get-l p { margin-top: 14px; color: var(--fg-2); max-width: 26em; }
-.get-l .note p { margin-top: 0; }
-.get-l .note p + p { margin-top: 10px; }
-.install { list-style: none; margin: 0; padding: 0; counter-reset: s; display: grid; gap: 24px; }
-.install li { counter-increment: s; display: grid; grid-template-columns: 28px minmax(0, 1fr); column-gap: 14px; }
-.install li::before {
-  content: counter(s); grid-row: 1 / span 3; width: 26px; height: 26px; margin-top: -1px; border-radius: 50%;
-  display: grid; place-items: center; border: 1px solid var(--line-2);
-  font: 600 12.5px/1 var(--body); color: var(--fg-2); font-variant-numeric: tabular-nums;
+.steps li { display: flex; flex-direction: column; gap: 10px; padding: 24px 26px 28px; border: 2px dashed var(--dash); border-radius: 22px; }
+.step-n {
+  align-self: flex-start; display: flex; align-items: center; justify-content: center; width: 46px; height: 46px;
+  border: 3px solid var(--white); border-radius: 50%; background: var(--lid-top); color: var(--ink);
+  font-size: 22px; line-height: 1; font-weight: 800; box-shadow: 0 4px 10px var(--sh-num); transform: rotate(var(--r));
 }
-.install h3 { font-size: 16.5px; }
-.install p { margin-top: 4px; color: var(--fg-2); font-size: 15px; text-wrap: pretty; }
-.install p kbd { font-size: .74em; }
-.os { margin: 12px 0 0; display: grid; grid-template-columns: max-content minmax(0, 1fr); border: 1px solid var(--line-2); border-radius: 10px; font-size: 14.5px; line-height: 1.45; }
-.os div { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; gap: 2px 16px; padding: 10px 14px; }
-.os div + div { border-top: 1px solid var(--line); }
-.os dt { color: var(--fg); font-weight: 600; }
-.os dd { margin: 0; color: var(--fg-2); }
-.note { margin-top: 32px; padding-top: 20px; border-top: 1px solid var(--line); font-size: 14px; color: var(--fg-2); max-width: 26em; }
-.path { color: var(--fg); font-weight: 600; }
+h3 { margin: 4px 0 0; font-size: 24px; line-height: 1.2; font-weight: 750; letter-spacing: -.015em; }
+.st-p { margin: 0; font-size: 16.5px; line-height: 1.55; color: var(--ink-3); text-wrap: pretty; }
+.st-p a { font-weight: 600; }
+.os { margin: 6px 0 0; display: flex; flex-direction: column; gap: 8px; }
+.os div { display: flex; flex-direction: column; gap: 3px; padding: 12px 14px; border-radius: 12px; background: var(--row); }
+.os dt { font-size: 13px; line-height: 1.35; font-weight: 700; letter-spacing: .02em; color: var(--ink-5); }
+.os dd { margin: 0; font-size: 15px; line-height: 1.4; font-weight: 600; color: var(--ink); }
+.kk { display: inline-flex; gap: 3px; vertical-align: 1px; }
+kbd {
+  display: inline-block; min-width: 1.5em; padding: 1px 6px;
+  border: 1px solid var(--kbd-line); border-bottom-width: 2px; border-radius: 6px;
+  background: var(--white); color: var(--ink); font-family: inherit; font-size: 14px; font-weight: 700; text-align: center;
+}
+.privacy { margin: 8px 0 0; display: flex; align-items: flex-start; gap: 10px; font-size: 14.5px; line-height: 1.5; color: var(--ink-3); text-wrap: pretty; }
+.privacy svg { margin-top: 2px; }
 
 /* ---------- Footer ---------- */
-.foot { background: var(--bg); }
-.foot-in { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 24px; padding-block: 24px 30px; font-size: 13.5px; color: var(--fg-3); }
-.foot-in .brand { font-size: 15px; color: var(--fg); gap: 8px; }
-.foot-in .brand svg { width: 18px; height: 18px; }
-.foot-in a:not(.brand) { text-decoration: none; }
-.foot-in a:not(.brand):hover { color: var(--fg); text-decoration: underline; text-underline-offset: 3px; }
+.foot-in { padding-block: 28px 32px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 24px; font-size: 15px; }
+.foot-brand { display: flex; align-items: center; gap: 8px; font-weight: 700; }
+.foot-brand .mark { width: 24px; height: 24px; box-shadow: none; }
+.foot-brand .mark svg { width: 18px; height: 18px; }
+.foot-link, .foot-link:hover { display: inline-flex; align-items: center; min-height: 44px; color: var(--ink); font-weight: 600; text-decoration: underline; text-decoration-thickness: 1.5px; text-underline-offset: 4px; }
+.foot-link:hover { text-decoration-thickness: 3px; }
 
-/* ---------- Responsive ---------- */
-@media (max-width: 1080px) {
-  .hero-in { grid-template-columns: minmax(0, 1fr); }
-  .hero-copy { max-width: 640px; }
+/* ---------- Motion ---------- */
+@media (prefers-reduced-motion: no-preference) {
+  .stk, .fs { transition: transform .25s cubic-bezier(.2, .8, .2, 1); }
+  .dl { transition: transform .15s ease; }
 }
-@media (max-width: 860px) {
-  .get .wrap { grid-template-columns: minmax(0, 1fr); row-gap: 0; }
-  .get-l { display: contents; }
-  .install { margin-top: 44px; }
-  .note { order: 1; }
+@media (prefers-reduced-motion: no-preference) and (hover: hover) {
+  .stk:hover, .fs:hover { transform: rotate(0deg) scale(1.06); }
+  .dl:hover { transform: translateY(-2px); }
+}
+.fs:active { transform: rotate(var(--r)) scale(.96); }
+
+/* ---------- Responsive: below 860px the lid reflows into a tidy pile ---------- */
+@media (max-width: 859px) {
+  .lid { flex: 1 1 100%; width: auto; height: auto; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 18px 14px; padding: 26px 14px 34px; border-radius: 24px; }
+  .lg, .lk { position: static; }
+  .lb { position: relative; left: auto; top: auto; transform: rotate(-1.5deg); }
+  .faces { flex: 1 1 100%; display: grid; grid-template-columns: repeat(3, max-content); justify-content: center; gap: 22px 18px; padding-top: 4px; }
+  .fs { position: static; width: 84px; height: 84px; }
+  .faces-cap { position: static; grid-column: 1 / -1; justify-self: center; margin-top: -2px; transform: none; }
+  .lp { position: static; width: 100%; max-width: 541px; transform: rotate(-1deg); }
+  .stage { width: 100%; }
+}
+@media (min-width: 680px) and (max-width: 859px) {
+  .faces { grid-template-columns: repeat(6, max-content); }
 }
 @media (max-width: 600px) {
-  .mb-l .x1, .mb-r .x1 { display: none; }
   .panel { --m: 72px; padding: 10px; }
   .p-main { grid-template-columns: minmax(0, 1fr); gap: 10px; }
   .p-left { display: grid; grid-template-columns: var(--m) minmax(0, 1fr); gap: 14px; align-items: center; }
   .mirror { border-radius: 13px; }
   .hint { margin-top: 0; }
+  .hint b { font-size: 12.5px; }
+  .hint span { font-size: 11px; }
   .grid { gap: 6px; }
   .tile, .tile .thumb { border-radius: 8px; }
   .legend { display: none; }
-  .stage { padding: 10px 8px 52px; }
-  .device { padding: 7px 7px 0; border-radius: 22px 22px 0 0; }
-  .display { border-radius: 15px 15px 0 0; }
-  .mbar { padding: 0 8px 0 12px; }
-  .top-links a:not(.ghost) { padding-inline: 8px; }
-  .os { grid-template-columns: minmax(0, 1fr); }
-  .try { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  /* Keep the pins at least 24px tall in the small mirror (WCAG 2.5.8). */
+  .pin.eyes { left: 14%; top: 22%; width: 72%; height: 36%; }
+  .pin.mouth { left: 22%; top: 58%; width: 56%; height: 36%; }
 }
-@media (max-width: 460px) { .mb-l .x0, #clock .wd { display: none; } }
+@media (max-width: 479px) {
+  .lp { padding: 6px; border-radius: 16px; }
+  .fs { width: 76px; height: 76px; }
+  .lgt { font-size: 21px; }
+  .lgm { width: 30px; height: 30px; }
+  .lk > span { width: 34px; height: 34px; font-size: 17px; }
+}
 @media (prefers-reduced-motion: reduce) {
-  html { scroll-behavior: auto; }
   *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
 }
 </style>
 
 <header class="top">
   <div class="wrap top-in">
-    <a class="brand" href="#top">
-      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="10" r="8.2"/><circle cx="7.1" cy="8.1" r=".95" fill="currentColor" stroke="none"/><circle cx="12.9" cy="8.1" r=".95" fill="currentColor" stroke="none"/><path d="M6.4 11.6c.9 1.5 2.1 2.2 3.6 2.2s2.7-.7 3.6-2.2"/></svg>
+    <span class="brand">
+      <span class="mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M9 9.3v.8M15 9.3v.8"/><path d="M8.3 14c1 1.4 2.2 2.1 3.7 2.1s2.7-.7 3.7-2.1"/></svg>
+      </span>
       MemeMe
-    </a>
-    <nav class="top-links" aria-label="Site">
-      <a href="https://github.com/Michaell14/MemeMe" target="_blank" rel="noopener">GitHub</a>
-      <a class="ghost" href="https://github.com/Michaell14/MemeMe/releases/latest/download/MemeMe.dmg" target="_blank" rel="noopener">Download</a>
+    </span>
+    <nav class="nav" aria-label="Site">
+      <a class="nav-gh" href="https://github.com/Michaell14/MemeMe" target="_blank" rel="noopener">GitHub</a>
+      <a class="pill" href="https://github.com/Michaell14/MemeMe/releases/latest/download/MemeMe.dmg" target="_blank" rel="noopener">Download</a>
     </nav>
   </div>
 </header>
 
 <main>
-  <section class="hero" id="top" aria-label="MemeMe">
+  <section class="hero" aria-labelledby="hero-h">
     <div class="wrap hero-in">
-      <div class="hero-copy">
-        <p class="kicker">
-          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="10" r="8.2"/><circle cx="7.1" cy="8.1" r=".95" fill="currentColor" stroke="none"/><circle cx="12.9" cy="8.1" r=".95" fill="currentColor" stroke="none"/><path d="M6.4 11.6c.9 1.5 2.1 2.2 3.6 2.2s2.7-.7 3.6-2.2"/></svg>
-          A menu bar app for Mac
-        </p>
-        <h1><span>Make a face.</span> <span>Get the meme.</span></h1>
-        <p class="lede">MemeMe lives in your menu bar, with no Dock icon and no window. Press <kbd>⌃⌘M</kbd> in any chat, make the face you mean, and copy the reaction that matches.</p>
-        <div class="cta">
-          <a class="dl" href="https://github.com/Michaell14/MemeMe/releases/latest/download/MemeMe.dmg" target="_blank" rel="noopener">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="m7 10.5 5 5 5-5"/><path d="M5 19.5h14"/></svg>
-            <span>Download for Mac<small>MemeMe.dmg · 2 MB</small></span>
-          </a>
-        </div>
+      <div class="copy">
+        <p class="kicker">A menu bar app for Mac</p>
+        <h1 id="hero-h"><span>Make a face.</span> <span>Get the meme.</span></h1>
+        <p class="lede">MemeMe lives in your menu bar, with no Dock icon and no window. Press <span class="nw">⌃⌘M</span> in any chat, make the face you mean, and copy the reaction that matches.</p>
+        <a class="dl" href="https://github.com/Michaell14/MemeMe/releases/latest/download/MemeMe.dmg" target="_blank" rel="noopener">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"/><path d="M7 10.5l5 5 5-5"/><path d="M5 19.5h14"/></svg>
+          <span class="dl-t"><b>Download for Mac</b><small>MemeMe.dmg · 2 MB</small></span>
+        </a>
         <p class="req"><span class="nw">Version 1.0</span> · <span class="nw">macOS 14 Sonoma or later</span> · <span class="nw">Apple silicon and Intel</span></p>
       </div>
 
-      <div class="hero-demo" id="heroDemo">
-        <p class="callout" id="callout"><b>Lives up here.</b>No Dock icon, no window, not in <span class="nw">⌘-Tab</span>.</p>
-        <div class="device cam-on" id="device">
-          <div class="display">
-            <div class="mbar">
-              <div class="mb-l" aria-hidden="true"><b>Chat</b><span class="x0">File</span><span class="x0">Edit</span><span class="x1">View</span></div>
-              <div class="notch" aria-hidden="true"><i class="lens"></i><i class="led"></i></div>
-              <div class="mb-r">
-                <button class="mb-smiley" id="smiley" type="button" aria-expanded="true" aria-controls="panel" aria-label="MemeMe in the menu bar">
-                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="10" r="8.2"/><circle cx="7.1" cy="8.1" r=".95" fill="currentColor" stroke="none"/><circle cx="12.9" cy="8.1" r=".95" fill="currentColor" stroke="none"/><path d="M6.4 11.6c.9 1.5 2.1 2.2 3.6 2.2s2.7-.7 3.6-2.2"/></svg>
-                </button>
-                <svg class="x1" viewBox="0 0 18 13" fill="currentColor" aria-hidden="true"><path d="M9 12.6 6.9 10.2a3.1 3.1 0 0 1 4.2 0z"/><path d="M4.4 7.6a6.6 6.6 0 0 1 9.2 0l-1.4 1.6a4.5 4.5 0 0 0-6.4 0z"/><path d="M1.6 4.6a10.6 10.6 0 0 1 14.8 0L15 6.2a8.5 8.5 0 0 0-12 0z"/></svg>
-                <svg viewBox="0 0 27 13" aria-hidden="true"><rect x=".6" y=".6" width="22.8" height="11.8" rx="3.4" fill="none" stroke="currentColor" stroke-opacity=".45" stroke-width="1.2"/><rect x="2.4" y="2.4" width="15.6" height="8.2" rx="2" fill="currentColor"/><path d="M25 4.4v4.2a2.2 2.2 0 0 0 0-4.2z" fill="currentColor" fill-opacity=".45"/></svg>
-                <time id="clock"><span class="wd">Tue</span> 9:41</time>
+      <div class="lid" id="lid">
+        <div class="lg stk" aria-hidden="true">
+          <div class="lg-in">
+            <span class="lgm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M9 9.3v.8M15 9.3v.8"/><path d="M8.3 14c1 1.4 2.2 2.1 3.7 2.1s2.7-.7 3.7-2.1"/></svg></span>
+            <span class="lgt">MemeMe</span>
+          </div>
+        </div>
+
+        <div class="lk stk" aria-hidden="true"><span>⌃</span><span>⌘</span><span>M</span></div>
+
+        <div class="lb">
+          <svg aria-hidden="true" viewBox="0 0 304 142" width="304" height="142">
+            <path class="b-cut" d="M40 8 H278 Q296 8 296 26 V116 Q296 134 278 134 H40 Q22 134 22 116 L4 132 L22 94 V26 Q22 8 40 8 Z"/>
+            <path class="b-line" d="M40 8 H278 Q296 8 296 26 V116 Q296 134 278 134 H40 Q22 134 22 116 L4 132 L22 94 V26 Q22 8 40 8 Z"/>
+          </svg>
+          <div class="lb-in">
+            <div class="mb">
+              <button class="mb-smiley" id="smiley" type="button" aria-expanded="true" aria-controls="panel" aria-label="MemeMe in the menu bar">
+                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M9 9.3v.8M15 9.3v.8"/><path d="M8.3 14c1 1.4 2.2 2.1 3.7 2.1s2.7-.7 3.7-2.1"/></svg>
+              </button>
+              <span class="mb-ic mb-wifi" aria-hidden="true"><svg width="16" height="12" viewBox="0 0 16 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.2a9.5 9.5 0 0 1 13 0"/><path d="M4 7a6 6 0 0 1 8 0"/><path d="M6.5 9.7a2.4 2.4 0 0 1 3 0"/></svg></span>
+              <span class="mb-ic mb-batt" aria-hidden="true"><svg width="24" height="12" viewBox="0 0 24 12" fill="none"><rect x=".75" y=".75" width="19.5" height="10.5" rx="3" stroke="currentColor" stroke-opacity=".5" stroke-width="1.2"/><rect x="2.5" y="2.5" width="13" height="7" rx="1.6" fill="currentColor"/><path d="M22 4.3v3.4" stroke="currentColor" stroke-opacity=".5" stroke-width="1.5" stroke-linecap="round"/></svg></span>
+              <span class="mb-time" aria-hidden="true">Tue 9:41</span>
+            </div>
+            <div class="cue">
+              <svg aria-hidden="true" width="14" height="18" viewBox="0 0 14 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17V3"/><path d="M2 7.5L7 2.5l5 5"/></svg>
+              <p>Lives up here. No Dock icon, no window, not in ⌘-Tab.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="faces" role="group" aria-label="Try a face">
+          <button class="fs lf" type="button" data-face="shocked" aria-pressed="true" aria-label="Try Shocked" style="--x:38px;--y:20px;--s:100px;--r:-10deg;--sk:var(--skin-1)">
+            <svg viewBox="-4 -8 108 108" aria-hidden="true" focusable="false"><path class="ring" d="M18 54a32 32 0 1 0 64 0a32 32 0 1 0 -64 0 M22 40 L26 12 L46 28 Z M78 40 L74 12 L54 28 Z"/><path class="cut" d="M18 54a32 32 0 1 0 64 0a32 32 0 1 0 -64 0 M22 40 L26 12 L46 28 Z M78 40 L74 12 L54 28 Z"/><path class="sk" d="M22 40 L26 12 L46 28 Z M78 40 L74 12 L54 28 Z"/><circle class="sk" cx="50" cy="54" r="32"/><path class="ln" d="M30 36 Q38 29 45 34 M55 34 Q62 29 70 36"/><path class="ey f-white" d="M31 46a7 7 0 1 0 14 0a7 7 0 1 0 -14 0M55 46a7 7 0 1 0 14 0a7 7 0 1 0 -14 0"/><path class="pu" d="M35.4 46a2.6 2.6 0 1 0 5.2 0a2.6 2.6 0 1 0 -5.2 0M59.4 46a2.6 2.6 0 1 0 5.2 0a2.6 2.6 0 1 0 -5.2 0"/><path class="mo f-ink" d="M42.5 70a7.5 7.5 0 1 0 15 0a7.5 7.5 0 1 0 -15 0"/></svg>
+            <span class="fs-tag" aria-hidden="true">Shocked</span>
+          </button>
+          <button class="fs lf" type="button" data-face="unimpressed" aria-pressed="false" aria-label="Try Unimpressed" style="--x:166px;--y:30px;--s:76px;--r:8deg;--sk:var(--skin-2);--hr:var(--hair-1)">
+            <svg viewBox="-4 -8 108 108" aria-hidden="true" focusable="false"><path class="ring" d="M18 54a32 32 0 1 0 64 0a32 32 0 1 0 -64 0 M20 44 Q18 18 50 19 Q82 18 80 44 Q72 28 50 28 Q28 28 20 44 Z"/><path class="cut" d="M18 54a32 32 0 1 0 64 0a32 32 0 1 0 -64 0 M20 44 Q18 18 50 19 Q82 18 80 44 Q72 28 50 28 Q28 28 20 44 Z"/><circle class="sk" cx="50" cy="54" r="32"/><path class="hr" d="M20 44 Q18 18 50 19 Q82 18 80 44 Q72 28 50 28 Q28 28 20 44 Z"/><path class="ln" d="M30 40 L45 41.5 M55 41.5 L70 40"/><path class="ey f-white" d="M31 46 A7 7 0 0 0 45 46 Z M55 46 A7 7 0 0 0 69 46 Z"/><path class="pu" d="M35.6 49.2a2.4 2.4 0 1 0 4.8 0a2.4 2.4 0 1 0 -4.8 0M59.6 49.2a2.4 2.4 0 1 0 4.8 0a2.4 2.4 0 1 0 -4.8 0"/><path class="mo f-none" d="M40 70 Q50 66.5 60 70"/></svg>
+            <span class="fs-tag" aria-hidden="true">Unimpressed</span>
+          </button>
+          <button class="fs lf" type="button" data-face="laughing" aria-pressed="false" aria-label="Try Laughing" style="--x:618px;--y:14px;--s:110px;--r:9deg;--sk:var(--skin-3);--hr:var(--hair-2)">
+            <svg viewBox="-4 -8 108 108" aria-hidden="true" focusable="false"><path class="ring" d="M18 54a32 32 0 1 0 64 0a32 32 0 1 0 -64 0 M37 16a13 13 0 1 0 26 0a13 13 0 1 0 -26 0 M18 50 Q14 18 50 20 Q86 18 82 50 Q76 30 50 28 Q24 30 18 50 Z"/><path class="cut" d="M18 54a32 32 0 1 0 64 0a32 32 0 1 0 -64 0 M37 16a13 13 0 1 0 26 0a13 13 0 1 0 -26 0 M18 50 Q14 18 50 20 Q86 18 82 50 Q76 30 50 28 Q24 30 18 50 Z"/><circle class="sk" cx="50" cy="54" r="32"/><path class="hr" d="M37 16a13 13 0 1 0 26 0a13 13 0 1 0 -26 0 M18 50 Q14 18 50 20 Q86 18 82 50 Q76 30 50 28 Q24 30 18 50 Z"/><path class="ln" d="M30 36 Q37 32 45 35 M55 35 Q63 32 70 36"/><path class="ey f-none" d="M31 48 Q38 41 45 48 M55 48 Q62 41 69 48"/><path class="mo f-ink" d="M36 62 Q50 82 64 62 Z"/><path class="tr" d="M30 53 Q27 60 30 63 Q33 60 30 53 Z M70 53 Q67 60 70 63 Q73 60 70 53 Z"/></svg>
+            <span class="fs-tag" aria-hidden="true">Laughing</span>
+          </button>
+          <button class="fs lf" type="button" data-face="smug" aria-pressed="false" aria-label="Try Smug" style="--x:604px;--y:238px;--s:96px;--r:-7deg;--sk:var(--skin-4);--hr:var(--hair-3)">
+            <svg viewBox="-4 -8 108 108" aria-hidden="true" focusable="false"><path class="ring" d="M18 54a32 32 0 1 0 64 0a32 32 0 1 0 -64 0 M20 44 Q18 18 50 19 Q82 18 80 44 Q72 28 50 28 Q28 28 20 44 Z"/><path class="cut" d="M18 54a32 32 0 1 0 64 0a32 32 0 1 0 -64 0 M20 44 Q18 18 50 19 Q82 18 80 44 Q72 28 50 28 Q28 28 20 44 Z"/><circle class="sk" cx="50" cy="54" r="32"/><path class="hr" d="M20 44 Q18 18 50 19 Q82 18 80 44 Q72 28 50 28 Q28 28 20 44 Z"/><path class="ln" d="M30 39 L45 37 M55 35 Q62 31 70 35"/><path class="ey f-none" d="M31 47 L45 47 M55 47 L69 47"/><path class="pu" d="M38.6 49.5a2.4 2.4 0 1 0 4.8 0a2.4 2.4 0 1 0 -4.8 0M62.6 49.5a2.4 2.4 0 1 0 4.8 0a2.4 2.4 0 1 0 -4.8 0"/><path class="mo f-none" d="M39 68 Q52 72 63 62"/></svg>
+            <span class="fs-tag" aria-hidden="true">Smug</span>
+          </button>
+          <button class="fs lf" type="button" data-face="sideeye" aria-pressed="false" aria-label="Try Side eye" style="--x:660px;--y:326px;--s:84px;--r:12deg;--sk:var(--skin-5)">
+            <svg viewBox="-4 -8 108 108" aria-hidden="true" focusable="false"><path class="ring" d="M18 54a32 32 0 1 0 64 0a32 32 0 1 0 -64 0 M24 34 Q8 52 20 68 Q28 60 32 38 Z M76 34 Q92 52 80 68 Q72 60 68 38 Z"/><path class="cut" d="M18 54a32 32 0 1 0 64 0a32 32 0 1 0 -64 0 M24 34 Q8 52 20 68 Q28 60 32 38 Z M76 34 Q92 52 80 68 Q72 60 68 38 Z"/><path class="sk" d="M24 34 Q8 52 20 68 Q28 60 32 38 Z M76 34 Q92 52 80 68 Q72 60 68 38 Z"/><circle class="sk" cx="50" cy="54" r="32"/><path class="ln" d="M30 39 L45 39 M55 38 L70 36"/><path class="ey f-white" d="M32 47a6 6 0 1 0 12 0a6 6 0 1 0 -12 0M56 47a6 6 0 1 0 12 0a6 6 0 1 0 -12 0"/><path class="pu" d="M39.4 48a2.6 2.6 0 1 0 5.2 0a2.6 2.6 0 1 0 -5.2 0M63.4 48a2.6 2.6 0 1 0 5.2 0a2.6 2.6 0 1 0 -5.2 0"/><path class="mo f-none" d="M42 68 L58 67"/></svg>
+            <span class="fs-tag" aria-hidden="true">Side eye</span>
+          </button>
+          <button class="fs lf" type="button" data-face="confused" aria-pressed="false" aria-label="Try Confused" style="--x:598px;--y:414px;--s:88px;--r:-5deg;--sk:var(--skin-6)">
+            <svg viewBox="-4 -8 108 108" aria-hidden="true" focusable="false"><path class="ring" d="M18 54a32 32 0 1 0 64 0a32 32 0 1 0 -64 0"/><path class="cut" d="M18 54a32 32 0 1 0 64 0a32 32 0 1 0 -64 0"/><circle class="sk" cx="50" cy="54" r="32"/><path class="ln" d="M29 34 Q37 25 45 31 M55 41 L70 38"/><path class="ey f-white" d="M30.8 46a7.2 7.2 0 1 0 14.4 0a7.2 7.2 0 1 0 -14.4 0M56.8 47.5a5.2 5.2 0 1 0 10.4 0a5.2 5.2 0 1 0 -10.4 0"/><path class="pu" d="M33.8 44.2a2.6 2.6 0 1 0 5.2 0a2.6 2.6 0 1 0 -5.2 0M58.5 46.2a2.3 2.3 0 1 0 4.6 0a2.3 2.3 0 1 0 -4.6 0"/><path class="mo f-none" d="M39 70 Q44.5 65.5 50 70 Q55.5 74.5 61 68.5"/></svg>
+            <span class="fs-tag" aria-hidden="true">Confused</span>
+          </button>
+          <p class="faces-cap">Pick a face sticker to try it.</p>
+        </div>
+
+        <div class="lp" id="lp">
+          <div class="stage" id="stage">
+            <div class="panel" id="panel" role="group" aria-label="MemeMe panel, interactive demo">
+              <div class="p-main">
+                <div class="p-left">
+                  <div class="mirror-box" id="mirrorBox">
+                    <div class="mirror" id="mirror" role="img" aria-label="Your face"></div>
+                    <svg class="ring" id="ring" viewBox="0 0 126 126" aria-hidden="true"><rect x="1.5" y="1.5" width="123" height="123" rx="21" pathLength="100"/></svg>
+                    <button class="pin eyes" type="button" data-pin="eyes" aria-pressed="false" aria-label="Make your eyes count more"></button>
+                    <button class="pin mouth" type="button" data-pin="mouth" aria-pressed="false" aria-label="Make your mouth count more"></button>
+                  </div>
+                  <div class="hint">
+                    <b id="hintTitle">Make a face. Results follow it.</b>
+                    <span id="hintSub">Click your eyes or mouth to make them count more.</span>
+                    <button class="cap" id="hintAction" type="button" hidden>Clear</button>
+                  </div>
+                </div>
+                <div class="p-right">
+                  <label class="search" id="searchBox">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="6.8" cy="6.8" r="4.9"/><path d="m10.5 10.5 3.6 3.6"/></svg>
+                    <input id="q" type="text" autocomplete="off" spellcheck="false" placeholder="Or type: cat, gif, Maya…" aria-label="Search by typing">
+                    <span class="keys" aria-label="Control Command M"><span>⌃</span><span>⌘</span><span>M</span></span>
+                  </label>
+                  <ol class="grid" id="grid" aria-label="Results"></ol>
+                </div>
+              </div>
+              <div class="p-foot">
+                <span class="focusline" id="focusText"></span>
+                <span class="legend">↵ copy · 1–9 pick · drag into chat · esc</span>
               </div>
             </div>
-            <div class="stage" id="stage">
-              <div class="panel" id="panel" role="group" aria-label="MemeMe panel, interactive demo">
-                <div class="p-main">
-                  <div class="p-left">
-                    <div class="mirror-box" id="mirrorBox">
-                      <div class="mirror" id="mirror" role="img" aria-label="Your face"></div>
-                      <svg class="ring" id="ring" viewBox="0 0 126 126" aria-hidden="true"><rect x="1.5" y="1.5" width="123" height="123" rx="19.5" pathLength="100"/></svg>
-                      <button class="pin eyes" type="button" data-pin="eyes" aria-pressed="false" aria-label="Make your eyes count more"></button>
-                      <button class="pin mouth" type="button" data-pin="mouth" aria-pressed="false" aria-label="Make your mouth count more"></button>
-                    </div>
-                    <div class="hint">
-                      <b id="hintTitle">Make a face. Results follow it.</b>
-                      <span id="hintSub">Click your eyes or mouth to make them count more.</span>
-                      <button class="cap" id="hintAction" type="button" hidden>Clear</button>
-                    </div>
-                  </div>
-                  <div class="p-right">
-                    <label class="search" id="searchBox">
-                      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="6.8" cy="6.8" r="4.9"/><path d="m10.5 10.5 3.6 3.6"/></svg>
-                      <input id="q" type="text" autocomplete="off" spellcheck="false" placeholder="Or type: cat, gif, Maya…" aria-label="Search by typing">
-                      <span class="keys" aria-label="Control Command M"><span>⌃</span><span>⌘</span><span>M</span></span>
-                    </label>
-                    <ol class="grid" id="grid" aria-label="Results"></ol>
-                  </div>
-                </div>
-                <div class="p-foot">
-                  <span class="focusline" id="focusText"></span>
-                  <span class="legend">↵ copy · 1–9 pick · drag into chat · esc</span>
-                </div>
-              </div>
-              <div class="closed" id="closed" hidden>
-                <div class="closed-msg" id="closedMsg"></div>
-                <div class="closed-foot">
-                  <span>Back in the menu bar. Press ⌃⌘M or click the smiley.</span>
-                  <button class="btn-accent" id="reopen" type="button">Open</button>
-                </div>
+            <div class="closed" id="closed" hidden>
+              <div class="closed-msg" id="closedMsg"></div>
+              <div class="closed-foot">
+                <span>Back in the menu bar. Press ⌃⌘M or click <span class="nw">the smiley.</span></span>
+                <button class="btn-accent" id="reopen" type="button">Open</button>
               </div>
             </div>
           </div>
         </div>
-        <div class="try" id="faces" role="group" aria-label="Try a face"></div>
+
+        <span class="hinge" aria-hidden="true"></span>
         <p class="sr" id="live" aria-live="polite"></p>
-        <p class="demo-note"><b>Pick a face to try it.</b> In the app, your camera does the picking. Tiles are drawn examples.</p>
       </div>
     </div>
   </section>
 
-  <section class="get" id="get" aria-labelledby="get-h">
+  <section id="install" aria-labelledby="install-h">
     <div class="wrap">
-      <div class="get-l">
-        <h2 id="get-h">Install</h2>
-        <p>You do this once. After that, MemeMe updates itself.</p>
-        <div class="note">
-          <p>The camera is on only while the panel is open, and your face never leaves your Mac.</p>
-          <p>GIFs need a free GIPHY API key for now. Add it with <span class="path">Set GIPHY API Key…</span> in the smiley menu.</p>
+      <div class="sheet">
+        <div class="sheet-head">
+          <h2 id="install-h">Install</h2>
+          <p class="once">
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4v5h-5"/></svg>
+            You do this once. After that, MemeMe updates itself.
+          </p>
         </div>
+
+        <ol class="steps">
+          <li>
+            <span class="step-n" aria-hidden="true" style="--r:-8deg">1</span>
+            <h3>Drag it to Applications</h3>
+            <p class="st-p">Open <a href="https://github.com/Michaell14/MemeMe/releases/latest/download/MemeMe.dmg" target="_blank" rel="noopener">MemeMe.dmg</a> and drag MemeMe to Applications.</p>
+          </li>
+          <li>
+            <span class="step-n" aria-hidden="true" style="--r:6deg">2</span>
+            <h3>Open it the first time</h3>
+            <p class="st-p">MemeMe isn’t notarized by Apple yet, so the first open needs one extra step.</p>
+            <dl class="os">
+              <div><dt>macOS 15 or later</dt><dd>System Settings <span class="nw">→ Privacy</span> &amp; Security <span class="nw">→ Open</span> Anyway</dd></div>
+              <div><dt>macOS 14</dt><dd>Control-click MemeMe <span class="nw">→ Open</span> <span class="nw">→ Open</span></dd></div>
+            </dl>
+          </li>
+          <li>
+            <span class="step-n" aria-hidden="true" style="--r:-4deg">3</span>
+            <h3>Allow the camera</h3>
+            <p class="st-p">Then press <span class="kk"><kbd>⌃</kbd><kbd>⌘</kbd><kbd>M</kbd></span> <span class="nw">in any chat.</span></p>
+            <p class="privacy">
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+              The camera is on only while the panel is open, and your face never leaves your Mac.
+            </p>
+          </li>
+        </ol>
       </div>
-      <ol class="install">
-        <li>
-          <h3>Drag it to Applications</h3>
-          <p>Open MemeMe.dmg and drag MemeMe to Applications.</p>
-        </li>
-        <li>
-          <h3>Open it the first time</h3>
-          <p>MemeMe isn’t notarized by Apple yet, so the first open needs one extra step.</p>
-          <dl class="os">
-            <div><dt>macOS 15 or later</dt><dd>System Settings → Privacy &amp; Security → Open Anyway</dd></div>
-            <div><dt>macOS 14</dt><dd>Control-click MemeMe → Open → Open</dd></div>
-          </dl>
-        </li>
-        <li>
-          <h3>Allow the camera</h3>
-          <p>Then press <kbd>⌃⌘M</kbd> in any chat.</p>
-        </li>
-      </ol>
     </div>
   </section>
 </main>
 
 <footer class="foot">
   <div class="wrap foot-in">
-    <a class="brand" href="#top">
-      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="10" r="8.2"/><circle cx="7.1" cy="8.1" r=".95" fill="currentColor" stroke="none"/><circle cx="12.9" cy="8.1" r=".95" fill="currentColor" stroke="none"/><path d="M6.4 11.6c.9 1.5 2.1 2.2 3.6 2.2s2.7-.7 3.6-2.2"/></svg>
+    <span class="foot-brand">
+      <span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M9 9.3v.8M15 9.3v.8"/><path d="M8.3 14c1 1.4 2.2 2.1 3.7 2.1s2.7-.7 3.7-2.1"/></svg></span>
       MemeMe 1.0
-    </a>
-    <a href="https://github.com/Michaell14/MemeMe" target="_blank" rel="noopener">Source code and releases on GitHub</a>
+    </span>
+    <a class="foot-link" href="https://github.com/Michaell14/MemeMe" target="_blank" rel="noopener">Source code and releases on GitHub</a>
   </div>
 </footer>
 
@@ -572,14 +635,13 @@ h1 span { display: block; white-space: nowrap; }
   const REGION = { brow: "eyes", tilt: "eyes", eye: "eyes", look: "eyes", mouth: "mouth", smile: "mouth", smirk: "mouth" };
   const face = p => ({ brow: 0, tilt: 0, eye: .55, look: 0, mouth: 0, smile: 0, smirk: 0, ...p });
   const EXPR = {
-    shocked:     { label: "Shocked",     mood: "shocked",     p: face({ brow: 1, eye: 1, mouth: 1 }) },
-    sideeye:     { label: "Side eye",    mood: "side eye",    p: face({ brow: -.35, tilt: .25, eye: .42, look: 1, smile: -.25 }) },
-    laughing:    { label: "Laughing",    mood: "laughing",    p: face({ brow: .35, eye: 0, mouth: .85, smile: 1 }) },
-    unimpressed: { label: "Unimpressed", mood: "unimpressed", p: face({ brow: -.2, eye: .38, smile: -.45 }) },
-    confused:    { label: "Confused",    mood: "confused",    p: face({ brow: .3, tilt: 1, eye: .72, look: -.3, mouth: .12, smile: -.3, smirk: .4 }) },
-    smug:        { label: "Smug",        mood: "smug",        p: face({ brow: -.1, tilt: .45, eye: .45, look: .35, smile: .55, smirk: .8 }) },
+    shocked:     { label: "Shocked",     p: face({ brow: 1, eye: 1, mouth: 1 }) },
+    sideeye:     { label: "Side eye",    p: face({ brow: -.35, tilt: .25, eye: .42, look: 1, smile: -.25 }) },
+    laughing:    { label: "Laughing",    p: face({ brow: .35, eye: 0, mouth: .85, smile: 1 }) },
+    unimpressed: { label: "Unimpressed", p: face({ brow: -.2, eye: .38, smile: -.45 }) },
+    confused:    { label: "Confused",    p: face({ brow: .3, tilt: 1, eye: .72, look: -.3, mouth: .12, smile: -.3, smirk: .4 }) },
+    smug:        { label: "Smug",        p: face({ brow: -.1, tilt: .45, eye: .45, look: .35, smile: .55, smirk: .8 }) },
   };
-  const EXPR_KEYS = Object.keys(EXPR);
   const lerpFace = (a, b, t) => { const o = {}; for (const k of KEYS) o[k] = a[k] + (b[k] - a[k]) * t; return o; };
 
   const INK = "#1C1A22";
@@ -700,10 +762,11 @@ h1 span { display: block; white-space: nowrap; }
   const tileSVG = t => faceSVG(t.p, t.o);
 
   // ---------- Demo state ----------
-  const device = $("#device"), stage = $("#stage"), panel = $("#panel"), grid = $("#grid"), input = $("#q");
+  const lid = $("#lid"), lp = $("#lp"), stage = $("#stage"), panel = $("#panel"), grid = $("#grid"), input = $("#q");
   const mirror = $("#mirror"), ring = $("#ring"), searchBox = $("#searchBox"), focusText = $("#focusText");
   const hintTitle = $("#hintTitle"), hintSub = $("#hintSub"), hintAction = $("#hintAction");
   const closed = $("#closed"), closedMsg = $("#closedMsg"), smiley = $("#smiley"), live = $("#live");
+  const faceBtns = $$(".fs");
   const S = { open: true, mode: "live", committed: "shocked", holding: null, pins: new Set(), shown: [], focus: 0, cur: { ...EXPR.shocked.p }, lookX: 0, lookY: 0, blink: false, lastType: 0 };
 
   function dist(a, b) {
@@ -757,7 +820,14 @@ h1 span { display: block; white-space: nowrap; }
       li.textContent = emptyText;
       items.unshift(li);
     }
+    // Re-ranking moves the tile nodes; a tile that had keyboard focus keeps it.
+    const fid = grid.contains(document.activeElement) && document.activeElement.dataset ? document.activeElement.dataset.id : null;
     grid.replaceChildren(...items);
+    if (fid) {
+      const i = list.findIndex(t => t.id === fid);
+      if (i >= 0) { nodes.get(fid).firstChild.focus({ preventScroll: true }); S.focus = i; }
+      else input.focus({ preventScroll: true });
+    }
     list.forEach((t, i) => {
       const li = nodes.get(t.id), num = li.querySelector(".num"), b = li.firstChild;
       num.textContent = i < 9 ? String(i + 1) : "";
@@ -801,7 +871,6 @@ h1 span { display: block; white-space: nowrap; }
     hintSub.hidden = !sub;
     hintAction.hidden = !action;
     if (action) hintAction.textContent = action;
-    device.classList.toggle("cam-on", S.open);
   }
 
   // Morph the mirror toward a face over a quarter second.
@@ -825,7 +894,7 @@ h1 span { display: block; white-space: nowrap; }
     if (user) stopAuto();
     if (!S.open) openPanel(false);
     if (S.mode === "text") { input.value = ""; searchBox.classList.remove("has-text"); S.mode = "live"; }
-    $$(".chip").forEach(c => c.setAttribute("aria-pressed", String(c.dataset.face === key)));
+    faceBtns.forEach(c => c.setAttribute("aria-pressed", String(c.dataset.face === key)));
     morphTo(EXPR[key].p);
     clearTimeout(holdTimer);
     ring.classList.remove("filling");
@@ -873,7 +942,7 @@ h1 span { display: block; white-space: nowrap; }
     const q = input.value.trim();
     searchBox.classList.toggle("has-text", !!q);
     if (q) {
-      if (S.mode !== "text") { S.mode = "text"; clearTimeout(holdTimer); ring.classList.remove("filling"); S.holding = null; }
+      if (S.mode !== "text") { S.mode = "text"; clearTimeout(holdTimer); ring.classList.remove("filling"); if (S.holding) S.committed = S.holding; S.holding = null; }
     } else if (S.mode === "text") S.mode = "live";
     setHint();
     refreshResults();
@@ -890,6 +959,8 @@ h1 span { display: block; white-space: nowrap; }
     S.open = false;
     clearTimeout(holdTimer);
     ring.classList.remove("filling");
+    // A face still being held counts once the visitor moves on, so the sticker and the results agree.
+    if (S.holding) S.committed = S.holding;
     S.holding = null;
     const hadFocus = panel.contains(document.activeElement);
     stage.style.minHeight = stage.offsetHeight + "px";
@@ -897,6 +968,7 @@ h1 span { display: block; white-space: nowrap; }
     const done = () => {
       panel.hidden = true;
       panel.classList.remove("closing");
+      lp.classList.add("is-closed");
       closedMsg.hidden = !copied;
       if (copied) closedMsg.innerHTML = `<span class="thumb">${tileSVG(copied)}</span><span><b>Copied “${copied.title}”</b><span>Paste it with ⌘V. MemeMe never sends it for you.</span></span>`;
       live.textContent = copied ? `Copied “${copied.title}”. Paste it with ⌘V.` : "Panel closed.";
@@ -910,6 +982,7 @@ h1 span { display: block; white-space: nowrap; }
     if (S.open) { if (focus && finePointer) input.focus({ preventScroll: true }); return; }
     S.open = true;
     closed.hidden = true;
+    lp.classList.remove("is-closed");
     live.textContent = "";
     panel.hidden = false;
     stage.style.minHeight = "";
@@ -928,6 +1001,7 @@ h1 span { display: block; white-space: nowrap; }
 
   // ---------- Panel input ----------
   panel.addEventListener("pointerdown", stopAuto);
+  lid.addEventListener("focusin", stopAuto);
   input.addEventListener("input", onType);
   hintAction.addEventListener("click", clearPins);
   $$(".pin").forEach(b => b.addEventListener("click", () => togglePin(b.dataset.pin)));
@@ -965,6 +1039,13 @@ h1 span { display: block; white-space: nowrap; }
     stopAuto();
     S.focus = f;
     renderFocus();
+    if (e.target.classList.contains("tile")) nodes.get(S.shown[f].id).firstChild.focus();
+  });
+  // Keyboard focus on a tile and the panel's highlighted tile are the same tile.
+  grid.addEventListener("focusin", e => {
+    const b = e.target.closest(".tile");
+    const i = b ? S.shown.findIndex(t => t.id === b.dataset.id) : -1;
+    if (i >= 0 && i !== S.focus) { S.focus = i; renderFocus(); }
   });
 
   // ⌃⌘M toggles the panel, like the real thing.
@@ -976,22 +1057,12 @@ h1 span { display: block; white-space: nowrap; }
     }
   });
 
-  // Face chips under the display.
-  const facesEl = $("#faces");
-  for (const key of EXPR_KEYS) {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "chip";
-    b.dataset.face = key;
-    b.setAttribute("aria-pressed", String(key === S.committed));
-    b.innerHTML = faceSVG(EXPR[key].p, { body: false }).replace('viewBox="0 0 100 100"', 'viewBox="20 18 60 64"') + `<span>${EXPR[key].label}</span>`;
-    b.addEventListener("click", () => setFace(key));
-    facesEl.append(b);
-  }
+  // The face stickers on the lid pick the face.
+  faceBtns.forEach(b => b.addEventListener("click", () => setFace(b.dataset.face)));
 
   // The mirror's eyes follow the pointer, and it blinks now and then.
   let heroVisible = true;
-  if ("IntersectionObserver" in window) new IntersectionObserver(es => { heroVisible = es[0].isIntersecting; }).observe(device);
+  if ("IntersectionObserver" in window) new IntersectionObserver(es => { heroVisible = es[0].isIntersecting; }).observe(lid);
   if (!reduced) {
     addEventListener("pointermove", e => {
       if (!heroVisible || !S.open) return;
@@ -1023,32 +1094,6 @@ h1 span { display: block; white-space: nowrap; }
     }
     autoTimer = setTimeout(autoStep, 4200);
   }
-
-  // Menu bar clock.
-  const clock = $("#clock");
-  function tickClock() {
-    const d = new Date();
-    const wd = document.createElement("span");
-    wd.className = "wd";
-    wd.textContent = d.toLocaleDateString("en-US", { weekday: "short" });
-    clock.replaceChildren(wd, ` ${d.getHours() % 12 || 12}:${String(d.getMinutes()).padStart(2, "0")}`);
-    clock.dateTime = d.toISOString();
-  }
-  tickClock();
-  setInterval(tickClock, 20000);
-
-  // "Lives up here." points at the smiley wherever the menu bar ends up.
-  const heroDemo = $("#heroDemo"), callout = $("#callout");
-  function placeCallout() {
-    const d = heroDemo.getBoundingClientRect(), a = smiley.getBoundingClientRect();
-    heroDemo.style.setProperty("--co-r", Math.round(d.right - (a.left + a.width / 2)) + "px");
-    const c = callout.getBoundingClientRect();
-    heroDemo.style.setProperty("--co-h", Math.max(0, Math.round(a.top - c.top - 5)) + "px");
-  }
-  placeCallout();
-  if ("ResizeObserver" in window) new ResizeObserver(placeCallout).observe(heroDemo);
-  else addEventListener("resize", placeCallout, { passive: true });
-  if (document.fonts) document.fonts.ready.then(placeCallout);
 
   // ---------- Start ----------
   setHint();
