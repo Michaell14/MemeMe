@@ -104,7 +104,9 @@ On open, before a face is captured, the grid shows **Recent in this app** (per f
   - — Photos with People ▸ Make Stickers Automatically / Ask Each Time / Never
   - Group Friends’ Faces ✓ · Forget My Resting Face
   - — Open at Login ✓ · Show Library in Finder
+  - — Check for Updates… · Version 1.0 (57) (disabled; both only in builds that can update, see Updates)
   - — Quit MemeMe
+  - When an update is available, the menu starts with **Update to MemeMe 1.0 (58)…** and a separator (while it downloads or installs: **Updating MemeMe…**, disabled).
 
 ## Friend stickers
 
@@ -128,6 +130,27 @@ On open, before a face is captured, the grid shows **Recent in this app** (per f
 2. 0.6 s later the camera permission request (the app is activated for this one prompt so the system alert is in front).
 3. Make any face → results. Pick → the You're set card. ⌃⌘M is registered without any permission (Carbon hot key). If the shortcut can't be registered, the card says "⌃⌘M is taken by another app." (rebinding UI is out of scope for v1).
 4. Open at login is registered via `SMAppService.mainApp` (checked by default, toggle in card and menu).
+
+## Updates
+
+MemeMe updates itself from GitHub Releases. Every change to the app on the default branch becomes a release (see README › Releases); the website's download link always points at the newest one.
+
+- **Version:** `CFBundleShortVersionString` is the marketing version from the `VERSION` file (e.g. `1.0`); `CFBundleVersion` is the build number, the commit count of the default branch (e.g. `57`). Shown as **1.0 (57)**. Builds compare by build number only.
+- **Feed:** `latest.json`, a release asset next to `MemeMe.dmg`, read from `https://github.com/<owner>/<repo>/releases/latest/download/latest.json` (Info.plist `MemeMeUpdateFeedURL`, written by `build-app.sh`). Builds without a feed URL (local builds, tests) never check and show no update UI.
+- **When:** 20 s after launch, then every 6 hours while running, and after the Mac wakes if the last check is over an hour old. Silent: a failed check (offline, 404, bad JSON) changes nothing and shows nothing.
+- **Telling the user (no system notifications, no permission prompt):**
+  - The menu-bar icon gets a small dot (template image, so it follows the menu bar's color).
+  - The panel footer shows one line when the panel opens, unless that build was dismissed: **“MemeMe 1.0 (58) is ready”** + muted **“ · <first release note>”** (when there is one), then **[Update]** (filled) and **[Not now]** (link). "Not now" hides the line for that build only; the dot and the menu item stay. Priority: indexing and the added-memes line win over it; it wins over the library offer.
+  - The menu starts with **Update to MemeMe 1.0 (58)…**.
+- **Check for Updates…** (menu) runs a check right away and answers in an alert:
+  - Up to date: **“You’re up to date”** / **“MemeMe 1.0 (57) is the newest version.”** [OK]
+  - Available: **“MemeMe 1.0 (58) is available”** / up to 5 release notes as "• note" lines, a blank line, then **“You have 1.0 (57).”** [Update] [Later]
+  - Needs a newer macOS: **“MemeMe 1.0 (58) needs macOS 15.0”** / **“Your copy keeps working. Update macOS to get the new version.”** [OK]
+  - Failed: **“Couldn’t check for updates”** / **“Check your internet connection and try again.”** [OK]
+- **Update (one click, from the footer, the menu item or the alert):** the panel closes; HUD **“Downloading MemeMe 1.0 (58)…”**; the DMG downloads to `~/Library/Caches/MemeMe/Updates/<build>/` and must match the manifest's size and SHA-256 and come from `github.com` or `*.githubusercontent.com` over HTTPS; it is mounted read-only; the app inside must have the same bundle id, exactly the manifest's build, and a valid code signature (`codesign --verify --deep --strict`); it is copied next to the running app as a hidden staged bundle; HUD **“Restarting to finish the update…”**; MemeMe quits and a small detached script swaps the bundles and opens the new one. On the next launch: HUD **“Updated to MemeMe 1.0 (58)”** once.
+- **When MemeMe can't replace itself** (it runs from a translocated or read-only location, or its folder isn't writable): it opens the downloaded DMG in Finder and says **“Finish updating in Finder”** / **“Drag MemeMe into your Applications folder and choose Replace, then open it again.”** [OK].
+- **Failures:** download failed → **“Couldn’t download the update”** / **“Check your internet connection, or download it from the website.”** [Open Download Page] [Cancel]. Verification failed (size, checksum, host, bundle id, build or signature) → **“The update didn’t check out”** / **“MemeMe didn’t install it. Try again later, or download it from the website.”** [Open Download Page] [Cancel]; an unverified DMG is never opened. "Open Download Page" opens the release page (or the DMG URL when the manifest has no page).
+- Updated builds are ad-hoc signed like the first one, so macOS may ask again for the camera and folder access after an update (a Developer ID signature would keep them).
 
 ## Out of scope for v1
 

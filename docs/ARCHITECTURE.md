@@ -12,7 +12,8 @@ Read `docs/DESIGN.md` for behavior and exact UI strings.
   - `MemeMeApp` — executable (product name `MemeMe`). AppKit + SwiftUI + AVFoundation + Vision + CoreImage + ImageIO + CryptoKit + Carbon + ServiceManagement + UniformTypeIdentifiers + Network. Types are `internal`.
   - `MemeMeCoreTests` — XCTest for the core.
   - `MemeMeAppTests` — XCTest for the app target (`@testable import MemeMeApp`): GIPHY decoding via a URLProtocol stub, ImageAnalyzer on generated images, clipboard naming, keep/undo, sticker eligibility, headless AppModel text search.
-- `scripts/build-app.sh` assembles `build/MemeMe.app` (Info.plist from `Resources/Info.plist`, `GiphyAPIKey` filled from `$GIPHY_API_KEY`), ad-hoc signs it and zips it. CI (`.github/workflows/ci.yml`, `macos-15`) runs `swift build`, `swift test`, the script, and uploads the zip.
+- `scripts/build-app.sh` assembles `build/MemeMe.app` (Info.plist from `Resources/Info.plist`; `GiphyAPIKey` from `$GIPHY_API_KEY`; `CFBundleShortVersionString` from `$APP_VERSION`, default the `VERSION` file; `CFBundleVersion` from `$APP_BUILD`, default `git rev-list --count HEAD`; `MemeMeUpdateFeedURL` from `$UPDATE_FEED_URL`, default empty = updates off) and ad-hoc signs it. `scripts/build-dmg.sh` packs it into `build/MemeMe.dmg` (the app plus an `Applications` link, UDZO).
+- CI (`.github/workflows/ci.yml`): job `build` (`macos-15`) runs `swift build`, `swift test`, both scripts and uploads `MemeMe.dmg` as the `MemeMe-app` artifact; it also decides whether this run is a release (push or manual run on the default branch, and app files changed since the last `v*` tag, or a manual run). Job `release` (`ubuntu-latest`, `contents: write`) runs `scripts/publish-release.sh`, which publishes GitHub Release `v<version>-<build>` with `MemeMe.dmg` and `latest.json` (the update feed, see `UpdateManifest`) and marks it latest.
 - Logging: `os.Logger(subsystem: "com.mememe.app", category: "<file area>")`. Never log file contents, OCR text or face data.
 - Concurrency: classes that publish UI state are `@MainActor`. Heavy work (Vision, ImageIO, hashing, network decoding) runs off the main actor (`Task.detached(priority: .utility)` or a private `DispatchQueue`), results hop back with `await MainActor.run` or `@MainActor` methods. Avoid `Sendable` warnings becoming errors: no `-strict-concurrency=complete`.
 
@@ -25,6 +26,8 @@ Read `docs/DESIGN.md` for behavior and exact UI strings.
 | Library, web, stickers | `Sources/MemeMeApp/Library/LibraryIndexer.swift`, `Library/FolderWatcher.swift`, `Web/GIFProvider.swift`, `Web/GiphyProvider.swift`, `Web/WebDiscover.swift`, `Stickers/StickerMaker.swift`, `Stickers/FriendService.swift`, `System/Clipboard.swift`, `System/SystemConditions.swift` |
 | Panel UI | `Sources/MemeMeApp/UI/PanelController.swift`, `UI/PanelView.swift`, `UI/MirrorColumn.swift`, `UI/ResultGrid.swift`, `UI/FooterView.swift`, `UI/SetupCardView.swift`, `UI/HUDController.swift`, `UI/StickerPopoverView.swift`, `UI/AnimatedImageView.swift`, `UI/Theme.swift` |
 | App shell | `Sources/MemeMeApp/App/main.swift`, `App/AppDelegate.swift`, `App/AppModel.swift`, `App/HotKey.swift`, `App/StatusItemController.swift`, `App/StickerPopoverModel.swift`, `App/LoginItem.swift`, `Resources/Info.plist`, `scripts/build-app.sh`, `.github/workflows/ci.yml`, `README.md`, `.gitignore` |
+| Updates | `Sources/MemeMeApp/Update/UpdateChecker.swift`, `Update/UpdateInstaller.swift`, `Tests/MemeMeAppTests/UpdateCheckerTests.swift`, `Tests/MemeMeAppTests/UpdateInstallerTests.swift` |
+| Release | `VERSION`, `scripts/build-dmg.sh`, `scripts/publish-release.sh`, `scripts/build-site.sh`, `site/index.html` |
 
 `Package.swift`, `docs/*` are owned by the lead; do not edit.
 
@@ -390,10 +393,61 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var libraryOfferDismissals: Int      // 0
     public var libraryOfferAccepted: Bool       // false
     public var baseline: RestingBaseline
+    public var skippedUpdateBuild: Int?         // nil; the build whose panel line got "Not now"
     public init()
 }
 ```
 Decoding uses `decodeIfPresent` with these defaults for every key.
+
+### Update.swift
+
+```swift
+/// latest.json, the update feed CI publishes next to MemeMe.dmg in every GitHub Release.
+public struct UpdateManifest: Codable, Equatable, Sendable {
+    public var version: String                 // marketing version, "1.0"
+    public var build: Int                      // CFBundleVersion of the release, ≥ 1
+    public var downloadURL: URL                // the release's MemeMe.dmg (tag-specific URL, not /latest/)
+    public var sha256: String                  // lowercase hex of the DMG (decode lowercases it)
+    public var size: Int?                      // bytes of the DMG
+    public var minimumSystemVersion: String?   // "14.0"
+    public var notes: [String]                 // one line per change, newest first; [] when missing
+    public var releasePageURL: URL?
+    public var publishedAt: Date?              // ISO 8601
+    public init(version: String, build: Int, downloadURL: URL, sha256: String, size: Int? = nil,
+                minimumSystemVersion: String? = nil, notes: [String] = [], releasePageURL: URL? = nil, publishedAt: Date? = nil)
+    /// "1.0 (58)"
+    public var displayVersion: String { get }
+    /// Decodes latest.json. Throws `.malformed` for bad JSON or wrong types, `.invalid(reason)` for an empty
+    /// version, build < 1, a sha256 that isn't 64 hex characters, or a size < 1.
+    public static func decode(from data: Data) throws -> UpdateManifest
+}
+
+public enum UpdateManifestError: Error, Equatable, Sendable { case malformed, invalid(String) }
+
+public enum UpdateDecision: Equatable, Sendable {
+    case upToDate
+    case available(UpdateManifest)
+    case requiresNewerSystem(UpdateManifest)   // newer build, but this macOS is older than its minimumSystemVersion
+}
+
+public enum UpdatePolicy {
+    public static let checkInterval: TimeInterval      // 6 * 3600
+    public static let firstCheckDelay: TimeInterval    // 20
+    public static let wakeCheckAge: TimeInterval       // 3600: after wake, check when the last check is older
+    /// `.upToDate` unless manifest.build > installedBuild; then `.requiresNewerSystem` when
+    /// minimumSystemVersion is set and newer than `systemVersion`, else `.available`.
+    public static func decide(installedBuild: Int, manifest: UpdateManifest, systemVersion: OperatingSystemVersion) -> UpdateDecision
+    /// Dotted numeric comparison ("14.0" < "14.2.1"); missing parts count as 0, non-numeric parts as 0.
+    public static func compareVersions(_ lhs: String, _ rhs: String) -> ComparisonResult
+    public static func isSystem(_ system: OperatingSystemVersion, atLeast minimum: String) -> Bool
+    /// HTTPS, no user/password, host exactly "github.com" or ending in ".githubusercontent.com" (case-insensitive).
+    public static func isTrustedDownloadURL(_ url: URL) -> Bool
+    /// Exactly 64 characters 0-9a-f (lowercase).
+    public static func isValidSHA256(_ hex: String) -> Bool
+    /// The panel line shows unless this build was dismissed with "Not now".
+    public static func shouldOfferInPanel(_ manifest: UpdateManifest, skippedBuild: Int?) -> Bool
+}
+```
 
 ### LibraryStore.swift
 
@@ -807,13 +861,93 @@ struct StickerPopoverView: View { @ObservedObject var model: StickerPopoverModel
 }
 ```
 
+### Update/UpdateInstaller.swift
+
+```swift
+/// The mechanics of one update: download and verify, stage from the DMG, relaunch. No UI.
+struct UpdateInstaller {
+    enum Failure: Error, Equatable {
+        case untrustedURL, downloadFailed(String), sizeMismatch, checksumMismatch
+        case mountFailed(String), appNotFound, wrongBundle(String), signatureInvalid
+        case notReplaceable, stagingFailed(String), relaunchFailed(String)
+        /// size/checksum/host/bundle/signature problems: the DMG must not be opened.
+        var isVerificationFailure: Bool { get }
+    }
+    var session: URLSession                     // .shared
+    var updatesDirectory: URL                   // ~/Library/Caches/MemeMe/Updates
+    init(session: URLSession = .shared, updatesDirectory: URL = UpdateInstaller.defaultUpdatesDirectory())
+    static func defaultUpdatesDirectory() -> URL
+    /// Downloads to updatesDirectory/<build>/MemeMe.dmg (replacing an older file) and checks the host before
+    /// and after redirects, HTTP 200, the size (when given) and the SHA-256. Returns the DMG's URL.
+    func download(_ manifest: UpdateManifest) async throws -> URL
+    /// SHA-256 of a file as lowercase hex, read in 1 MB chunks (CryptoKit).
+    static func sha256(ofFileAt url: URL) throws -> String
+    /// Throws `.wrongBundle` unless the bundle's Info.plist has this CFBundleIdentifier and exactly this CFBundleVersion.
+    static func validateBundle(at appURL: URL, bundleIdentifier: String, build: Int) throws
+    /// True for a ".app" directory that isn't under /AppTranslocation/, isn't on a read-only volume and whose
+    /// parent folder is writable.
+    static func canReplace(appAt url: URL) -> Bool
+    /// The staged bundle's location: a hidden sibling, `<parent>/.MemeMe-update-<build>.app`.
+    static func stagedURL(for currentApp: URL, build: Int) -> URL
+    /// Mounts the DMG read-only (hdiutil attach -nobrowse -readonly -noautoopen -mountpoint), finds the .app
+    /// (MemeMe.app first), validates it, checks `codesign --verify --deep --strict`, copies it with `ditto` to
+    /// `stagedURL(for:build:)`, and always detaches. Runs the tools off the main actor.
+    func stage(dmg: URL, manifest: UpdateManifest, currentApp: URL, bundleIdentifier: String) async throws -> URL
+    /// The relaunch script (POSIX sh). Arguments: $1 pid, $2 current app, $3 staged app, $4 open command.
+    /// Waits up to 30 s for the pid to exit, moves current aside, moves staged into place (restoring current if
+    /// that fails), deletes the old copy, then runs `$4 "$2"`. Paths are never interpolated into the text.
+    static let relaunchScript: String
+    /// Writes `relaunchScript` to a temporary file and starts `/bin/sh <file> pid current staged openCommand`
+    /// detached (no waiting, output to /dev/null).
+    func launchRelauncher(pid: Int32, current: URL, staged: URL, openCommand: String = "/usr/bin/open") throws
+    /// Deletes updatesDirectory and `.MemeMe-update-*.app` leftovers next to `currentApp`. Never throws.
+    func cleanUp(currentApp: URL)
+}
+```
+
+### Update/UpdateChecker.swift
+
+```swift
+/// Checks the feed, publishes what's available and runs the one-click update (DESIGN.md › Updates).
+@MainActor final class UpdateChecker: ObservableObject {
+    enum Phase: Equatable { case idle, checking, downloading, installing }
+    @Published private(set) var available: UpdateManifest?   // a newer build this Mac can run; nil otherwise
+    @Published private(set) var phase: Phase                  // .idle
+    let feedURL: URL?                                         // nil = updates off (no checks, no UI)
+    let installedVersion: String                              // CFBundleShortVersionString, "0" when missing
+    let installedBuild: Int                                   // CFBundleVersion, 0 when missing or not a number
+    var isEnabled: Bool { get }                               // feedURL != nil
+    var installedDisplayVersion: String { get }               // "1.0 (57)"
+    /// Reads MemeMeUpdateFeedURL (empty or invalid = nil), CFBundleShortVersionString and CFBundleVersion.
+    convenience init(bundle: Bundle)
+    init(feedURL: URL?, installedVersion: String, installedBuild: Int,
+         session: URLSession = .shared, installer: UpdateInstaller = UpdateInstaller(), defaults: UserDefaults = .standard)
+    /// No-op when disabled. Cleans leftovers, shows "Updated to MemeMe …" once after an update (UserDefaults
+    /// key "lastLaunchedBuild"), checks after 20 s, then every 6 h, and after wake when the last check is > 1 h old.
+    func start()
+    /// One request (no cache, 15 s timeout). Sets `available`; returns nil and changes nothing when the request,
+    /// the HTTP status, the JSON or the download URL's host fails. Never shows UI.
+    @discardableResult func check() async -> UpdateDecision?
+    /// "Check for Updates…": runs `check()` and answers in an alert (DESIGN.md strings).
+    func checkFromMenu()
+    /// Download, verify, stage, relaunch; the fallbacks and alerts from DESIGN.md. Ignored unless phase is .idle
+    /// and an update is available.
+    func installAvailableUpdate()
+}
+```
+
+### App/StatusItemController.swift (updates)
+
+- Observes `model.updates.$available`: the icon is `face.smiling` with a small dot when an update is available (one template image, so it follows the menu bar's color).
+- Menu: with an update, the first item is "Update to MemeMe <displayVersion>…" (→ `model.installUpdate()`), or "Updating MemeMe…" disabled while `phase` is `.downloading`/`.installing`, then a separator. When `model.updates.isEnabled`, a section before Quit: "Check for Updates…" (→ `model.updates.checkFromMenu()`) and a disabled "Version <installedDisplayVersion>".
+
 ### App/AppModel.swift
 
 ```swift
 enum PanelMode: Equatable { case prompt, warming, live, text, image, moreLike, cameraOff, cameraBusy }
 enum HintAction: Equatable { case clearPins, backToFace, keepImage, turnOnCamera, useCamera }
 struct PanelHint: Equatable { var title: String; var subtitle: String?; var actionTitle: String?; var action: HintAction? }
-enum FooterState: Equatable { case legend, libraryOffer, indexing(count: Int), added(IndexBatch) }
+enum FooterState: Equatable { case legend, libraryOffer, indexing(count: Int), added(IndexBatch), update(UpdateManifest) }
 struct NamingCandidate: Identifiable, Equatable { let personID: UUID; let stickerCount: Int; let sample: LibraryItem?; var id: UUID { personID } }
 struct NamingPrompt: Equatable { var name: String; var candidates: [NamingCandidate] }
 enum DropOutcome { case kept(IndexBatch), stickers(StickerBatch), nothing }
@@ -842,13 +976,14 @@ enum DropOutcome { case kept(IndexBatch), stickers(StickerBatch), nothing }
     let indexer: LibraryIndexer
     let web: WebDiscover
     let friends: FriendService
+    let updates: UpdateChecker                       // UpdateChecker(bundle: .main); disabled in tests (no feed URL)
 
     var onRequestClose: (() -> Void)?
 
     init(store: LibraryStore)
     init(store: LibraryStore, webCacheRoot: URL?)   // tests pass a temp cache folder
     var requestsCameraAccessOnShow: Bool             // default true; tests turn it off
-    func start()                                     // after launch: indexer.startWatching(), web.prefetch(Mood.prefetchOrder), SystemConditions.startMonitoring()
+    func start()                                     // after launch: indexer.startWatching(), web.prefetch(Mood.prefetchOrder), SystemConditions.startMonitoring(), updates.start()
     func setHotKeyAvailable(_ available: Bool)
 
     // Panel lifecycle
@@ -879,6 +1014,10 @@ enum DropOutcome { case kept(IndexBatch), stickers(StickerBatch), nothing }
     func toggleOpenAtLogin()
     func dismissSetupCard()
 
+    // Updates
+    func installUpdate()          // closes the panel (onRequestClose), then updates.installAvailableUpdate()
+    func dismissUpdateOffer()     // "Not now": settings.skippedUpdateBuild = available build; footer refreshes; saveSoon()
+
     // Menu-bar drops
     func handleMenuBarDrop(urls: [URL]) async -> DropOutcome
 
@@ -895,3 +1034,4 @@ Behavior summary (details in DESIGN.md):
 - Text changes (debounced 80 ms) → text mode; camera stops if typing began within 1 s of show, otherwise `showsFaceToken = true`; naming prompt when `TextQuery.possibleName` is set, no results, and `friends.unnamedPeople` is non-empty. Empty text → back to live (restart camera if it was stopped).
 - `commit`: resolve file (web → `await web.prepareForCopy`, HUD "Copying…" if it takes > 150 ms); `Clipboard.copy`; increment `timesSent`, set `lastSentAt`, `recents.record`; first run → `showSetupCard = true` and `hasCompletedFirstRun = true` (panel stays open); otherwise close and HUD "Copied “<displayName>” · ⌘V — not sent". ↵ is ignored within 300 ms of the last text edit.
 - Persist the store (debounced 2 s) after changes; persist `tracker.baseline` into settings on hide.
+- Footer priority: `.indexing` > `.added` (panel visible) > `.update(manifest)` (when `updates.available` is set, `updates.phase == .idle` and `UpdatePolicy.shouldOfferInPanel(manifest, skippedBuild: settings.skippedUpdateBuild)`) > `.libraryOffer` > `.legend`. AppModel subscribes to `updates.objectWillChange` like it does to the indexer and refreshes the footer on the next main-actor turn.
