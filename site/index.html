@@ -14,13 +14,11 @@
   --ink-2: #2A3150;
   --ink-3: #3C4257;
   --ink-4: #4A5270;
-  --ink-5: #4A5170;
   --white: #FFFFFF;
   --link: #4330C9;
   --link-hi: #2E1F99;
   --dl-sub: #C9CFE6;
   --dash: #CDD3E1;
-  --row: #F2F4F9;
   --kbd-line: #C3C9DA;
 
   /* The lid (lilac). The step numbers in Install pick it up too. */
@@ -359,10 +357,6 @@ h2 { margin: 0; font-size: clamp(2.25rem, 1.6rem + 2vw, 3.25rem); line-height: 1
 h3 { margin: 4px 0 0; font-size: 24px; line-height: 1.2; font-weight: 750; letter-spacing: -.015em; }
 .st-p { margin: 0; font-size: 16.5px; line-height: 1.55; color: var(--ink-3); text-wrap: pretty; }
 .st-p a { font-weight: 600; }
-.os { margin: 6px 0 0; display: flex; flex-direction: column; gap: 8px; }
-.os div { display: flex; flex-direction: column; gap: 3px; padding: 12px 14px; border-radius: 12px; background: var(--row); }
-.os dt { font-size: 13px; line-height: 1.35; font-weight: 700; letter-spacing: .02em; color: var(--ink-5); }
-.os dd { margin: 0; font-size: 15px; line-height: 1.4; font-weight: 600; color: var(--ink); }
 .kk { display: inline-flex; gap: 3px; vertical-align: 1px; }
 kbd {
   display: inline-block; min-width: 1.5em; padding: 1px 6px;
@@ -586,12 +580,8 @@ kbd {
           </li>
           <li>
             <span class="step-n" aria-hidden="true" style="--r:6deg">2</span>
-            <h3>Open it the first time</h3>
-            <p class="st-p">MemeMe isn’t notarized by Apple yet, so the first open needs one extra step.</p>
-            <dl class="os">
-              <div><dt>macOS 15 or later</dt><dd>System Settings <span class="nw">→ Privacy</span> &amp; Security <span class="nw">→ Open</span> Anyway</dd></div>
-              <div><dt>macOS 14</dt><dd>Control-click MemeMe <span class="nw">→ Open</span> <span class="nw">→ Open</span></dd></div>
-            </dl>
+            <h3>Open it</h3>
+            <p class="st-p">The first time, macOS asks whether to open an app downloaded from the internet. Click Open.</p>
           </li>
           <li>
             <span class="step-n" aria-hidden="true" style="--r:-4deg">3</span>
