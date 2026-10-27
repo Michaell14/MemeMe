@@ -29,8 +29,11 @@ final class ThumbnailCache {
         cache.countLimit = 300
     }
 
-    func cached(_ url: URL) -> NSImage? {
-        cache.object(forKey: url.absoluteString as NSString)?.image
+    /// Only entries decoded at `minPixel` or larger, so a 96 px HUD/avatar decode never stands in for a grid tile.
+    func cached(_ url: URL, minPixel: Int = 256) -> NSImage? {
+        guard let entry = cache.object(forKey: url.absoluteString as NSString),
+              entry.maxPixel >= minPixel else { return nil }
+        return entry.image
     }
 
     /// CGImageSourceCreateThumbnailAtIndex off the main actor; NSCache (≈300 entries).

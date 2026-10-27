@@ -39,6 +39,8 @@ struct IndexBatch: Identifiable, Equatable {
     private var batchFolders: [UUID: [String]] = [:]
     /// Unreadable or duplicate files, by path, so unchanged ones are not re-read on every scan.
     private var ignoredFiles: [String: FileStamp] = [:]
+    /// Paths skipped because their bytes were already indexed elsewhere → that content hash.
+    private var duplicateHashes: [String: String] = [:]
     private var resumeTask: Task<Void, Never>?
     private var lastSave = Date.distantPast
     private var lastNotify = Date.distantPast
@@ -238,7 +240,7 @@ struct IndexBatch: Identifiable, Equatable {
         }
         let ids = Set(batch.addedIDs)
         if !ids.isEmpty {
-            store.remove(ids: ids)
+            removeIndexedItems(ids)
         }
         if pendingSummary?.id == batch.id {
             pendingSummary = nil
@@ -518,8 +520,10 @@ struct IndexBatch: Identifiable, Equatable {
             if let existing = store.item(atPath: file.path) {
                 replace(existing, with: item)
                 ignoredFiles[file.path] = nil
+                duplicateHashes[file.path] = nil
             } else if store.add(item) {
                 ignoredFiles[file.path] = nil
+                duplicateHashes[file.path] = nil
                 markChanged()
                 if item.tier == .meme {
                     progressCount += 1
@@ -533,6 +537,7 @@ struct IndexBatch: Identifiable, Equatable {
                 }
             } else {
                 ignoredFiles[file.path] = file.stamp
+                duplicateHashes[file.path] = item.contentHash
                 if batchCounts {
                     activeBatch?.duplicates += 1
                 }
@@ -550,10 +555,12 @@ struct IndexBatch: Identifiable, Equatable {
                     break
                 }
                 // The file at this path now duplicates another item.
-                store.remove(ids: [existing.id])
-                markChanged()
+                removeIndexedItems([existing.id])
             }
             ignoredFiles[file.path] = file.stamp
+            duplicateHashes[file.path] = hash
+            // The copy it duplicates may have been removed while this file was being analyzed.
+            requeueDuplicates(of: [hash])
             if batchCounts {
                 activeBatch?.duplicates += 1
             }
@@ -572,7 +579,7 @@ struct IndexBatch: Identifiable, Equatable {
     /// The file at an indexed path changed: keep the item's identity and history, take the new analysis.
     private func replace(_ existing: LibraryItem, with item: LibraryItem) {
         if item.contentHash != existing.contentHash && store.contains(hash: item.contentHash) {
-            store.remove(ids: [existing.id])
+            removeIndexedItems([existing.id])
         } else {
             var updated = item
             updated.id = existing.id
@@ -580,6 +587,9 @@ struct IndexBatch: Identifiable, Equatable {
             updated.timesSent = existing.timesSent
             updated.lastSentAt = existing.lastSentAt
             store.update(updated)
+            if updated.contentHash != existing.contentHash {
+                requeueDuplicates(of: [existing.contentHash])
+            }
         }
         markChanged()
     }
@@ -593,8 +603,7 @@ struct IndexBatch: Identifiable, Equatable {
             vanished.insert(item.id)
         }
         guard !vanished.isEmpty else { return }
-        store.remove(ids: vanished)
-        markChanged()
+        removeIndexedItems(vanished)
     }
 
     private func removeItems(inFolder folderPath: String) {
@@ -608,9 +617,40 @@ struct IndexBatch: Identifiable, Equatable {
         for path in Array(ignoredFiles.keys) where (path as NSString).deletingLastPathComponent == folderPath {
             ignoredFiles[path] = nil
         }
+        for path in Array(duplicateHashes.keys) where (path as NSString).deletingLastPathComponent == folderPath {
+            duplicateHashes[path] = nil
+        }
         guard !ids.isEmpty else { return }
+        removeIndexedItems(ids)
+    }
+
+    /// Removes items; copies that were skipped as their duplicates are indexed on the next scan.
+    private func removeIndexedItems(_ ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        let removedHashes = Set(ids.compactMap { store.item(id: $0)?.contentHash })
         store.remove(ids: ids)
         markChanged()
+        requeueDuplicates(of: removedHashes)
+    }
+
+    /// Forgets files skipped as duplicates of content that is no longer indexed, and scans their folders again.
+    /// Inside a running scan, startScanIfNeeded is a no-op and the scan loop picks the queued folders up.
+    private func requeueDuplicates(of hashes: Set<String>) {
+        let lost = hashes.filter { !store.contains(hash: $0) }
+        guard !lost.isEmpty else { return }
+        var folders: [String] = []
+        for (path, hash) in duplicateHashes where lost.contains(hash) {
+            duplicateHashes[path] = nil
+            ignoredFiles[path] = nil
+            let folder = (path as NSString).deletingLastPathComponent
+            if !folders.contains(folder) {
+                folders.append(folder)
+            }
+        }
+        for folder in folders where store.settings.watchedFolders.contains(folder) {
+            enqueue(folder, batchID: nil)
+        }
+        startScanIfNeeded()
     }
 
     /// "Downloads", "Desktop", "Screenshots" for the screenshot folder, else the folder name.

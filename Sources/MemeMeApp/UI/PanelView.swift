@@ -267,7 +267,7 @@ private struct NamingFace: View {
                 image = nil
                 return
             }
-            if let cached = ThumbnailCache.shared.cached(url) {
+            if let cached = ThumbnailCache.shared.cached(url, minPixel: 96) {
                 image = cached
                 return
             }

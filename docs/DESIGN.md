@@ -36,7 +36,7 @@ The canvas with every screen lives at https://claude.ai/artifact/T9nxHbX2DHg5Chh
 | text | silhouette (camera stopped) or dimmed live when a face token is kept | Searching by words | The camera is off while you type. | — |
 | image (dropped / ⌘V) | the image | Searching with your image | It isn’t saved unless you keep it. | Keep it / Kept · Undo |
 | moreLike | the chosen result | More like “OMG” | — | Back to your face |
-| cameraOff (denied) | dashed drop well | No camera | Drop, paste or type instead. | Turn on camera |
+| cameraOff (denied, or no usable camera — then no action button) | dashed drop well | No camera | Drop, paste or type instead. | Turn on camera |
 | cameraBusy (camera in use by a call) | silhouette | Your camera is in use | Type or drop instead, or use it anyway. | Use camera |
 
 Section label above the grid is not shown in the compact layout; the hint carries the context.
@@ -124,7 +124,7 @@ On open, before a face is captured, the grid shows **Recent in this app** (per f
 
 ## First run
 
-1. App launches (LSUIElement, no Dock icon). The panel opens by itself, centered on screen, in the prompt state, showing GIPHY "reaction" results (or an empty state "Drop memes here, or find the ones on this Mac" if offline / no key).
+1. App launches (LSUIElement, no Dock icon). On the first launch per install only, the panel opens by itself (later login launches stay quiet until ⌃⌘M), centered on screen, in the prompt state, showing GIPHY "reaction" results (or an empty state "Drop memes here, or find the ones on this Mac" if offline / no key).
 2. 0.6 s later the camera permission request (the app is activated for this one prompt so the system alert is in front).
 3. Make any face → results. Pick → the You're set card. ⌃⌘M is registered without any permission (Carbon hot key). If the shortcut can't be registered, the card says "⌃⌘M is taken by another app." (rebinding UI is out of scope for v1).
 4. Open at login is registered via `SMAppService.mainApp` (checked by default, toggle in card and menu).

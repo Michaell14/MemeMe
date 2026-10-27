@@ -48,6 +48,8 @@ final class PanelController: NSObject {
     /// Screen position of the panel's top edge and horizontal center while it is visible.
     private var anchorTop: CGFloat = 0
     private var anchorMidX: CGFloat = 0
+    /// visibleFrame of the screen the panel was opened on (the one with keyboard focus).
+    private var anchorVisibleFrame: NSRect?
 
     /// Gap between the menu bar and the panel.
     private let menuBarGap: CGFloat = 8
@@ -111,6 +113,7 @@ final class PanelController: NSObject {
 
         let size = contentSize()
         let screen = NSScreen.main ?? NSScreen.screens.first
+        anchorVisibleFrame = screen?.visibleFrame
         if let screen {
             let full = screen.frame
             let visible = screen.visibleFrame
@@ -118,7 +121,9 @@ final class PanelController: NSObject {
             if centered {
                 anchorTop = (visible.midY + size.height / 2).rounded()
             } else {
-                anchorTop = visible.maxY - menuBarGap
+                // With the menu bar hidden (full screen, auto-hide), stay below the camera housing.
+                let usableTop = min(visible.maxY, full.maxY - screen.safeAreaInsets.top)
+                anchorTop = usableTop - menuBarGap
             }
         } else {
             anchorMidX = size.width / 2
@@ -199,8 +204,9 @@ final class PanelController: NSObject {
             width: size.width,
             height: size.height
         )
-        if let screen = panel.screen ?? NSScreen.main {
-            let visible = screen.visibleFrame
+        // Clamp to the screen the anchor was computed from: panel.screen still names the display the
+        // ordered-out panel was last shown on.
+        if let visible = anchorVisibleFrame ?? (panel.screen ?? NSScreen.main)?.visibleFrame {
             frame.origin.x = min(max(frame.origin.x, visible.minX), visible.maxX - frame.width)
             if frame.minY < visible.minY {
                 frame.origin.y = visible.minY
@@ -234,7 +240,10 @@ final class PanelController: NSObject {
     /// so the card's "Paste it with ⌘V" reaches the chat. Closing the card (×) makes the panel key again.
     private func syncKeyFocusWithSetupCard() {
         if model.showSetupCard {
-            guard panel.allowsKey else { return }
+            // Hand key focus to the chat only when the chat is the active app. When MemeMe itself is active
+            // (first run from Finder, after the camera alert) no one would take it, and giving it up would
+            // leave Esc with no window at all.
+            guard panel.allowsKey, !NSApp.isActive else { return }
             panel.allowsKey = false
             guard panel.isKeyWindow else { return }
             // Ordering the key panel out returns key focus to the active app; it comes back as a non-key window.
@@ -414,12 +423,6 @@ final class PanelController: NSObject {
         static let right: UInt16 = 124
         static let down: UInt16 = 125
         static let up: UInt16 = 126
-        /// Key codes of the 1…9 keys on the main row, in digit order.
-        static let digits: [UInt16] = [18, 19, 20, 21, 23, 22, 26, 28, 25]
-        /// Key codes of keypad 1…9, in digit order.
-        static let keypadDigits: [UInt16] = [83, 84, 85, 86, 87, 88, 89, 91, 92]
-        /// 0 on the main row and on the keypad: digits never type into the search field.
-        static let zeros: [UInt16] = [29, 82]
     }
 
     /// Returns nil when the key was handled; otherwise the event continues to the search field.
@@ -489,18 +492,27 @@ final class PanelController: NSObject {
             return performTextCommand(event, action: #selector(NSText.selectAll(_:)))
 
         default:
-            guard hasNoModifiers else { return event }
+            // A digit is what the key types on the active layout, not where it sits: AZERTY types
+            // & é " ' ( § è ! ç à on the unshifted top row (its digits need Shift), Czech types + ě š č ř ž…
+            guard hasNoCommandLikeModifiers, let digit = PanelController.typedDigit(of: event) else { return event }
             // Digits never type: 1–9 (main row or keypad) pick, 0 does nothing.
-            if let digitIndex = KeyCode.digits.firstIndex(of: event.keyCode)
-                ?? KeyCode.keypadDigits.firstIndex(of: event.keyCode) {
-                model.commit(index: digitIndex)
-                return nil
+            if digit >= 1 {
+                model.commit(index: digit - 1)
             }
-            if KeyCode.zeros.contains(event.keyCode) {
-                return nil
-            }
-            return event
+            return nil
         }
+    }
+
+    /// The digit 0–9 this key types on the current keyboard layout, if any. Decimal digits of any script
+    /// count (Arabic and Persian layouts type ١ and ۱ on their top row), so digits never type anywhere.
+    private static func typedDigit(of event: NSEvent) -> Int? {
+        guard let typed = event.characters, typed.count == 1,
+              let character = typed.first,
+              character.unicodeScalars.count == 1,
+              character.unicodeScalars.first?.properties.numericType == .decimal,
+              let value = character.wholeNumberValue,
+              (0...9).contains(value) else { return nil }
+        return value
     }
 
     /// Standard editing shortcuts for the search field. An accessory app may have no Edit menu,

@@ -41,9 +41,14 @@ private let webLog = Logger(subsystem: "com.mememe.app", category: "web")
     private static let copyTimeout: TimeInterval = 8
     private static let pruneInterval: TimeInterval = 600
 
-    init(store: LibraryStore) {
+    convenience init(store: LibraryStore) {
+        self.init(store: store, cacheRoot: nil)
+    }
+
+    /// `cacheRoot`: the cache folder (nil = ~/Library/Caches/MemeMe/Web); tests pass a temp folder.
+    init(store: LibraryStore, cacheRoot: URL?) {
         self.store = store
-        paths = WebPaths.make()
+        paths = WebPaths.make(root: cacheRoot)
         let configuration = URLSessionConfiguration.default
         configuration.urlCache = nil
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
@@ -190,7 +195,8 @@ private let webLog = Logger(subsystem: "com.mememe.app", category: "web")
         }
         guard let manifest = manifests[mood] else { return nil }
         let age = Date().timeIntervalSince(manifest.fetchedAt)
-        guard age >= -60, age < WebDiscover.freshness else { return nil }
+        // A manifest whose stills were all pruned (or that never got any) is stale: fetch it again.
+        guard age >= -60, age < WebDiscover.freshness, !manifest.items.isEmpty else { return nil }
         return manifest
     }
 
@@ -341,10 +347,15 @@ private struct WebPaths: Sendable {
         root.appendingPathComponent(mood.rawValue + ".json", isDirectory: false)
     }
 
-    static func make() -> WebPaths {
+    static func make(root customRoot: URL? = nil) -> WebPaths {
         let fileManager = FileManager.default
-        let caches = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first ?? fileManager.temporaryDirectory
-        let root = caches.appendingPathComponent("MemeMe/Web", isDirectory: true)
+        let root: URL
+        if let customRoot = customRoot {
+            root = customRoot
+        } else {
+            let caches = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first ?? fileManager.temporaryDirectory
+            root = caches.appendingPathComponent("MemeMe/Web", isDirectory: true)
+        }
         let files = root.appendingPathComponent("files", isDirectory: true)
         try? fileManager.createDirectory(at: files, withIntermediateDirectories: true, attributes: nil)
         return WebPaths(root: root, files: files)
@@ -463,6 +474,8 @@ private enum WebFetcher {
         }
 
         let items = collected.sorted { $0.0 < $1.0 }.map { $0.1 }
+        // No still could be downloaded or analyzed: fail (60 s retry) instead of caching nothing for 24 h.
+        guard !items.isEmpty else { throw WebFetchError.badResponse }
         let manifest = MoodManifest(fetchedAt: fetchedAt, items: items)
         saveManifest(manifest, to: paths.manifestURL(for: mood))
         return manifest
@@ -680,7 +693,14 @@ private enum WebFetcher {
         var total: Int64 = 0
         for file in remaining { total += file.size }
         if total > maximumCacheBytes {
-            for file in remaining.sorted(by: { $0.date < $1.date }) {
+            // Full and preview GIFs are downloaded again on demand; stills back fresh manifests, so they go last.
+            let ordered = remaining.sorted { first, second in
+                let firstIsStill = first.name.contains("-still.")
+                let secondIsStill = second.name.contains("-still.")
+                if firstIsStill != secondIsStill { return secondIsStill }
+                return first.date < second.date
+            }
+            for file in ordered {
                 guard total > maximumCacheBytes else { break }
                 if (try? fileManager.removeItem(at: file.url)) != nil {
                     total -= file.size

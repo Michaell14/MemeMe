@@ -11,6 +11,7 @@ Read `docs/DESIGN.md` for behavior and exact UI strings.
   - `MemeMeCore` — library, **Foundation only** (no AppKit/Vision/CoreGraphics/Accelerate/CryptoKit). Must also compile on Linux. Everything is `public`.
   - `MemeMeApp` — executable (product name `MemeMe`). AppKit + SwiftUI + AVFoundation + Vision + CoreImage + ImageIO + CryptoKit + Carbon + ServiceManagement + UniformTypeIdentifiers + Network. Types are `internal`.
   - `MemeMeCoreTests` — XCTest for the core.
+  - `MemeMeAppTests` — XCTest for the app target (`@testable import MemeMeApp`): GIPHY decoding via a URLProtocol stub, ImageAnalyzer on generated images, clipboard naming, keep/undo, sticker eligibility, headless AppModel text search.
 - `scripts/build-app.sh` assembles `build/MemeMe.app` (Info.plist from `Resources/Info.plist`, `GiphyAPIKey` filled from `$GIPHY_API_KEY`), ad-hoc signs it and zips it. CI (`.github/workflows/ci.yml`, `macos-15`) runs `swift build`, `swift test`, the script, and uploads the zip.
 - Logging: `os.Logger(subsystem: "com.mememe.app", category: "<file area>")`. Never log file contents, OCR text or face data.
 - Concurrency: classes that publish UI state are `@MainActor`. Heavy work (Vision, ImageIO, hashing, network decoding) runs off the main actor (`Task.detached(priority: .utility)` or a private `DispatchQueue`), results hop back with `await MainActor.run` or `@MainActor` methods. Avoid `Sendable` warnings becoming errors: no `-strict-concurrency=complete`.
@@ -493,7 +494,7 @@ Requests per frame: `VNDetectFaceLandmarksRequest`, `VNDetectHumanBodyPoseReques
 ```swift
 @MainActor final class ThumbnailCache {
     static let shared: ThumbnailCache
-    func cached(_ url: URL) -> NSImage?
+    func cached(_ url: URL, minPixel: Int = 256) -> NSImage?   // nil unless an entry decoded at >= minPixel exists
     /// CGImageSourceCreateThumbnailAtIndex off the main actor; NSCache (≈300 entries).
     func thumbnail(for url: URL, maxPixel: Int = 256) async -> NSImage?
 }
@@ -509,7 +510,8 @@ Requests per frame: `VNDetectFaceLandmarksRequest`, `VNDetectHumanBodyPoseReques
     @Published private(set) var regionRects: [FaceRegion: CGRect]   // latest face, Vision-normalized image coordinates
     let session: AVCaptureSession
     var onSample: ((ExpressionSample) -> Void)?   // delivered on the main actor, ≤ 10 per second
-    var isInUseByAnotherApplication: Bool { get } // default video device's isInUseByAnotherApplication
+    var isInUseByAnotherApplication: Bool { get } // the device start() would use
+    var hasUsableCamera: Bool { get }             // false when no connected, unsuspended camera exists
     func refreshAuthorization()
     func requestAccess() async -> Bool
     func start()   // no-op unless authorized; lazily configures (front/default camera, .vga640x480 or .medium preset, BGRA output, alwaysDiscardsLateVideoFrames); startRunning on a private serial queue
@@ -735,12 +737,12 @@ enum Theme {
     func hide()                         // orders out, calls model.panelDidHide, reactivates the previous app if it is no longer frontmost
 }
 ```
-NSPanel subclass: `styleMask [.borderless, .nonactivatingPanel]`, `canBecomeKey true`, `canBecomeMain false`, `isFloatingPanel true`, `level .floating`, `collectionBehavior [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]`, `hidesOnDeactivate false`, `backgroundColor .clear`, `hasShadow true`, `sharingType .none`. Hosting: `NSHostingView(rootView: PanelView(model:))`, sized to fit (width 640). While visible: a local key-down monitor (keys in DESIGN.md: Esc, ↵/Enter, digits 1–9 with no modifiers, arrows, Space with empty query, Tab / Shift-Tab, ⌘V) and a global mouse-down monitor (outside click → hide). `model.onRequestClose = { [weak self] in self?.hide() }`.
+NSPanel subclass: `styleMask [.borderless, .nonactivatingPanel]`, `canBecomeKey true`, `canBecomeMain false`, `isFloatingPanel true`, `level .floating`, `collectionBehavior [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]`, `hidesOnDeactivate false`, `backgroundColor .clear`, `hasShadow true`, `sharingType .none`. Hosting: `NSHostingView(rootView: PanelView(model:))`, sized to fit (width 640). While visible: a local key-down monitor (keys in DESIGN.md: Esc, ↵/Enter, digits 1–9 as typed on the active keyboard layout, arrows, Space with empty query, Tab / Shift-Tab, ⌘V) and a global mouse-down monitor (outside click → hide). `model.onRequestClose = { [weak self] in self?.hide() }`.
 
 Key handling:
 - Esc → `if !model.handleEscape() { hide() }`
 - ↵ / Enter → `model.commitFocused()`
-- digits 1–9 → `model.commit(index: n - 1)`
+- digits 1–9 as typed on the active keyboard layout (main row or keypad; Shift allowed, no ⌘/⌃/⌥; 0 is swallowed) → `model.commit(index: n - 1)`
 - ←/→ → `model.moveFocus(dx: ∓1, dy: 0)` only when `model.queryText` is empty; ↑/↓ → `model.moveFocus(dx: 0, dy: ∓1)`
 - Space with empty query → `model.snap()`
 - Tab → `model.moreLikeFocused()`; Shift-Tab → `model.backToFace()`
@@ -844,6 +846,8 @@ enum DropOutcome { case kept(IndexBatch), stickers(StickerBatch), nothing }
     var onRequestClose: (() -> Void)?
 
     init(store: LibraryStore)
+    init(store: LibraryStore, webCacheRoot: URL?)   // tests pass a temp cache folder
+    var requestsCameraAccessOnShow: Bool             // default true; tests turn it off
     func start()                                     // after launch: indexer.startWatching(), web.prefetch(Mood.prefetchOrder), SystemConditions.startMonitoring()
     func setHotKeyAvailable(_ available: Bool)
 

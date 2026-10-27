@@ -92,7 +92,9 @@ final class HUDController {
         let visible = screen.visibleFrame
         let x = (screen.frame.midX - size.width / 2).rounded()
         // The margin is transparent, so the visible pill sits `topGap` below the menu bar.
-        let top = visible.maxY - topGap + shadowMargin
+        // With the menu bar hidden, stay below the camera housing (safe area is 0 without a notch).
+        let usableTop = min(visible.maxY, screen.frame.maxY - screen.safeAreaInsets.top)
+        let top = usableTop - topGap + shadowMargin
         return NSRect(x: x, y: (top - size.height).rounded(), width: size.width, height: size.height)
     }
 
@@ -159,7 +161,7 @@ private struct HUDPill: View {
                 image = nil
                 return
             }
-            if let cached = ThumbnailCache.shared.cached(url) {
+            if let cached = ThumbnailCache.shared.cached(url, minPixel: 96) {
                 image = cached
                 return
             }

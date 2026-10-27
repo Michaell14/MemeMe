@@ -56,10 +56,13 @@ final class CameraController: NSObject, ObservableObject {
         }
     }
 
-    /// Default video device's isInUseByAnotherApplication.
+    /// The preferred usable camera's isInUseByAnotherApplication.
     var isInUseByAnotherApplication: Bool {
         CameraController.preferredDevice()?.isInUseByAnotherApplication ?? false
     }
+
+    /// False when no connected, unsuspended camera exists (Mac mini/Studio without a webcam, or a closed lid without another camera).
+    var hasUsableCamera: Bool { CameraController.preferredDevice() != nil }
 
     func refreshAuthorization() {
         let status = AVCaptureDevice.authorizationStatus(for: .video)
@@ -146,21 +149,30 @@ final class CameraController: NSObject, ObservableObject {
 
     // MARK: - Session setup (session queue)
 
-    /// Built-in camera first, then any external camera, then the system default.
+    /// A camera that can deliver frames: connected and not suspended (a closed MacBook lid suspends the built-in one).
+    private nonisolated static func isUsable(_ device: AVCaptureDevice) -> Bool {
+        device.isConnected && !device.isSuspended
+    }
+
+    /// Built-in camera first, then any external or Continuity Camera, then the system default;
+    /// disconnected or suspended cameras are skipped.
     private nonisolated static func preferredDevice() -> AVCaptureDevice? {
         let discovery = AVCaptureDevice.DiscoverySession(
-            deviceTypes: [.builtInWideAngleCamera, .external],
+            deviceTypes: [.builtInWideAngleCamera, .external, .continuityCamera],
             mediaType: .video,
             position: .unspecified
         )
-        let devices = discovery.devices.filter { $0.isConnected }
+        let devices = discovery.devices.filter { isUsable($0) }
         if let builtIn = devices.first(where: { $0.deviceType == .builtInWideAngleCamera }) {
             return builtIn
         }
         if let other = devices.first {
             return other
         }
-        return AVCaptureDevice.default(for: .video)
+        if let fallback = AVCaptureDevice.default(for: .video), isUsable(fallback) {
+            return fallback
+        }
+        return nil
     }
 
     /// Adds the camera input and a BGRA video data output once. Returns true when the session is ready to run.
@@ -169,7 +181,9 @@ final class CameraController: NSObject, ObservableObject {
         processor: FrameProcessor,
         frameQueue: DispatchQueue
     ) -> Bool {
-        if !session.inputs.isEmpty && !session.outputs.isEmpty {
+        // Reuse the configured camera only while it can still deliver frames (unplugged webcam, closed lid → reconfigure).
+        let currentDevice = session.inputs.compactMap { ($0 as? AVCaptureDeviceInput)?.device }.first
+        if let currentDevice, isUsable(currentDevice), !session.outputs.isEmpty {
             return true
         }
         guard let device = preferredDevice() else {

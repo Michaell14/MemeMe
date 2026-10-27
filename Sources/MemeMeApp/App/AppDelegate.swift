@@ -12,6 +12,10 @@ private let launchLog = Logger(subsystem: "com.mememe.app", category: "app")
     private var popoverModel: StickerPopoverModel?
     private var hotKey: HotKey?
 
+    /// Set once the first-run panel has opened by itself, so later launches (login) stay quiet until ⌃⌘M.
+    /// AppModel.syncLoginItem reads it too: only that first launch registers Open at Login by itself.
+    static let firstRunPanelShownKey = "firstRunPanelShown"
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         installEditMenu()
         guard let store = openStore() else {
@@ -39,8 +43,12 @@ private let launchLog = Logger(subsystem: "com.mememe.app", category: "app")
         model.setHotKeyAvailable(hotKey.register())
         model.start()
 
-        // First run: the panel opens by itself, centered, so there is something to try right away.
-        if !store.settings.hasCompletedFirstRun {
+        // First run: the panel opens by itself, centered, once per install. Later launches (login item)
+        // stay quiet until ⌃⌘M; the You're-set card still appears on the first pick (AppModel).
+        let defaults = UserDefaults.standard
+        if !store.settings.hasCompletedFirstRun,
+           !defaults.bool(forKey: AppDelegate.firstRunPanelShownKey) {
+            defaults.set(true, forKey: AppDelegate.firstRunPanelShownKey)
             panel.show(centered: true)
         }
     }

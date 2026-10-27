@@ -135,6 +135,10 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
 
     var onRequestClose: (() -> Void)?
 
+    /// Opening the panel with camera access undecided asks for it 0.6 s later (first run).
+    /// Tests turn this off so opening the panel never schedules the system prompt.
+    var requestsCameraAccessOnShow = true
+
     // MARK: Timing (DESIGN.md)
 
     /// ↵ is ignored this soon after the last edit of the search field.
@@ -150,6 +154,8 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
     private static let slowCopyNanoseconds: UInt64 = 150_000_000
     /// First-run fallback: wait this long for GIPHY "reaction" results when nothing local exists.
     private static let reactionFetchTimeout: TimeInterval = 8
+    /// Fresh web results that take longer are dropped from the current grid (DESIGN.md: 1.5 s).
+    private static let webMergeTimeout: TimeInterval = 1.5
     private static let poseActiveThreshold = 0.3
     private static let keptSource = "Kept"
 
@@ -174,7 +180,12 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
     private var textBeganAt: TimeInterval?
     private var searchGeneration = 0
     private var imageGeneration = 0
-    private var isCommitting = false
+    /// Bumped on every open, so a pick that finishes late never acts on a newer panel.
+    private var sessionID = 0
+    /// The newest pick; an older one that finishes later leaves the clipboard alone.
+    private var commitToken = 0
+    /// The open whose pick is still being copied (one pick at a time per open).
+    private var committingSession: Int?
     private var setupCardShownThisSession = false
     private var libraryOfferHiddenThisSession = false
     private var shownSummaryID: UUID?
@@ -188,11 +199,16 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
 
     private var limit: Int { Theme.resultLimit }
 
-    init(store: LibraryStore) {
+    convenience init(store: LibraryStore) {
+        self.init(store: store, webCacheRoot: nil)
+    }
+
+    /// `webCacheRoot`: where web discovery keeps its cache (nil = ~/Library/Caches/MemeMe/Web); tests pass a temp folder.
+    init(store: LibraryStore, webCacheRoot: URL?) {
         self.store = store
         self.camera = CameraController()
         self.indexer = LibraryIndexer(store: store)
-        self.web = WebDiscover(store: store)
+        self.web = WebDiscover(store: store, cacheRoot: webCacheRoot)
         self.friends = FriendService(store: store)
         self.tracker = PeakHoldTracker(baseline: store.settings.baseline)
 
@@ -230,6 +246,7 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
     // MARK: - Panel lifecycle
 
     func panelWillShow(previousApp: NSRunningApplication?) {
+        sessionID += 1
         let ownBundleID = Bundle.main.bundleIdentifier
         if let bundleID = previousApp?.bundleIdentifier, bundleID != ownBundleID {
             previousBundleID = bundleID
@@ -241,7 +258,7 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
         resetForNewSession()
         enterCameraMode()
         showRecentResults()
-        if camera.authorization == .notDetermined {
+        if requestsCameraAccessOnShow && camera.authorization == .notDetermined {
             scheduleCameraAccessRequest(after: AppModel.cameraPromptDelay)
         }
         refreshFooter()
@@ -265,11 +282,15 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
     // MARK: - Input
 
     func commit(index: Int) {
-        guard index >= 0, index < results.count, !isCommitting else { return }
+        guard index >= 0, index < results.count, committingSession != sessionID else { return }
         let item = results[index].item
-        isCommitting = true
+        commitToken += 1
+        let token = commitToken
+        let session = sessionID
+        let appBundleID = previousBundleID
+        committingSession = session
         Task { [weak self] in
-            await self?.performCommit(item)
+            await self?.performCommit(item, token: token, session: session, appBundleID: appBundleID)
         }
     }
 
@@ -648,8 +669,12 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
         }
         switch camera.authorization {
         case .authorized:
-            camera.start()
-            mode = .warming
+            if camera.hasUsableCamera {
+                camera.start()
+                mode = .warming
+            } else {
+                mode = .cameraOff   // "No camera · Drop, paste or type instead."
+            }
         case .notDetermined:
             mode = .prompt
         case .denied, .restricted:
@@ -760,27 +785,37 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
 
         let ranker = Ranker(baseline: tracker.baseline)
         let cached = web.cachedItems(for: mood)
-        let ranked = ranker.rank(store.items + cached, query: .expression(sample, weights: weights), people: store.people, limit: limit)
-        setResults(ranked, animateNew: animate, resetFocus: true)
+        let ranked = ranker.rank(libraryPool(adding: cached), query: .expression(sample, weights: weights), people: store.people, limit: limit)
+        // Nothing local or cached matches this face yet: keep the recent / "reaction" tiles rather than blank the grid.
+        if !ranked.isEmpty || results.isEmpty {
+            setResults(ranked, animateNew: animate, resetFocus: true)
+        }
 
         guard cached.isEmpty, web.isAvailable else { return }
+        // With no match for this face on screen nothing can be reshuffled, so wait for the whole fetch.
+        let showsNoMatch = ranked.isEmpty
+        let timeout = showsNoMatch ? AppModel.reactionFetchTimeout : AppModel.webMergeTimeout
         webTask = Task { [weak self] in
             guard let self else { return }
-            // Times out after 1.5 s; a late fetch still fills the cache for next time.
-            let fetched = await self.web.items(for: mood)
+            // A fetch that outlasts the timeout still fills the cache for next time.
+            let fetched = await self.web.items(for: mood, timeout: timeout)
             guard !Task.isCancelled, generation == self.searchGeneration, !fetched.isEmpty else { return }
-            self.mergeWebResults(fetched, sample: sample, weights: weights)
+            self.mergeWebResults(fetched, sample: sample, weights: weights, replacingPlaceholders: showsNoMatch)
         }
     }
 
     /// Late web results fill in behind: the user's strong own matches and the focused tile never move.
-    private func mergeWebResults(_ webItems: [LibraryItem], sample: ExpressionSample, weights: FeatureWeights) {
+    /// `replacingPlaceholders`: the grid still shows recent / "reaction" tiles that don't match this face, so only
+    /// a tile the user pointed at stays put.
+    private func mergeWebResults(_ webItems: [LibraryItem], sample: ExpressionSample, weights: FeatureWeights, replacingPlaceholders: Bool = false) {
         guard isPanelVisible, resultSource == .expression else { return }
         let ranker = Ranker(baseline: tracker.baseline)
-        let incoming = ranker.rank(store.items + webItems, query: .expression(sample, weights: weights), people: store.people, limit: limit)
+        let incoming = ranker.rank(libraryPool(adding: webItems), query: .expression(sample, weights: weights), people: store.people, limit: limit)
         // The focused tile is what ↵ copies (and what the focus line names) even before the user moved the
         // focus, so everything up to and including it stays put.
-        let lockedCount = max(ResultMerger.strongOwnPrefix(results), focusedIndex + 1)
+        let lockedCount = replacingPlaceholders
+            ? (userInteracted ? focusedIndex + 1 : 0)
+            : max(ResultMerger.strongOwnPrefix(results), focusedIndex + 1)
         let merged = ResultMerger.merge(current: results, incoming: incoming, lockedCount: lockedCount, limit: limit)
         setResults(merged, animateNew: true, resetFocus: false)
     }
@@ -856,6 +891,12 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
             }
         }
         return pool
+    }
+
+    /// Library items plus the web items the library doesn't already hold (sent GIPHY picks are kept in it).
+    private func libraryPool(adding webItems: [LibraryItem]) -> [LibraryItem] {
+        let known = Set(store.items.map { $0.id })
+        return store.items + webItems.filter { !known.contains($0.id) }
     }
 
     private func setResults(_ newResults: [RankedResult], animateNew: Bool, resetFocus: Bool) {
@@ -1081,9 +1122,16 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
 
     // MARK: - Commit
 
-    private func performCommit(_ item: LibraryItem) async {
-        defer { isCommitting = false }
-        guard let fileURL = await resolveFileForCopy(item) else {
+    private func performCommit(_ item: LibraryItem, token: Int, session: Int, appBundleID: String?) async {
+        defer {
+            if committingSession == session { committingSession = nil }
+        }
+        let resolved = await resolveFileForCopy(item)
+        // A newer pick (made after reopening the panel) owns the clipboard.
+        guard token == commitToken else { return }
+        // The panel this pick came from may have closed (and another opened) while a web GIF downloaded.
+        let isSameOpen = session == sessionID && isPanelVisible
+        guard let fileURL = resolved else {
             HUDController.shared.show("Couldn’t copy that one. Try another.")
             return
         }
@@ -1094,9 +1142,9 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
             HUDController.shared.show("Couldn’t copy that one. Try another.")
             return
         }
-        recordSent(item)
+        recordSent(item, appBundleID: appBundleID)
 
-        if !store.settings.hasCompletedFirstRun {
+        if !store.settings.hasCompletedFirstRun, isSameOpen {
             // First pick: the panel stays open with the You're-set card (the camera has nothing to show meanwhile).
             var settings = store.settings
             settings.hasCompletedFirstRun = true
@@ -1110,7 +1158,7 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
             return
         }
         saveSoon()
-        if isPanelVisible {
+        if isSameOpen {
             onRequestClose?()
         }
         HUDController.shared.show("Copied “\(item.displayName)” · ⌘V — not sent", thumbnail: item.fileURL)
@@ -1131,14 +1179,28 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
         return url
     }
 
-    private func recordSent(_ item: LibraryItem) {
+    private func recordSent(_ item: LibraryItem, appBundleID: String?) {
         if var stored = store.item(id: item.id) {
             stored.timesSent += 1
             stored.lastSentAt = Date()
             store.update(stored)
+        } else if item.kind == .web {
+            // A sent GIPHY pick outlives the 24 h web cache, so "⌃⌘M then ↵" can repeat it. Its still is
+            // copied out of the cache; the full GIF is downloaded again from remoteURL when it is copied.
+            var sent = item
+            sent.timesSent = 1
+            sent.lastSentAt = Date()
+            let fileManager = FileManager.default
+            let directory = store.rootURL.appendingPathComponent("Sent", isDirectory: true)
+            let copy = directory.appendingPathComponent(item.fileURL.lastPathComponent, isDirectory: false)
+            try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
+            if fileManager.fileExists(atPath: copy.path) || (try? fileManager.copyItem(at: item.fileURL, to: copy)) != nil {
+                sent.fileURL = copy
+            }
+            store.add(sent)   // keeps the stable id and contentHash "giphy:<id>"
         }
         var recents = store.recents
-        recents.record(item.id, appBundleID: previousBundleID)
+        recents.record(item.id, appBundleID: appBundleID)
         store.recents = recents
     }
 
@@ -1243,7 +1305,11 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
             let name = moreLikeItem?.displayName ?? "this"
             return PanelHint(title: "More like “\(name)”", subtitle: nil, actionTitle: HintCopy.backToFaceAction, action: .backToFace)
         case .cameraOff:
-            return PanelHint(title: HintCopy.cameraOffTitle, subtitle: HintCopy.cameraOffSubtitle, actionTitle: HintCopy.cameraOffAction, action: .turnOnCamera)
+            // Authorized but no usable camera: there is nothing to turn on in System Settings.
+            let canTurnOn = camera.authorization != .authorized
+            return PanelHint(title: HintCopy.cameraOffTitle, subtitle: HintCopy.cameraOffSubtitle,
+                             actionTitle: canTurnOn ? HintCopy.cameraOffAction : nil,
+                             action: canTurnOn ? .turnOnCamera : nil)
         case .cameraBusy:
             return PanelHint(title: HintCopy.cameraBusyTitle, subtitle: HintCopy.cameraBusySubtitle, actionTitle: HintCopy.cameraBusyAction, action: .useCamera)
         }
@@ -1306,9 +1372,12 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
     }
 
     /// First run registers Open at Login (checked by default); later launches mirror the system's state.
+    /// Only the launch that opens the first-run panel by itself counts as first run (AppDelegate sets the flag
+    /// after this runs), so a login item the user removed in System Settings isn't registered again.
     private func syncLoginItem() {
         var settings = store.settings
-        if !settings.hasCompletedFirstRun {
+        let firstRunPanelShown = UserDefaults.standard.bool(forKey: AppDelegate.firstRunPanelShownKey)
+        if !settings.hasCompletedFirstRun && !firstRunPanelShown {
             if settings.openAtLogin && !LoginItem.isEnabled {
                 settings.openAtLogin = LoginItem.setEnabled(true)
             }

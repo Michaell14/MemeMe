@@ -62,14 +62,29 @@ enum StickerMaker {
         let handler = VNImageRequestHandler(cgImage: image, options: [:])
         let maskRequest = VNGenerateForegroundInstanceMaskRequest()
         try handler.perform([maskRequest])
-        guard let observation = typed(maskRequest.results ?? [], as: VNInstanceMaskObservation.self).first else {
+        guard var observation = typed(maskRequest.results ?? [], as: VNInstanceMaskObservation.self).first else {
             return []
         }
-        let instances = observation.allInstances
-        guard !instances.isEmpty else { return [] }
+        guard !observation.allInstances.isEmpty else { return [] }
 
         // Each face → the instance label that covers most of its box; keep the largest face per instance.
-        let labels = instanceLabels(for: faces, mask: observation.instanceMask, instances: instances)
+        var labels = instanceLabels(for: faces, mask: observation.instanceMask, instances: observation.allInstances)
+
+        // Subject lifting can return people who touch as one combined subject: separate them with person instances.
+        let assigned = labels.compactMap { $0 }
+        if Set(assigned).count < assigned.count {
+            let personRequest = VNGeneratePersonInstanceMaskRequest()
+            if (try? handler.perform([personRequest])) != nil,
+               let people = typed(personRequest.results ?? [], as: VNInstanceMaskObservation.self).first,
+               !people.allInstances.isEmpty {
+                let personLabels = instanceLabels(for: faces, mask: people.instanceMask, instances: people.allInstances)
+                if Set(personLabels.compactMap { $0 }).count > Set(assigned).count {
+                    observation = people
+                    labels = personLabels
+                }
+            }
+        }
+
         var faceIndexForLabel: [Int: Int] = [:]
         var labelOrder: [Int] = []
         for (faceIndex, label) in labels.enumerated() {
