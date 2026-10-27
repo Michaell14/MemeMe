@@ -1,37 +1,42 @@
 <title>MemeMe</title>
 <meta name="claude:viewport-fit-sides" content="cover">
-<meta name="description" content="MemeMe lives in your Mac’s menu bar. Press ⌃⌘M in any chat, make a face, and copy the reaction that matches.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Funnel+Display:wght@500..700&family=Funnel+Sans:wght@400..600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&text=OMGICAN%E2%80%99TSRYLDUFE%20&display=swap">
 <style>
-/* Layout: the page is a Mac desktop you scroll through. A working menu bar on top, MemeMe's panel
-   hanging from the notch on a smiley-yellow desktop, then the story on plain paper below. */
+/* Layout: "Night shift". The top edge of a MacBook display at night: MemeMe's panel hangs from the notch on the right,
+   the promise sits left-aligned beside it. Then one spec-like section (three steps, three facts) and one download panel. */
 :root {
-  --paper: #F4F5F9;
-  --card: #FFFFFF;
-  --ink: #0E1324;
-  --ink-2: #4A5066;
-  --line: #DADDE7;
-  --line-2: #C3C7D4;
-  --sun: #F5C451;
-  --wall-ink: #E0AA2D;
-  --on-sun: #0E1324;
-  --on-sun-2: #3A3420;
-  --peri: #3D61D6;
-  --bubble: #E8E9EE;
+  --bg: #F2F3F7;
+  --bg-2: #FFFFFF;
+  --fg: #0E1118;
+  --fg-2: #474E5E;
+  --fg-3: #5F6676;
+  --line: #E0E3EA;
+  --line-2: #C9CED9;
+  --accent: #3A5FD9;
+  --accent-hi: #2D50C2;
+  --accent-ink: #FFFFFF;
+  --accent-soft: rgba(58, 95, 217, .10);
+  --amber: #E2A11B;
+  --glow: rgba(58, 95, 217, .13);
+  --key-bg: #FFFFFF;
+  --key-line: #C9CED9;
+  --key-fg: #0E1118;
+  --rim: #B9BEC9;
+  --bezel: #22242A;
+  --seg-track: rgba(14, 17, 24, .055);
+  --seg-on: #FFFFFF;
+  --seg-shadow: 0 1px 2px rgba(14, 17, 24, .12), 0 0 0 .5px rgba(14, 17, 24, .1);
+  --wall-top: #C2CCE5;
+  --wall-bot: #E2E7F1;
+  --wall-light: rgba(255, 255, 255, .8);
+  --mbar: rgba(250, 251, 253, .6);
+  --mbar-fg: #13161D;
+  --mbar-hi: rgba(19, 22, 29, .1);
 
-  --bar: rgba(244, 245, 249, .80);
-  --bar-solid: #F1F2F6;
-  --bar-fg: #0E1324;
-  --bar-hover: rgba(14, 19, 36, .10);
-  --bar-line: rgba(14, 19, 36, .08);
-  --menu: rgba(246, 246, 249, .94);
-  --menu-fg: #14161D;
-  --menu-dim: rgba(20, 22, 29, .42);
-  --menu-sep: rgba(20, 22, 29, .12);
-
-  /* MemeMe's panel is always dark (Theme.swift). */
+  /* MemeMe's panel is always dark (the app's Theme). */
   --p-bg: #1E1F24;
   --p-surface: #26282E;
   --p-border: #3A3C44;
@@ -43,840 +48,510 @@
   --p-place: #9A9DA6;
   --p-accent: #7AA2FF;
   --p-amber: #F5C451;
-  --p-green: #5FD38D;
   --p-mirror: #0E0F12;
   --p-badge: rgba(14, 15, 18, .72);
-  --p-link: #9DB8FF;
 
-  --display: "Anton", Impact, "Haettenschweiler", "Arial Narrow Bold", sans-serif;
-  --ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --display: "Funnel Display", "Funnel Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --body: "Funnel Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Funnel Sans", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --sym: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Symbol", "Segoe UI", "DejaVu Sans", sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, "JetBrains Mono", "Liberation Mono", monospace;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --paper: #0F1116; --card: #171A21; --ink: #ECECEF; --ink-2: #A3A7B3; --line: #262A33; --line-2: #383C47;
-    --sun: #E9B842; --wall-ink: #CC9A25; --peri: #8AABFF; --bubble: #2A2D35;
-    --bar: rgba(24, 26, 32, .74); --bar-solid: #181A20; --bar-fg: #F2F2F5; --bar-hover: rgba(255, 255, 255, .14); --bar-line: rgba(255, 255, 255, .06);
-    --menu: rgba(42, 44, 51, .95); --menu-fg: #EFEFF2; --menu-dim: rgba(239, 239, 242, .42); --menu-sep: rgba(239, 239, 242, .14);
+    --bg: #0B0D12; --bg-2: #10131A; --fg: #E8EBF1; --fg-2: #A3AABA; --fg-3: #858C9C;
+    --line: #1C2029; --line-2: #2A2F3A;
+    --accent: #7AA2FF; --accent-hi: #96B6FF; --accent-ink: #0A0E1A; --accent-soft: rgba(122, 162, 255, .12);
+    --amber: #F5C451; --glow: rgba(122, 162, 255, .16);
+    --key-bg: #151922; --key-line: #2A2F3A; --key-fg: #E8EBF1;
+    --rim: #262B35; --bezel: #040506;
+    --seg-track: rgba(255, 255, 255, .05); --seg-on: #222733; --seg-shadow: 0 1px 2px rgba(0, 0, 0, .5), 0 0 0 .5px rgba(255, 255, 255, .08);
+    --wall-top: #182036; --wall-bot: #0C0F16; --wall-light: rgba(122, 162, 255, .3);
+    --mbar: rgba(14, 17, 24, .5); --mbar-fg: #EDEFF4; --mbar-hi: rgba(255, 255, 255, .14);
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
-  --paper: #0F1116; --card: #171A21; --ink: #ECECEF; --ink-2: #A3A7B3; --line: #262A33; --line-2: #383C47;
-  --sun: #E9B842; --wall-ink: #CC9A25; --peri: #8AABFF; --bubble: #2A2D35;
-  --bar: rgba(24, 26, 32, .74); --bar-solid: #181A20; --bar-fg: #F2F2F5; --bar-hover: rgba(255, 255, 255, .14); --bar-line: rgba(255, 255, 255, .06);
-  --menu: rgba(42, 44, 51, .95); --menu-fg: #EFEFF2; --menu-dim: rgba(239, 239, 242, .42); --menu-sep: rgba(239, 239, 242, .14);
+  --bg: #0B0D12; --bg-2: #10131A; --fg: #E8EBF1; --fg-2: #A3AABA; --fg-3: #858C9C;
+  --line: #1C2029; --line-2: #2A2F3A;
+  --accent: #7AA2FF; --accent-hi: #96B6FF; --accent-ink: #0A0E1A; --accent-soft: rgba(122, 162, 255, .12);
+  --amber: #F5C451; --glow: rgba(122, 162, 255, .16);
+  --key-bg: #151922; --key-line: #2A2F3A; --key-fg: #E8EBF1;
+  --rim: #262B35; --bezel: #040506;
+  --seg-track: rgba(255, 255, 255, .05); --seg-on: #222733; --seg-shadow: 0 1px 2px rgba(0, 0, 0, .5), 0 0 0 .5px rgba(255, 255, 255, .08);
+  --wall-top: #182036; --wall-bot: #0C0F16; --wall-light: rgba(122, 162, 255, .3);
+  --mbar: rgba(14, 17, 24, .5); --mbar-fg: #EDEFF4; --mbar-hi: rgba(255, 255, 255, .14);
   color-scheme: dark;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
-html { scroll-behavior: smooth; scroll-padding-top: calc(env(safe-area-inset-top, 0px) + 48px); }
+html { scroll-behavior: smooth; }
 body {
   margin: 0;
-  background: var(--paper);
-  color: var(--ink);
-  font: 400 16px/1.55 var(--ui);
+  background: var(--bg);
+  color: var(--fg);
+  font: 400 16px/1.6 var(--body);
   -webkit-font-smoothing: antialiased;
   overflow-x: clip;
 }
-body::before {
-  content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px);
-  z-index: 60; background: var(--bar-solid);
-}
-::selection { background: var(--sun); color: var(--on-sun); }
-:focus-visible { outline: 2px solid var(--peri); outline-offset: 2px; }
-button { font: inherit; color: inherit; }
+::selection { background: var(--accent); color: var(--accent-ink); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
 a { color: inherit; }
 p { margin: 0; }
 svg { display: block; }
+button { font: inherit; color: inherit; }
 
 .wrap {
-  max-width: 1160px; margin: 0 auto;
-  padding-left: max(16px, env(safe-area-inset-left, 0px));
-  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  max-width: 1280px; margin: 0 auto;
+  padding-left: max(clamp(16px, 3.4vw, 40px), env(safe-area-inset-left, 0px));
+  padding-right: max(clamp(16px, 3.4vw, 40px), env(safe-area-inset-right, 0px));
 }
-h2 {
-  font: 400 clamp(44px, 6.2vw, 84px)/.92 var(--display);
-  text-transform: uppercase; letter-spacing: .004em;
-  margin: 0; text-wrap: balance;
-}
-h3 { font-size: 19px; line-height: 1.3; font-weight: 650; margin: 0; letter-spacing: -.005em; text-wrap: balance; }
-.lede { font-size: clamp(18px, 1.5vw, 20px); color: var(--ink-2); max-width: 36em; margin-top: 18px; }
-kbd {
-  display: inline-block; min-width: 1.6em; text-align: center;
-  font: 600 .8em/1.5 var(--ui); padding: 0 .4em; margin: 0 .06em;
-  color: var(--ink); background: var(--card);
-  border: 1px solid var(--line-2); border-bottom-width: 2px; border-radius: 6px;
-  vertical-align: .08em;
-}
+.sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.nw { white-space: nowrap; }
+h1, h2, h3 { font-family: var(--display); margin: 0; text-wrap: balance; }
+h2 { font-weight: 600; font-size: clamp(30px, 3.3vw, 44px); line-height: 1.08; letter-spacing: -.025em; }
+h3 { font-weight: 600; font-size: 18px; line-height: 1.3; letter-spacing: -.01em; }
 
-/* ---------- Menu bar ---------- */
-.menubar {
-  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 50;
-  background: var(--bar); color: var(--bar-fg);
-  -webkit-backdrop-filter: saturate(1.8) blur(20px); backdrop-filter: saturate(1.8) blur(20px);
-  border-bottom: 1px solid var(--bar-line);
-  font: 500 13px/1 var(--ui);
+kbd {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 1.75em; height: 1.6em; padding: 0 .38em; margin: 0 .05em;
+  font: 500 .8em/1 var(--sym);
+  color: var(--key-fg); background: var(--key-bg);
+  border: 1px solid var(--key-line); border-bottom-width: 2px; border-radius: 6px;
+  vertical-align: .1em;
 }
-.mb-inner {
-  position: relative; height: 30px;
+.glyph { width: 1em; height: 1em; }
+
+/* ---------- Top bar ---------- */
+.top-in { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-block: 18px; }
+.brand { display: inline-flex; align-items: center; gap: 9px; text-decoration: none; font: 600 19px/1 var(--display); letter-spacing: -.015em; }
+.brand svg { width: 22px; height: 22px; }
+.top-links { display: flex; align-items: center; gap: 6px; }
+.top-links a { text-decoration: none; font: 500 14.5px/1 var(--body); padding: 9px 12px; border-radius: 9px; color: var(--fg-2); transition: color .15s, background .15s; }
+.top-links a:hover { color: var(--fg); }
+.top-links .ghost { color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); padding: 8px 14px; }
+.top-links .ghost:hover { color: var(--accent-hi); border-color: var(--accent); background: var(--accent-soft); }
+
+/* ---------- Hero ---------- */
+.hero { position: relative; isolation: isolate; }
+.hero-in {
+  display: grid; grid-template-columns: minmax(360px, 1fr) minmax(0, 640px);
+  gap: clamp(40px, 5vw, 72px); align-items: center;
+  padding-block: clamp(28px, 4.5vw, 64px) clamp(64px, 7vw, 96px);
+}
+.kicker { display: inline-flex; align-items: center; gap: 9px; font: 500 14.5px/1 var(--body); color: var(--fg-2); }
+.kicker svg { width: 18px; height: 18px; color: var(--fg); }
+h1 { margin-top: 22px; font-weight: 600; font-size: clamp(42px, 4.4vw, 64px); line-height: 1; letter-spacing: -.035em; }
+h1 span { display: block; white-space: nowrap; }
+.lede { margin-top: 24px; max-width: 30em; font-size: clamp(17px, 1.3vw, 18.5px); line-height: 1.6; color: var(--fg-2); }
+.lede kbd { font-size: .78em; }
+.cta { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 22px; margin-top: 34px; }
+.dl {
+  display: inline-flex; align-items: center; gap: 12px;
+  padding: 12px 22px 12px 17px; border-radius: 12px;
+  background: var(--accent); color: var(--accent-ink); text-decoration: none;
+  font: 600 16px/1.15 var(--body);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .22) inset, 0 10px 30px -12px var(--accent);
+  transition: background .15s, transform .15s;
+}
+.dl:hover { background: var(--accent-hi); }
+.dl:active { transform: translateY(1px); }
+.dl svg { width: 20px; height: 20px; flex: none; }
+.dl small { display: block; margin-top: 3px; font-size: 12.5px; font-weight: 500; opacity: .78; }
+.src { display: inline-flex; align-items: center; gap: 6px; text-decoration: none; font: 500 15px/1 var(--body); color: var(--fg); }
+.src svg { width: 13px; height: 13px; color: var(--fg-3); transition: transform .15s; }
+.src:hover { text-decoration: underline; text-underline-offset: 4px; text-decoration-color: var(--line-2); }
+.src:hover svg { transform: translate(1px, -1px); }
+.req { margin-top: 22px; font-size: 13.5px; color: var(--fg-3); font-variant-numeric: tabular-nums; }
+
+/* The display */
+.hero-demo { position: relative; min-width: 0; }
+.callout {
+  position: relative; z-index: 4;
+  width: max-content; max-width: calc(100% - var(--co-r, 52px));
+  padding: 0 12px 0 0; margin: 0 var(--co-r, 52px) 18px auto;
+  font-size: 13px; line-height: 1.45; color: var(--fg-2); text-align: right; text-wrap: balance;
+}
+.callout b { display: block; color: var(--fg); font-weight: 600; }
+.callout::after {
+  content: ""; position: absolute; right: -.5px; top: 3px; width: 1px; height: var(--co-h, 64px);
+  background: var(--fg-3);
+}
+.callout::before {
+  content: ""; position: absolute; right: -2.5px; top: calc(3px + var(--co-h, 64px) - 2.5px); width: 5px; height: 5px; border-radius: 50%;
+  background: var(--fg-3);
+}
+.hero-demo::before {
+  content: ""; position: absolute; z-index: -1; left: 4%; right: 4%; top: -6%; height: 78%; pointer-events: none;
+  background: radial-gradient(closest-side, var(--glow), transparent);
+}
+.device {
+  position: relative; padding: 9px 9px 0;
+  border: 1px solid var(--rim); border-bottom: 0; border-radius: 26px 26px 0 0;
+  background: var(--bezel);
+  -webkit-mask-image: linear-gradient(#000 calc(100% - 56px), transparent);
+  mask-image: linear-gradient(#000 calc(100% - 56px), transparent);
+}
+.display {
+  position: relative; overflow: hidden; border-radius: 17px 17px 0 0;
+  background:
+    radial-gradient(ellipse 52% 62% at 50% -6%, var(--wall-light), transparent 72%),
+    linear-gradient(var(--wall-top), var(--wall-bot));
+}
+.mbar {
+  position: relative; z-index: 2; height: 26px;
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding-left: max(16px, env(safe-area-inset-left, 0px));
-  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding: 0 10px 0 16px;
+  background: var(--mbar); color: var(--mbar-fg);
+  -webkit-backdrop-filter: blur(18px) saturate(1.6); backdrop-filter: blur(18px) saturate(1.6);
+  font: 400 12.5px/1 var(--ui);
 }
-.mb-left, .mb-right { display: flex; align-items: center; gap: 2px; min-width: 0; }
-.mb-left a, .mb-icon {
-  display: inline-flex; align-items: center; height: 22px; padding: 0 9px;
-  border-radius: 5px; text-decoration: none; white-space: nowrap;
+.mb-l, .mb-r { display: flex; align-items: center; min-width: 0; white-space: nowrap; }
+.mb-l { gap: 17px; }
+.mb-l b { font-weight: 700; }
+.mb-r { gap: 13px; }
+.mb-r svg { height: 12px; width: auto; }
+.mb-smiley {
+  display: inline-flex; align-items: center; height: 20px; padding: 0 5px; margin-right: -3px;
+  border: 0; border-radius: 5px; background: none; cursor: pointer; color: inherit;
 }
-.mb-left a:hover, .mb-icon:hover, .mb-icon[aria-expanded="true"] { background: var(--bar-hover); }
-.mb-left .mb-app { font-weight: 700; }
-.mb-icon { border: 0; background: none; cursor: default; padding: 0 7px; position: relative; }
-.mb-icon svg { width: 17px; height: 17px; }
-.mb-icon.quit svg { opacity: .28; }
-.mb-icon.nudge { animation: nudge 1.2s ease-in-out 2; }
-@keyframes nudge { 0%, 100% { background: transparent; } 40% { background: var(--bar-hover); } }
-.mb-status { display: flex; align-items: center; gap: 14px; padding: 0 10px 0 6px; }
-.mb-status svg { height: 13px; width: auto; }
-.mb-clock { white-space: nowrap; padding-left: 4px; font-variant-numeric: tabular-nums; }
+.mb-smiley svg { width: 15px; height: 15px; }
+.mb-smiley:hover, .mb-smiley[aria-expanded="true"] { background: var(--mbar-hi); }
+.mb-smiley:focus-visible { outline-offset: 1px; }
+#clock { font-variant-numeric: tabular-nums; }
 .notch {
-  position: absolute; left: 50%; top: 0; transform: translateX(-50%);
-  width: 186px; height: 30px; background: #000; border-radius: 0 0 11px 11px;
+  position: absolute; z-index: 3; left: 50%; top: 0; transform: translateX(-50%);
+  width: 24%; min-width: 92px; max-width: 168px; height: 27px;
+  background: var(--bezel); border-radius: 0 0 10px 10px;
 }
 .notch .lens {
-  position: absolute; left: 50%; top: 50%; width: 9px; height: 9px; transform: translate(-50%, -50%);
-  border-radius: 50%; background: radial-gradient(circle at 35% 35%, #44557A 0, #10131B 55%, #05060A 100%);
+  position: absolute; left: 50%; top: 50%; width: 8px; height: 8px; transform: translate(-50%, -50%); border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #3E4F72 0, #0E1119 55%, #040506 100%);
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, .04);
 }
 .notch .led {
-  position: absolute; left: calc(50% + 11px); top: 50%; width: 4px; height: 4px; margin-top: -2px;
-  border-radius: 50%; background: #2DD35E; box-shadow: 0 0 6px 1px rgba(45, 211, 94, .8);
+  position: absolute; left: calc(50% + 10px); top: 50%; width: 4px; height: 4px; margin-top: -2px; border-radius: 50%;
+  background: #33D467; box-shadow: 0 0 6px 1px rgba(51, 212, 103, .75);
   opacity: 0; transition: opacity .25s;
 }
 .cam-on .notch .led { opacity: 1; }
-@media (max-width: 1060px) { .notch { display: none; } }
-@media (max-width: 760px) { .mb-left a:not(.mb-app):not(.mb-get) { display: none; } }
-@media (max-width: 460px) { .mb-status { display: none; } .mb-left .mb-get { display: none; } }
 
-/* The MemeMe menu */
-.mm-menu {
-  position: absolute; z-index: 55; top: 31px; min-width: 262px;
-  padding: 5px; border-radius: 9px;
-  background: var(--menu); color: var(--menu-fg);
-  -webkit-backdrop-filter: blur(24px); backdrop-filter: blur(24px);
-  border: 1px solid var(--menu-sep);
-  box-shadow: 0 18px 50px -12px rgba(0, 0, 0, .38), 0 2px 8px rgba(0, 0, 0, .14);
-  font: 400 13px/1 var(--ui);
-}
-.mi {
-  display: flex; align-items: center; justify-content: space-between; gap: 18px; width: 100%;
-  height: 23px; padding: 0 10px 0 22px; border: 0; border-radius: 5px; background: none;
-  text-align: left; cursor: default; position: relative; white-space: nowrap;
-}
-.mi.ind { padding-left: 34px; }
-.mi[aria-checked="true"]::before { content: "✓"; position: absolute; left: 7px; font-size: 12px; }
-.mi.ind[aria-checked="true"]::before { left: 19px; }
-.mi:hover, .mi:focus-visible { background: var(--peri); color: #fff; outline: none; }
-.mi .sc { color: var(--menu-dim); font-size: 12.5px; }
-.mi:hover .sc, .mi:focus-visible .sc { color: rgba(255, 255, 255, .8); }
-.mh { height: 23px; display: flex; align-items: center; padding: 0 10px 0 22px; color: var(--menu-dim); font-size: 12.5px; }
-.msep { height: 1px; margin: 5px 10px; background: var(--menu-sep); }
-.msub { position: relative; }
-.msub > .mm-menu { top: -6px; right: calc(100% + 2px); display: none; }
-.msub:hover > .mm-menu, .msub:focus-within > .mm-menu { display: block; }
-@media (max-width: 620px) { .msub > .mm-menu { right: auto; left: 18px; top: 24px; } }
-
-/* HUD (exact string from the app) */
-.hud {
-  position: fixed; z-index: 70; left: 50%; top: calc(env(safe-area-inset-top, 0px) + 40px);
-  transform: translateX(-50%);
-  display: flex; align-items: center; gap: 10px; max-width: calc(100% - 32px);
-  padding: 7px 14px 7px 7px; border-radius: 12px;
-  background: rgba(30, 31, 36, .96); color: var(--p-text); border: 1px solid var(--p-border);
-  box-shadow: 0 16px 40px -12px rgba(0, 0, 0, .45);
-  font: 500 13px/1.3 var(--ui);
-  animation: hudIn .22s ease-out;
-}
-.hud .thumb { width: 32px; height: 32px; border-radius: 7px; overflow: hidden; flex: none; }
-.hud .thumb svg { width: 100%; height: 100%; }
-@keyframes hudIn { from { opacity: 0; transform: translate(-50%, -6px); } }
-
-/* ---------- Hero: the desktop ---------- */
-.screen { position: relative; isolation: isolate; overflow: hidden; background: var(--sun); color: var(--on-sun); }
-.wall { position: absolute; inset: 0; width: 100%; height: 100%; z-index: -1; }
-.stage {
-  max-width: 1200px; margin: 0 auto;
-  padding-left: max(16px, env(safe-area-inset-left, 0px));
-  padding-right: max(16px, env(safe-area-inset-right, 0px));
-  padding-block: 8px 10px;
-  display: flex; flex-direction: column; align-items: center;
-}
-.panel-wrap { width: min(640px, 100%); position: relative; }
-
-.faces { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; margin-top: 16px; }
-.faces-label { font: 700 12px/1 var(--ui); text-transform: uppercase; letter-spacing: .08em; margin-right: 4px; }
-.face-chip {
-  display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 13px 0 5px;
-  border-radius: 16px; border: 1.5px solid var(--on-sun); background: rgba(255, 255, 255, .38);
-  color: var(--on-sun); font: 600 13px/1 var(--ui); cursor: pointer;
-  transition: background .15s, color .15s, transform .15s;
-}
-.face-chip svg { width: 24px; height: 24px; }
-.face-chip:hover { background: rgba(255, 255, 255, .7); }
-.face-chip:active { transform: scale(.96); }
-.face-chip[aria-pressed="true"] { background: var(--on-sun); color: #fff; }
-.face-chip:focus-visible { outline-color: var(--on-sun); }
-.faces-note { width: 100%; text-align: center; font-size: 12.5px; color: var(--on-sun-2); margin-top: 2px; }
-
-.hero-copy { width: 100%; margin-top: clamp(36px, 5vw, 64px); }
-h1 {
-  font: 400 clamp(52px, 8.6vw, 128px)/.88 var(--display);
-  text-transform: uppercase; letter-spacing: .003em;
-  margin: 0; text-wrap: balance;
-}
-h1 .stk {
-  display: inline-block; background: #fff; color: var(--on-sun);
-  padding: .02em .1em 0; border-radius: .07em; transform: rotate(-2.2deg);
-  box-shadow: 0 .03em 0 rgba(14, 19, 36, .18), 0 .1em .2em -.06em rgba(14, 19, 36, .25);
-}
-.hero-row {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 28px 48px; align-items: end;
-  margin-top: 26px;
-}
-.hero-row p { font-size: clamp(17px, 1.45vw, 20px); line-height: 1.5; max-width: 36em; }
-.hero-row kbd { background: rgba(255, 255, 255, .6); border-color: rgba(14, 19, 36, .35); color: var(--on-sun); }
-.cta { display: grid; gap: 8px; justify-items: start; }
-.dl {
-  display: inline-flex; align-items: center; gap: 12px;
-  padding: 13px 22px 13px 18px; border-radius: 14px;
-  background: var(--on-sun); color: #fff; text-decoration: none;
-  font: 650 17px/1.15 var(--ui);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, .15) inset, 0 10px 24px -10px rgba(14, 19, 36, .6);
-  transition: transform .15s, box-shadow .15s;
-}
-.dl:hover { transform: translateY(-1px); box-shadow: 0 1px 0 rgba(255, 255, 255, .15) inset, 0 14px 28px -10px rgba(14, 19, 36, .65); }
-.dl:active { transform: translateY(1px); }
-.dl:focus-visible { outline: 3px solid var(--on-sun); outline-offset: 3px; }
-.dl svg { width: 22px; height: 22px; flex: none; }
-.dl small { display: block; font-weight: 500; font-size: 12.5px; opacity: .72; margin-top: 2px; }
-.meta { font-size: 13px; color: var(--on-sun-2); }
-
-.dock-row {
-  width: 100%; margin-top: clamp(40px, 6vw, 76px);
-  display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 24px; align-items: end;
-}
-.dock-note { font-size: 14px; line-height: 1.45; max-width: 25em; padding-bottom: 8px; }
-.dock-note b { font-weight: 750; }
-.dock-note kbd { background: rgba(255, 255, 255, .6); border-color: rgba(14, 19, 36, .35); color: var(--on-sun); }
-.dock {
-  display: flex; align-items: flex-end; gap: 7px; height: 66px; padding: 0 9px 8px;
-  border-radius: 20px; border: 1px solid rgba(255, 255, 255, .55);
-  background: rgba(255, 255, 255, .30);
-  -webkit-backdrop-filter: blur(16px) saturate(1.4); backdrop-filter: blur(16px) saturate(1.4);
-  box-shadow: 0 10px 30px -14px rgba(14, 19, 36, .35);
-}
-.dock-icon {
-  --s: 1; position: relative; flex: none;
-  width: calc(48px * var(--s)); height: calc(48px * var(--s));
-  border-radius: 23%; transition: width .12s ease-out, height .12s ease-out;
-}
-.dock-icon svg { width: 100%; height: 100%; border-radius: inherit; }
-.dock-icon::after {
-  content: attr(data-tip); position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%);
-  padding: 4px 9px; border-radius: 6px; white-space: nowrap; pointer-events: none;
-  background: rgba(30, 31, 36, .92); color: #fff; font: 500 12px/1.2 var(--ui);
-  opacity: 0; transition: opacity .12s;
-}
-.dock-icon:hover::after { opacity: 1; }
-.dock-sep { width: 1px; height: 44px; margin: 0 3px 2px; background: rgba(14, 19, 36, .22); }
+.stage { position: relative; display: flex; justify-content: center; padding: 12px 22px 64px; }
 
 /* ---------- The panel (demo) ---------- */
 .panel {
-  --m: 120px;
-  position: relative;
+  --m: 112px;
+  position: relative; width: min(572px, 100%);
   background: var(--p-bg); color: var(--p-text);
-  border: 1px solid var(--p-border); border-radius: 14px; padding: 16px;
-  box-shadow: 0 26px 60px -20px rgba(14, 19, 36, .6), 0 2px 8px rgba(14, 19, 36, .22);
+  border: 1px solid var(--p-border); border-radius: 14px; padding: 14px;
+  box-shadow: 0 30px 60px -26px rgba(0, 0, 0, .7), 0 0 80px -16px rgba(122, 162, 255, .32);
   font: 400 13px/1.35 var(--ui);
   transform-origin: 50% 0;
-  transition: transform .26s cubic-bezier(.3, .8, .3, 1), opacity .2s;
+  transition: transform .24s cubic-bezier(.3, .8, .3, 1), opacity .2s;
 }
-.panel.closing { transform: translateY(-14px) scale(.96, .6); opacity: 0; }
-.demo-tag {
-  position: absolute; bottom: -9px; right: 14px; padding: 2px 7px; border-radius: 5px;
-  font: 700 10px/1.3 var(--ui); letter-spacing: .06em; text-transform: uppercase;
-  background: var(--on-sun); color: var(--sun);
-}
-.p-main { display: grid; grid-template-columns: var(--m) minmax(0, 1fr); gap: 16px; }
+.panel.closing { transform: translateY(-12px) scale(.97, .6); opacity: 0; }
+.p-main { display: grid; grid-template-columns: var(--m) minmax(0, 1fr); gap: 14px; }
 .mirror-box { position: relative; width: var(--m); height: var(--m); }
 .mirror {
-  width: 100%; height: 100%; border-radius: 18px; overflow: hidden;
+  width: 100%; height: 100%; border-radius: 17px; overflow: hidden;
   background: var(--p-mirror); box-shadow: 0 0 0 3px var(--p-accent);
-  transition: box-shadow .2s;
 }
 .mirror svg { width: 100%; height: 100%; }
-.mirror-box.off .mirror { box-shadow: 0 0 0 3px #4A4D56; }
 .ring { position: absolute; inset: -3px; width: calc(100% + 6px); height: calc(100% + 6px); pointer-events: none; overflow: visible; }
 .ring rect { fill: none; stroke: var(--p-amber); stroke-width: 3; stroke-dasharray: 100; stroke-dashoffset: 100; }
 .ring.filling rect { animation: fill 1s linear forwards; }
 @keyframes fill { to { stroke-dashoffset: 0; } }
-.pin {
-  position: absolute; border: 1.5px dashed transparent; border-radius: 10px; background: none; padding: 0; cursor: pointer;
-  transition: border-color .15s, box-shadow .15s;
-}
+.pin { position: absolute; border: 1.5px dashed transparent; border-radius: 10px; background: none; padding: 0; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
 .pin.eyes { left: 24%; top: 27%; width: 52%; height: 31%; }
 .pin.mouth { left: 33%; top: 58%; width: 34%; height: 24%; }
 .mirror-box:hover .pin { border-color: rgba(255, 255, 255, .55); }
 .pin[aria-pressed="true"] { border: 1.5px solid var(--p-amber); box-shadow: 0 0 0 3px rgba(245, 196, 81, .28), 0 0 18px rgba(245, 196, 81, .35); }
 .pin:focus-visible { outline: 2px solid var(--p-accent); outline-offset: 1px; }
-.mirror-box.off .pin { display: none; }
 .hint { margin-top: 12px; display: grid; gap: 3px; justify-items: start; }
-.hint b { font-size: 13px; font-weight: 600; line-height: 1.3; }
+.hint b { font-size: 12.5px; font-weight: 600; line-height: 1.3; }
 .hint span { font-size: 11px; color: var(--p-muted); line-height: 1.35; }
 .cap {
   margin-top: 4px; padding: 3px 9px; border-radius: 99px; border: 1px solid var(--p-chip); background: none;
   color: var(--p-text); font-size: 11.5px; line-height: 1.2; cursor: pointer; white-space: nowrap;
 }
 .cap:hover { background: var(--p-surface); }
-.cap:focus-visible { outline: 2px solid var(--p-accent); outline-offset: 2px; }
-
+.cap:focus-visible, .btn-accent:focus-visible { outline: 2px solid var(--p-accent); outline-offset: 2px; }
 .search {
-  display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 10px;
+  display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px;
   background: var(--p-surface); border: 1px solid var(--p-sep); border-radius: 9px;
 }
 .search.has-text, .search:focus-within { border-color: var(--p-accent); }
 .search svg { width: 14px; height: 14px; color: var(--p-place); flex: none; }
-.search input {
-  flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: none; padding: 0;
-  color: var(--p-text); font: 400 13px/1 var(--ui);
-}
+.search input { flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: none; padding: 0; color: var(--p-text); font: 400 13px/1 var(--ui); }
 .search input::placeholder { color: var(--p-place); opacity: 1; }
 .keys { display: flex; gap: 3px; flex: none; }
-.keys span { font: 500 11px/1.3 var(--ui); color: var(--p-muted); border: 1px solid var(--p-muted); border-radius: 4px; padding: 0 5px; }
-
+.keys span { font: 500 11px/1.3 var(--sym); color: var(--p-muted); border: 1px solid var(--p-chip); border-radius: 4px; padding: 0 5px; }
 .grid { list-style: none; margin: 10px 0 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
-.grid li { aspect-ratio: 1; min-width: 0; }
-.tile {
-  position: relative; display: block; width: 100%; height: 100%; padding: 0; border: 0; border-radius: 10px;
-  background: var(--p-surface); cursor: pointer;
-  transition: box-shadow .12s;
-}
+.grid li { aspect-ratio: 1; min-width: 0; max-width: 100%; }
+.tile { position: relative; display: block; width: 100%; height: 100%; padding: 0; border: 0; border-radius: 10px; background: var(--p-surface); cursor: pointer; transition: box-shadow .12s; }
 .tile .thumb { position: absolute; inset: 0; border-radius: 10px; overflow: hidden; }
 .tile .thumb svg { width: 100%; height: 100%; }
 .tile.sticker .thumb { background: repeating-conic-gradient(#2C2E34 0 25%, #222328 0 50%) 0 0 / 14px 14px; }
 .tile.sticker .thumb svg { filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, .45)); }
-.tile.is-focus { box-shadow: 0 0 0 2px var(--p-bg), 0 0 0 4px var(--p-accent); }
+.tile.is-focus, .tile:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--p-bg), 0 0 0 4px var(--p-accent); }
 .tile.arrived:not(.is-focus) { box-shadow: 0 0 0 2px var(--p-amber); }
-.tile:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--p-bg), 0 0 0 4px var(--p-accent); }
 .tile:hover .thumb { filter: brightness(1.06); }
-.num {
-  position: absolute; top: 4px; left: 4px; min-width: 16px; height: 16px; padding: 0 3px; border-radius: 5px;
-  background: var(--p-badge); color: #fff; font: 600 10px/16px var(--ui); text-align: center;
-}
+.num { position: absolute; top: 4px; left: 4px; min-width: 16px; height: 16px; padding: 0 3px; border-radius: 5px; background: var(--p-badge); color: #fff; font: 600 10px/16px var(--ui); text-align: center; }
 .own-dot { position: absolute; top: 6px; right: 6px; width: 9px; height: 9px; border-radius: 50%; background: var(--p-accent); box-shadow: 0 0 0 1.5px rgba(14, 15, 18, .5); }
 .friend-ring { position: absolute; top: 5px; right: 5px; width: 11px; height: 11px; border-radius: 50%; border: 2px solid var(--p-amber); }
 .gif-badge { position: absolute; left: 4px; bottom: 4px; padding: 1px 3px; border-radius: 3px; background: var(--p-badge); color: #fff; font: 800 8px/1.2 var(--ui); letter-spacing: .04em; }
-.via { position: absolute; right: 4px; bottom: 3px; color: rgba(255, 255, 255, .92); font: 600 7.5px/1.2 var(--ui); text-shadow: 0 0 3px rgba(0, 0, 0, .8); }
 .tile.gif.is-focus .fg { animation: bob .42s ease-in-out infinite alternate; transform-origin: 50% 85%; transform-box: view-box; }
 @keyframes bob { from { transform: rotate(-3deg); } to { transform: rotate(3deg) translateY(-1.5px); } }
+.grid { position: relative; }
+.grid .ph { visibility: hidden; }
 .grid .empty {
-  grid-column: 1 / -1; aspect-ratio: auto; min-height: 90px; display: grid; place-items: center; text-align: center;
+  position: absolute; inset: 0; aspect-ratio: auto; display: grid; place-items: center; text-align: center;
   border: 1.5px dashed var(--p-chip); border-radius: 10px; color: var(--p-muted); padding: 12px; font-size: 12px;
 }
-.p-foot { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--p-sep); display: grid; gap: 6px; }
-.focusline { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
-.focusline span { font-size: 12px; color: var(--p-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.focusline .cap { margin: 0; }
-.legend { font-size: 11px; color: var(--p-muted); }
-.closed-note {
-  position: absolute; left: 50%; top: 0; transform: translateX(-50%); width: max-content; max-width: 100%;
-  display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: center;
-  padding: 10px 12px 10px 16px; border-radius: 12px;
-  background: rgba(30, 31, 36, .94); color: var(--p-text); font: 500 13px/1.35 var(--ui);
-  box-shadow: 0 16px 40px -16px rgba(14, 19, 36, .5);
-  animation: hudIn .25s ease-out;
-}
-.closed-note .k { display: inline-flex; gap: 3px; vertical-align: 1px; }
-.closed-note .k span { font: 500 11px/1.3 var(--ui); border: 1px solid var(--p-muted); color: var(--p-soft); border-radius: 4px; padding: 0 5px; }
-.btn-accent {
-  border: 0; border-radius: 8px; padding: 6px 12px; background: var(--p-accent); color: #0E1324;
-  font: 700 13px/1.2 var(--ui); cursor: pointer;
-}
+.p-foot { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--p-sep); display: flex; align-items: baseline; justify-content: space-between; gap: 6px 16px; flex-wrap: wrap; }
+.focusline { font-size: 12px; color: var(--p-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; max-width: 100%; }
+.legend { font-size: 11px; color: var(--p-muted); white-space: nowrap; }
 
+.closed {
+  position: absolute; left: 50%; top: 12px; transform: translateX(-50%);
+  width: min(380px, calc(100% - 32px)); display: grid; gap: 12px; padding: 12px;
+  background: rgba(30, 31, 36, .96); color: var(--p-text); border: 1px solid var(--p-border); border-radius: 14px;
+  box-shadow: 0 24px 50px -24px rgba(0, 0, 0, .7);
+  font: 400 12.5px/1.4 var(--ui);
+  animation: hudIn .24s ease-out;
+}
+@keyframes hudIn { from { opacity: 0; transform: translate(-50%, -6px); } }
+.closed-msg { display: flex; align-items: center; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--p-sep); }
+.closed-msg .thumb { width: 44px; height: 44px; border-radius: 9px; overflow: hidden; flex: none; }
+.closed-msg .thumb svg { width: 100%; height: 100%; }
+.closed-msg b { display: block; font-weight: 600; font-size: 13px; }
+.closed-msg span span { color: var(--p-muted); }
+.closed-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--p-soft); }
+.btn-accent { flex: none; border: 0; border-radius: 8px; padding: 6px 11px; background: var(--p-accent); color: #0E1324; font: 600 12.5px/1.2 var(--ui); cursor: pointer; }
+
+/* Face picker under the display: a segmented control, the Mac way */
+.try {
+  display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 2px;
+  margin-top: 10px; padding: 3px; border-radius: 12px; background: var(--seg-track);
+}
+.chip {
+  display: grid; justify-items: center; gap: 3px; min-width: 0; padding: 7px 4px 6px;
+  border: 0; border-radius: 9px; background: none; color: var(--fg-2);
+  font: 500 12.5px/1.2 var(--body); cursor: pointer; transition: background .15s, color .15s, box-shadow .15s;
+}
+.chip span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip svg { width: 24px; height: 24px; }
+.chip:hover { color: var(--fg); }
+.chip[aria-pressed="true"] { color: var(--fg); background: var(--seg-on); box-shadow: var(--seg-shadow); }
+.chip:focus-visible { outline-offset: 0; border-radius: 9px; }
+.demo-note { margin-top: 12px; font-size: 13px; color: var(--fg-3); }
+.demo-note b { font-weight: 600; color: var(--fg-2); }
+
+/* ---------- Install ---------- */
+.get { background: var(--bg-2); border-top: 1px solid var(--line); }
+.get .wrap {
+  padding-block: clamp(56px, 6.5vw, 92px);
+  display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 6fr); gap: clamp(40px, 5vw, 80px);
+}
+.get-l p { margin-top: 14px; color: var(--fg-2); max-width: 26em; }
+.get-l .note p { margin-top: 0; }
+.get-l .note p + p { margin-top: 10px; }
+.install { list-style: none; margin: 0; padding: 0; counter-reset: s; display: grid; gap: 24px; }
+.install li { counter-increment: s; display: grid; grid-template-columns: 28px minmax(0, 1fr); column-gap: 14px; }
+.install li::before {
+  content: counter(s); grid-row: 1 / span 3; width: 26px; height: 26px; margin-top: -1px; border-radius: 50%;
+  display: grid; place-items: center; border: 1px solid var(--line-2);
+  font: 600 12.5px/1 var(--body); color: var(--fg-2); font-variant-numeric: tabular-nums;
+}
+.install h3 { font-size: 16.5px; }
+.install p { margin-top: 4px; color: var(--fg-2); font-size: 15px; text-wrap: pretty; }
+.install p kbd { font-size: .74em; }
+.os { margin: 12px 0 0; display: grid; grid-template-columns: max-content minmax(0, 1fr); border: 1px solid var(--line-2); border-radius: 10px; font-size: 14.5px; line-height: 1.45; }
+.os div { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; gap: 2px 16px; padding: 10px 14px; }
+.os div + div { border-top: 1px solid var(--line); }
+.os dt { color: var(--fg); font-weight: 600; }
+.os dd { margin: 0; color: var(--fg-2); }
+.note { margin-top: 32px; padding-top: 20px; border-top: 1px solid var(--line); font-size: 14px; color: var(--fg-2); max-width: 26em; }
+.path { color: var(--fg); font-weight: 600; }
+
+/* ---------- Footer ---------- */
+.foot { background: var(--bg); }
+.foot-in { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 24px; padding-block: 24px 30px; font-size: 13.5px; color: var(--fg-3); }
+.foot-in .brand { font-size: 15px; color: var(--fg); gap: 8px; }
+.foot-in .brand svg { width: 18px; height: 18px; }
+.foot-in a:not(.brand) { text-decoration: none; }
+.foot-in a:not(.brand):hover { color: var(--fg); text-decoration: underline; text-underline-offset: 3px; }
+
+/* ---------- Responsive ---------- */
+@media (max-width: 1080px) {
+  .hero-in { grid-template-columns: minmax(0, 1fr); }
+  .hero-copy { max-width: 640px; }
+}
+@media (max-width: 860px) {
+  .get .wrap { grid-template-columns: minmax(0, 1fr); row-gap: 0; }
+  .get-l { display: contents; }
+  .install { margin-top: 44px; }
+  .note { order: 1; }
+}
 @media (max-width: 600px) {
-  .panel { --m: 76px; padding: 12px; }
-  .p-main { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .mb-l .x1, .mb-r .x1 { display: none; }
+  .panel { --m: 72px; padding: 10px; }
+  .p-main { grid-template-columns: minmax(0, 1fr); gap: 10px; }
   .p-left { display: grid; grid-template-columns: var(--m) minmax(0, 1fr); gap: 14px; align-items: center; }
-  .mirror-box .mirror { border-radius: 14px; }
+  .mirror { border-radius: 13px; }
   .hint { margin-top: 0; }
   .grid { gap: 6px; }
   .tile, .tile .thumb { border-radius: 8px; }
-  .via { display: none; }
   .legend { display: none; }
-  .hero-row { grid-template-columns: minmax(0, 1fr); }
-  .dock-row { grid-template-columns: minmax(0, 1fr); justify-items: center; }
-  .dock-note { text-align: center; padding-bottom: 0; }
-  .dock-row > span { display: none; }
-  .dock-icon { width: calc(40px * var(--s)); height: calc(40px * var(--s)); }
-  .dock { height: 56px; gap: 5px; padding: 0 7px 7px; }
-  .dock .opt { display: none; }
+  .stage { padding: 10px 8px 52px; }
+  .device { padding: 7px 7px 0; border-radius: 22px 22px 0 0; }
+  .display { border-radius: 15px 15px 0 0; }
+  .mbar { padding: 0 8px 0 12px; }
+  .top-links a:not(.ghost) { padding-inline: 8px; }
+  .os { grid-template-columns: minmax(0, 1fr); }
+  .try { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
-
-/* ---------- How it works ---------- */
-.band { padding-block: clamp(76px, 10vw, 132px); }
-.how .wrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 440px); gap: clamp(36px, 6vw, 88px); align-items: start; }
-.steps { list-style: none; padding: 0; margin: 40px 0 0; display: grid; gap: 30px; }
-.steps li { display: grid; grid-template-columns: 54px minmax(0, 1fr); gap: 4px 14px; }
-.steps .n { font: 400 46px/.9 var(--display); color: var(--peri); grid-row: span 2; }
-.steps p { color: var(--ink-2); max-width: 34em; margin-top: 6px; }
-.chat-col { position: sticky; top: 72px; display: grid; gap: 12px; }
-.chat {
-  margin: 0; background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
-  box-shadow: 0 34px 70px -36px rgba(14, 19, 36, .45), 0 2px 6px rgba(14, 19, 36, .06);
-  transition: box-shadow .15s;
-}
-.chat.drop-ok { box-shadow: 0 0 0 3px var(--peri); }
-.titlebar { position: relative; height: 38px; display: flex; align-items: center; justify-content: center; border-bottom: 1px solid var(--line); font: 600 13px/1 var(--ui); }
-.lights { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); display: flex; gap: 8px; }
-.lights i { width: 12px; height: 12px; border-radius: 50%; background: #FF5F57; }
-.lights i:nth-child(2) { background: #FEBC2E; }
-.lights i:nth-child(3) { background: #28C840; }
-.chat-log { list-style: none; margin: 0; padding: 16px 14px; height: 360px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
-.chat-log li { max-width: 76%; padding: 8px 12px; border-radius: 18px; font-size: 15px; line-height: 1.35; }
-.chat-log .them { align-self: flex-start; background: var(--bubble); }
-.chat-log .them + .them { margin-top: -2px; }
-.chat-log .me { align-self: flex-end; padding: 0; border-radius: 16px; overflow: hidden; width: 128px; height: 128px; margin-top: 4px; }
-.chat-log .me.sticker { background: none; overflow: visible; }
-.chat-log .me.sticker svg { filter: drop-shadow(0 2px 3px rgba(0, 0, 0, .3)); }
-.chat-log .me svg { width: 100%; height: 100%; }
-.chat-log .me.new { animation: pop .3s cubic-bezier(.3, 1.5, .5, 1); }
-.chat-log .time { align-self: center; background: none; padding: 0; font-size: 11.5px; color: var(--ink-2); margin: 2px 0 4px; }
-@keyframes pop { from { transform: scale(.6); opacity: 0; } }
-.composer { display: flex; gap: 8px; align-items: center; padding: 10px 12px; border-top: 1px solid var(--line); }
-.composer .field {
-  flex: 1; min-width: 0; height: 32px; display: flex; align-items: center; padding: 0 12px;
-  border: 1px solid var(--line-2); border-radius: 16px; color: var(--ink-2); font-size: 14px;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.composer .field.armed { color: var(--ink); border-color: var(--peri); }
-.btn-small {
-  height: 32px; padding: 0 14px; border-radius: 16px; border: 1px solid var(--line-2); background: var(--card);
-  font: 600 13px/1 var(--ui); cursor: pointer;
-}
-.btn-small:disabled { opacity: .45; cursor: default; }
-.btn-small:not(:disabled):hover { border-color: var(--peri); }
-.chat-cap { font-size: 13.5px; color: var(--ink-2); }
-
-/* ---------- Sources ---------- */
-.sources { border-top: 1px solid var(--line); }
-.feature { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: clamp(32px, 6vw, 80px); align-items: center; margin-top: clamp(40px, 6vw, 64px); }
-.feature p, .pair p { color: var(--ink-2); margin-top: 10px; max-width: 34em; }
-.fine { font-size: 14px; }
-.sticker-demo { display: grid; gap: 14px; justify-items: start; }
-.photo-frame {
-  width: 100%; max-width: 520px; padding: 10px 10px 34px; background: #fff; border-radius: 4px;
-  transform: rotate(-1.4deg);
-  box-shadow: 0 30px 60px -30px rgba(14, 19, 36, .5), 0 1px 3px rgba(14, 19, 36, .15);
-  position: relative;
-}
-.photo-frame .label { position: absolute; left: 14px; bottom: 9px; font: 500 13px/1.2 var(--mono); color: #555A66; }
-.photo {
-  position: relative; aspect-ratio: 4 / 3; max-width: 100%; overflow: hidden; border-radius: 2px;
-  background: repeating-conic-gradient(#2C2E34 0 25%, #222328 0 50%) 0 0 / 18px 18px;
-}
-.scene {
-  position: absolute; inset: 0;
-  background:
-    radial-gradient(circle at 80% 22%, #FFE9A8 0 7%, rgba(255, 233, 168, 0) 7.5%),
-    linear-gradient(#9CC7EE, #CFE6F7 62%, #8CC57A 62%, #6FAF63);
-  transition: opacity .5s;
-}
-.person { position: absolute; bottom: -2%; width: 48%; transition: transform .5s cubic-bezier(.3, 1.4, .5, 1); }
-.person.p1 { left: 4%; }
-.person.p2 { right: 4%; }
-.person svg { width: 100%; height: auto; overflow: visible; }
-.person .cut { opacity: 0; transition: opacity .35s .15s; }
-.tag {
-  position: absolute; left: 50%; top: 4%; transform: translate(-50%, 6px); padding: 3px 9px; border-radius: 99px;
-  background: rgba(14, 15, 18, .82); color: #fff; font: 600 12px/1.3 var(--ui); white-space: nowrap;
-  opacity: 0; transition: opacity .25s .45s, transform .25s .45s;
-}
-.made .scene { opacity: 0; }
-.made .person .cut { opacity: 1; }
-.made .person.p1 { transform: translate(-4%, -4%) rotate(-5deg); }
-.made .person.p2 { transform: translate(4%, -2%) rotate(4deg); }
-.made .person svg { filter: drop-shadow(0 4px 6px rgba(0, 0, 0, .4)); }
-.made .tag { opacity: 1; transform: translate(-50%, 0); }
-.demo-actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
-.btn {
-  display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px; border-radius: 11px;
-  border: 0; background: var(--ink); color: var(--paper); font: 650 14.5px/1 var(--ui); cursor: pointer;
-}
-.btn svg { width: 18px; height: 18px; }
-.btn:hover { opacity: .9; }
-.made-line { font-size: 14px; font-weight: 600; }
-.linkish { border: 0; background: none; padding: 0; color: var(--peri); font: 600 14px/1.2 var(--ui); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
-
-.pair {
-  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: clamp(32px, 5vw, 64px);
-  margin-top: clamp(64px, 8vw, 104px); padding-top: clamp(40px, 5vw, 56px); border-top: 1px solid var(--line);
-}
-.pair article { min-width: 0; display: grid; gap: 0; align-content: start; }
-.strip {
-  margin-top: 22px; padding: 12px 14px; border-radius: 12px; background: var(--p-bg); color: var(--p-soft);
-  font: 400 12.5px/1.5 var(--ui); border: 1px solid var(--p-border);
-}
-.strip .row { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--p-text); }
-.strip .row span::before { content: "✓ "; color: var(--p-green); }
-.strip .line { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--p-sep); }
-.strip .lk { color: var(--p-link); }
-.req {
-  margin: 22px 0 0; padding: 14px 16px; border-radius: 12px; overflow-x: auto;
-  background: var(--p-bg); color: var(--p-soft); border: 1px solid var(--p-border);
-  font: 400 12.5px/1.7 var(--mono);
-}
-.req b { color: var(--p-text); font-weight: 600; }
-.req mark { background: rgba(245, 196, 81, .2); color: var(--p-amber); border-radius: 3px; padding: 0 2px; }
-
-/* ---------- Privacy (Get Info) ---------- */
-.privacy { border-top: 1px solid var(--line); }
-.privacy .wrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 460px); gap: clamp(36px, 6vw, 88px); align-items: start; }
-.privacy .lede + .lede { margin-top: 14px; }
-.info {
-  margin: 0; background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
-  box-shadow: 0 34px 70px -36px rgba(14, 19, 36, .45), 0 2px 6px rgba(14, 19, 36, .06);
-  font: 400 12.5px/1.45 var(--ui);
-}
-.info-head { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
-.appicon { width: 46px; height: 46px; flex: none; }
-.info-head b { display: block; font-size: 14px; }
-.info-head span { color: var(--ink-2); }
-.info-head .size { margin-left: auto; font-weight: 600; color: var(--ink); }
-.info details { border-bottom: 1px solid var(--line); padding: 8px 16px 10px; }
-.info details:last-child { border-bottom: 0; }
-.info summary { cursor: pointer; font-weight: 650; padding: 2px 0; list-style-position: inside; }
-.info dl { display: grid; grid-template-columns: 9.5em minmax(0, 1fr); gap: 4px 10px; margin: 6px 0 0; }
-.info dt { text-align: right; color: var(--ink-2); }
-.info dd { margin: 0; }
-
-/* ---------- Get ---------- */
-.get { background: var(--sun); color: var(--on-sun); }
-.get .wrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 520px); gap: clamp(36px, 6vw, 88px); align-items: start; }
-.get .lede { color: var(--on-sun-2); }
-.get .cta { margin-top: 30px; }
-.install {
-  list-style: none; margin: 0; padding: clamp(22px, 3vw, 30px); display: grid; gap: 22px;
-  background: var(--card); color: var(--ink); border-radius: 16px;
-  box-shadow: 0 30px 60px -34px rgba(14, 19, 36, .55);
-}
-.install li { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 4px 12px; }
-.install .n {
-  grid-row: span 2; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center;
-  background: var(--sun); color: var(--on-sun); font: 400 17px/1 var(--display);
-}
-.install h3 { font-size: 17px; }
-.install p { color: var(--ink-2); font-size: 15px; margin-top: 4px; }
-.install .note { grid-column: 1 / -1; display: block; padding: 12px 14px; border-radius: 10px; background: var(--paper); font-size: 14px; color: var(--ink-2); }
-.install .note a { color: var(--peri); }
-.path { font-weight: 600; color: var(--ink); }
-
-.foot { border-top: 1px solid var(--line); padding-block: 28px 36px; }
-.foot .wrap { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; font-size: 13.5px; color: var(--ink-2); }
-.foot .brand { display: flex; align-items: center; gap: 10px; color: var(--ink); }
-.foot .brand svg { width: 28px; height: 28px; }
-
-@media (max-width: 900px) {
-  .how .wrap, .privacy .wrap, .get .wrap, .feature { grid-template-columns: minmax(0, 1fr); }
-  .chat-col { position: static; max-width: 460px; }
-  .pair { grid-template-columns: minmax(0, 1fr); }
-}
+@media (max-width: 460px) { .mb-l .x0, #clock .wd { display: none; } }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
 }
 </style>
 
-<header class="menubar">
-  <div class="mb-inner">
-    <nav class="mb-left" aria-label="Sections">
-      <a class="mb-app" href="#top">MemeMe</a>
-      <a href="#how">How it works</a>
-      <a href="#sources">Sources</a>
-      <a href="#privacy">Privacy</a>
-      <a class="mb-get" href="#get">Download</a>
+<header class="top">
+  <div class="wrap top-in">
+    <a class="brand" href="#top">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="10" r="8.2"/><circle cx="7.1" cy="8.1" r=".95" fill="currentColor" stroke="none"/><circle cx="12.9" cy="8.1" r=".95" fill="currentColor" stroke="none"/><path d="M6.4 11.6c.9 1.5 2.1 2.2 3.6 2.2s2.7-.7 3.6-2.2"/></svg>
+      MemeMe
+    </a>
+    <nav class="top-links" aria-label="Site">
+      <a href="https://github.com/Michaell14/MemeMe" target="_blank" rel="noopener">GitHub</a>
+      <a class="ghost" href="https://github.com/Michaell14/MemeMe/releases/latest/download/MemeMe.dmg" target="_blank" rel="noopener">Download</a>
     </nav>
-    <div class="notch" aria-hidden="true"><span class="lens"></span><span class="led"></span></div>
-    <div class="mb-right">
-      <button class="mb-icon" id="mmIcon" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="mmMenu" aria-label="MemeMe menu">
-        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="10" cy="10" r="8.2"/><circle cx="7.1" cy="8.1" r=".9" fill="currentColor" stroke="none"/><circle cx="12.9" cy="8.1" r=".9" fill="currentColor" stroke="none"/><path d="M6.4 11.6c.9 1.5 2.1 2.2 3.6 2.2s2.7-.7 3.6-2.2"/></svg>
-      </button>
-      <span class="mb-status" aria-hidden="true">
-        <svg viewBox="0 0 18 13" fill="currentColor"><path d="M9 12.6 6.9 10.2a3.1 3.1 0 0 1 4.2 0z"/><path d="M4.4 7.6a6.6 6.6 0 0 1 9.2 0l-1.4 1.6a4.5 4.5 0 0 0-6.4 0z"/><path d="M1.6 4.6a10.6 10.6 0 0 1 14.8 0L15 6.2a8.5 8.5 0 0 0-12 0z"/></svg>
-        <svg viewBox="0 0 27 13"><rect x=".6" y=".6" width="22.8" height="11.8" rx="3.4" fill="none" stroke="currentColor" stroke-opacity=".45" stroke-width="1.2"/><rect x="2.4" y="2.4" width="15.6" height="8.2" rx="2" fill="currentColor"/><path d="M25 4.4v4.2a2.2 2.2 0 0 0 0-4.2z" fill="currentColor" fill-opacity=".45"/></svg>
-        <svg viewBox="0 0 18 13" fill="none" stroke="currentColor" stroke-width="1.3"><rect x=".9" y=".9" width="16.2" height="4.4" rx="2.2"/><circle cx="14.9" cy="3.1" r="1.3" fill="currentColor"/><rect x=".9" y="7.7" width="16.2" height="4.4" rx="2.2"/><circle cx="3.1" cy="9.9" r="1.3" fill="currentColor"/></svg>
-      </span>
-      <time class="mb-clock" id="clock"></time>
-    </div>
-  </div>
-  <div class="mm-menu" id="mmMenu" role="menu" aria-label="MemeMe" hidden>
-    <button class="mi" role="menuitem" data-act="open" type="button">Open MemeMe<span class="sc">⌃⌘M</span></button>
-    <div class="msep" role="separator"></div>
-    <div class="mh" aria-hidden="true">Collecting from</div>
-    <button class="mi ind" role="menuitemcheckbox" aria-checked="true" type="button">Downloads</button>
-    <button class="mi ind" role="menuitemcheckbox" aria-checked="true" type="button">Desktop</button>
-    <button class="mi ind" role="menuitemcheckbox" aria-checked="true" type="button">Screenshots</button>
-    <button class="mi" role="menuitem" type="button">Add Folder…</button>
-    <button class="mi" role="menuitem" data-act="pause" type="button">Pause Collecting for 1 Hour</button>
-    <div class="msep" role="separator"></div>
-    <button class="mi" role="menuitemcheckbox" aria-checked="true" type="button">Web Discover (GIPHY)</button>
-    <button class="mi" role="menuitem" type="button">Set GIPHY API Key…</button>
-    <div class="msep" role="separator"></div>
-    <div class="msub">
-      <button class="mi" role="menuitem" aria-haspopup="menu" type="button">Photos with People<span class="sc">›</span></button>
-      <div class="mm-menu" role="menu" aria-label="Photos with People">
-        <button class="mi" role="menuitemradio" aria-checked="true" data-group="photos" type="button">Make Stickers Automatically</button>
-        <button class="mi" role="menuitemradio" aria-checked="false" data-group="photos" type="button">Ask Each Time</button>
-        <button class="mi" role="menuitemradio" aria-checked="false" data-group="photos" type="button">Never</button>
-      </div>
-    </div>
-    <button class="mi" role="menuitemcheckbox" aria-checked="true" type="button">Group Friends’ Faces</button>
-    <button class="mi" role="menuitem" type="button">Forget My Resting Face</button>
-    <div class="msep" role="separator"></div>
-    <button class="mi" role="menuitemcheckbox" aria-checked="true" type="button">Open at Login</button>
-    <button class="mi" role="menuitem" type="button">Show Library in Finder</button>
-    <div class="msep" role="separator"></div>
-    <button class="mi" role="menuitem" type="button">Check for Updates…</button>
-    <div class="mh" role="menuitem" aria-disabled="true">Version 1.0</div>
-    <div class="msep" role="separator"></div>
-    <button class="mi" role="menuitem" data-act="quit" type="button">Quit MemeMe<span class="sc">⌘Q</span></button>
   </div>
 </header>
-<div class="hud" id="hud" role="status" aria-live="polite" hidden></div>
 
 <main>
-  <section class="screen" id="top" aria-label="MemeMe">
-    <canvas class="wall" id="wall" aria-hidden="true"></canvas>
-    <div class="stage">
-      <div class="panel-wrap" id="panelWrap">
-        <div class="panel" id="panel" role="group" aria-label="MemeMe panel, interactive demo">
-          <span class="demo-tag">Demo</span>
-          <div class="p-main">
-            <div class="p-left">
-              <div class="mirror-box" id="mirrorBox">
-                <div class="mirror" id="mirror" role="img" aria-label="Your face"></div>
-                <svg class="ring" id="ring" viewBox="0 0 126 126" aria-hidden="true"><rect x="1.5" y="1.5" width="123" height="123" rx="19.5" pathLength="100"/></svg>
-                <button class="pin eyes" type="button" data-pin="eyes" aria-pressed="false" aria-label="Focus on your eyes"></button>
-                <button class="pin mouth" type="button" data-pin="mouth" aria-pressed="false" aria-label="Focus on your mouth"></button>
-              </div>
-              <div class="hint">
-                <b id="hintTitle">Make a face. Results follow it.</b>
-                <span id="hintSub">Click your eyes or mouth to focus on them.</span>
-                <button class="cap" id="hintAction" type="button" hidden>Clear</button>
-              </div>
-            </div>
-            <div class="p-right">
-              <label class="search" id="searchBox">
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="6.8" cy="6.8" r="4.9"/><path d="m10.5 10.5 3.6 3.6"/></svg>
-                <input id="q" type="text" autocomplete="off" spellcheck="false" placeholder="Type, or drop / ⌘V an image" aria-label="Search by typing">
-                <span class="keys" aria-label="Control Command M"><span>⌃</span><span>⌘</span><span>M</span></span>
-              </label>
-              <ol class="grid" id="grid" aria-label="Results"></ol>
-            </div>
-          </div>
-          <div class="p-foot">
-            <div class="focusline"><span id="focusText"></span><button class="cap" id="moreLike" type="button">More like this</button></div>
-            <div class="legend">↵ copy · 1–9 pick · drag into chat · esc</div>
-          </div>
-        </div>
-        <div class="closed-note" id="closedNote" hidden>
-          <span id="closedText">Tucked away in the menu bar. <span class="k" aria-label="Control Command M"><span>⌃</span><span>⌘</span><span>M</span></span> brings it back.</span>
-          <button class="btn-accent" id="reopen" type="button">Open MemeMe</button>
-        </div>
-      </div>
-
-      <div class="faces" id="faces" role="group" aria-label="Try a face">
-        <span class="faces-label">Try a face</span>
-        <p class="faces-note">The real app watches your camera for this. Here, pick one.</p>
-      </div>
-
+  <section class="hero" id="top" aria-label="MemeMe">
+    <div class="wrap hero-in">
       <div class="hero-copy">
-        <h1>Your <span class="stk">face</span> is the search bar.</h1>
-        <div class="hero-row">
-          <p>MemeMe lives in your Mac’s menu bar. Press <kbd>⌃</kbd><kbd>⌘</kbd><kbd>M</kbd> in any chat and make the face you’re already making. It finds the reaction that matches from your saved memes, GIPHY and stickers of your friends. <kbd>↵</kbd> copies it.</p>
-          <div class="cta">
-            <a class="dl" href="https://github.com/Michaell14/MemeMe/releases/latest/download/MemeMe.dmg" target="_blank" rel="noopener">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="m7 10.5 5 5 5-5"/><path d="M5 19.5h14"/></svg>
-              <span>Download for Mac<small>MemeMe.dmg · 2 MB</small></span>
-            </a>
-            <span class="meta">Version 1.0 · macOS 14 or later · Apple silicon and Intel</span>
-          </div>
-        </div>
-      </div>
-
-      <div class="dock-row">
-        <p class="dock-note" id="dockNote"><b>Not down here.</b> MemeMe has no Dock icon and no window, and it stays out of <kbd>⌘</kbd><kbd>Tab</kbd>. It waits in the menu bar until you press <kbd>⌃</kbd><kbd>⌘</kbd><kbd>M</kbd>.</p>
-        <div class="dock" id="dock" aria-hidden="true"></div>
-        <span></span>
-      </div>
-    </div>
-  </section>
-
-  <section class="band how" id="how">
-    <div class="wrap">
-      <div>
-        <h2>Press. Face. Paste.</h2>
-        <p class="lede">There’s no shutter button, no filter to set and no slider to fiddle with. Your face is the query.</p>
-        <ol class="steps">
-          <li><span class="n" aria-hidden="true">1</span><h3>Press <kbd>⌃</kbd><kbd>⌘</kbd><kbd>M</kbd> in any app</h3><p>The panel drops down right under your camera. Your chat stays in front, with your half-typed message and the cursor where you left them.</p></li>
-          <li><span class="n" aria-hidden="true">2</span><h3>Make the face</h3><p>Hold it for a beat. MemeMe reads your eyebrows, eyes and mouth, and your hands when they’re up. Click your eyes or mouth to make them count more. <kbd>Space</kbd> takes a deadpan as it is, and typing works too.</p></li>
-          <li><span class="n" aria-hidden="true">3</span><h3><kbd>↵</kbd> copies. <kbd>⌘</kbd><kbd>V</kbd> pastes.</h3><p>Or press <kbd>1</kbd>–<kbd>9</kbd>, or drag a tile into the chat. MemeMe only copies. You decide when to send.</p></li>
-        </ol>
-      </div>
-      <div class="chat-col">
-        <figure class="chat" id="chat" aria-label="A chat with Sam">
-          <div class="titlebar"><span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>Sam</div>
-          <ol class="chat-log" id="chatLog" aria-live="polite">
-            <li class="time">Today 9:38</li>
-            <li class="them">guess who’s moving to Lisbon</li>
-            <li class="them">me!! next month</li>
-            <li class="me" id="firstReply"></li>
-            <li class="them">ok that is exactly how my mom took it</li>
-          </ol>
-          <div class="composer">
-            <div class="field" id="composer">Message</div>
-            <button class="btn-small" id="pasteBtn" type="button" disabled>Paste</button>
-          </div>
-        </figure>
-        <p class="chat-cap" id="chatCap">Pick a reaction in the panel up top, then press <kbd>⌘</kbd><kbd>V</kbd>. It lands here.</p>
-      </div>
-    </div>
-  </section>
-
-  <section class="band sources" id="sources">
-    <div class="wrap">
-      <h2>Where the reactions come from</h2>
-      <p class="lede">Three places, searched together and ranked against the face you’re making.</p>
-
-      <div class="feature">
-        <div class="sticker-demo" id="stickerDemo">
-          <div class="photo-frame">
-            <div class="photo" id="photo">
-              <div class="scene"></div>
-              <div class="person p1"><span class="tag">Maya ✓</span></div>
-              <div class="person p2"><span class="tag">New face</span></div>
-            </div>
-            <span class="label">IMG_2207.jpg</span>
-          </div>
-          <div class="demo-actions">
-            <button class="btn" id="makeStickers" type="button">
-              Drop it on
-              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-label="the menu-bar icon"><circle cx="10" cy="10" r="8.2"/><circle cx="7.1" cy="8.1" r=".9" fill="currentColor" stroke="none"/><circle cx="12.9" cy="8.1" r=".9" fill="currentColor" stroke="none"/><path d="M6.4 11.6c.9 1.5 2.1 2.2 3.6 2.2s2.7-.7 3.6-2.2"/></svg>
-            </button>
-            <span class="made-line" id="madeLine" hidden>Made 2 stickers</span>
-            <button class="linkish" id="undoStickers" type="button" hidden>Undo all</button>
-          </div>
-        </div>
-        <div>
-          <h3>Your friends, cut out</h3>
-          <p>Drag photos of friends onto the smiley in your menu bar. MemeMe cuts every person out as a die-cut sticker and, if you say yes, groups them by who they are. Pull Maya’s signature face and there’s Maya.</p>
-          <p class="fine">Cutting out and matching happen on your Mac with Apple’s Vision. Faces are only compared with stickers you made yourself.</p>
-        </div>
-      </div>
-
-      <div class="pair">
-        <article>
-          <h3>Memes you already saved</h3>
-          <p>MemeMe watches Downloads, Desktop and your screenshots folder. A new meme is searchable about two seconds after it lands. It reads the text and the faces into a small index and leaves your files where they are. Personal photos and chat screenshots are skipped.</p>
-          <div class="strip" aria-label="Example of the library line in the panel">
-            <div class="row"><span>Downloads</span><span>Desktop</span><span>Screenshots</span></div>
-            <div class="line">Added 312 from Downloads, Desktop · 1,140 skipped (photos, documents) · <span class="lk">Review</span> · <span class="lk">Undo</span></div>
-          </div>
-        </article>
-        <article>
-          <h3>Reaction GIFs</h3>
-          <p>GIFs from GIPHY fill in next to your own. Your face becomes one mood word on your Mac, and that word is all MemeMe sends to GIPHY. Popular moods are cached for a day, so most GIFs show up instantly.</p>
-          <pre class="req" aria-label="The request MemeMe sends to GIPHY"><code><b>GET</b> https://api.giphy.com/v1/gifs/search
-  ?api_key=…
-  &amp;q=<mark id="moodWord">shocked</mark>+reaction
-  &amp;limit=25&amp;rating=pg-13&amp;lang=en</code></pre>
-        </article>
-      </div>
-    </div>
-  </section>
-
-  <section class="band privacy" id="privacy">
-    <div class="wrap">
-      <div>
-        <h2>Tiny, quiet, local</h2>
-        <p class="lede">MemeMe is Swift on Apple’s own frameworks. There’s no account, no bundled machine-learning model and no third-party code. The camera runs only while the panel is open, and each frame is read on your Mac and dropped.</p>
-        <p class="lede">It keeps out of your way too. Indexing runs at low priority, two images at a time, and pauses in Low Power Mode or when your Mac runs hot.</p>
-      </div>
-      <figure class="info" aria-label="MemeMe Info">
-        <div class="titlebar"><span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>MemeMe Info</div>
-        <div class="info-head">
-          <svg class="appicon" viewBox="0 0 64 64" aria-hidden="true"><rect x="2" y="2" width="60" height="60" rx="14" fill="#F5C451"/><circle cx="32" cy="33" r="19" fill="none" stroke="#0E1324" stroke-width="3.6"/><circle cx="25.5" cy="29" r="2.4" fill="#0E1324"/><circle cx="38.5" cy="29" r="2.4" fill="#0E1324"/><path d="M23.5 37c2.2 3.5 5 5.2 8.5 5.2s6.3-1.7 8.5-5.2" fill="none" stroke="#0E1324" stroke-width="3.6" stroke-linecap="round"/></svg>
-          <div><b>MemeMe</b><span>Application · Version 1.0</span></div>
-          <span class="size">7 MB</span>
-        </div>
-        <details open>
-          <summary>General:</summary>
-          <dl>
-            <dt>Kind:</dt><dd>Application (Universal)</dd>
-            <dt>Size:</dt><dd>6,957,845 bytes</dd>
-            <dt>Download:</dt><dd>2 MB disk image</dd>
-            <dt>Requires:</dt><dd>macOS 14 Sonoma or later</dd>
-          </dl>
-        </details>
-        <details open>
-          <summary>Privacy:</summary>
-          <dl>
-            <dt>Camera:</dt><dd>On only while the panel is open</dd>
-            <dt>Camera frames:</dt><dd>Read on your Mac, then dropped</dd>
-            <dt>Sent online:</dt><dd>One mood word, to GIPHY</dd>
-            <dt>Update check:</dt><dd>Asks GitHub every few hours</dd>
-            <dt>Your memes:</dt><dd>Indexed in place, never copied</dd>
-            <dt>Accessibility:</dt><dd>Not needed. It never types for you.</dd>
-          </dl>
-        </details>
-        <details open>
-          <summary>Footprint:</summary>
-          <dl>
-            <dt>Dock icon:</dt><dd>None</dd>
-            <dt>Windows:</dt><dd>None, just the panel</dd>
-            <dt>Index:</dt><dd>About 4 KB per meme</dd>
-            <dt>Third-party code:</dt><dd>None</dd>
-          </dl>
-        </details>
-      </figure>
-    </div>
-  </section>
-
-  <section class="band get" id="get">
-    <div class="wrap">
-      <div>
-        <h2>Get MemeMe</h2>
-        <p class="lede">Version 1.0 for macOS 14 Sonoma or later. One universal app for Apple silicon and Intel Macs.</p>
+        <p class="kicker">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="10" r="8.2"/><circle cx="7.1" cy="8.1" r=".95" fill="currentColor" stroke="none"/><circle cx="12.9" cy="8.1" r=".95" fill="currentColor" stroke="none"/><path d="M6.4 11.6c.9 1.5 2.1 2.2 3.6 2.2s2.7-.7 3.6-2.2"/></svg>
+          A menu bar app for Mac
+        </p>
+        <h1><span>Make a face.</span> <span>Get the meme.</span></h1>
+        <p class="lede">MemeMe lives in your menu bar, with no Dock icon and no window. Press <kbd>⌃⌘M</kbd> in any chat, make the face you mean, and copy the reaction that matches.</p>
         <div class="cta">
           <a class="dl" href="https://github.com/Michaell14/MemeMe/releases/latest/download/MemeMe.dmg" target="_blank" rel="noopener">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="m7 10.5 5 5 5-5"/><path d="M5 19.5h14"/></svg>
             <span>Download for Mac<small>MemeMe.dmg · 2 MB</small></span>
           </a>
         </div>
+        <p class="req"><span class="nw">Version 1.0</span> · <span class="nw">macOS 14 Sonoma or later</span> · <span class="nw">Apple silicon and Intel</span></p>
+      </div>
+
+      <div class="hero-demo" id="heroDemo">
+        <p class="callout" id="callout"><b>Lives up here.</b>No Dock icon, no window, not in <span class="nw">⌘-Tab</span>.</p>
+        <div class="device cam-on" id="device">
+          <div class="display">
+            <div class="mbar">
+              <div class="mb-l" aria-hidden="true"><b>Chat</b><span class="x0">File</span><span class="x0">Edit</span><span class="x1">View</span></div>
+              <div class="notch" aria-hidden="true"><i class="lens"></i><i class="led"></i></div>
+              <div class="mb-r">
+                <button class="mb-smiley" id="smiley" type="button" aria-expanded="true" aria-controls="panel" aria-label="MemeMe in the menu bar">
+                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="10" r="8.2"/><circle cx="7.1" cy="8.1" r=".95" fill="currentColor" stroke="none"/><circle cx="12.9" cy="8.1" r=".95" fill="currentColor" stroke="none"/><path d="M6.4 11.6c.9 1.5 2.1 2.2 3.6 2.2s2.7-.7 3.6-2.2"/></svg>
+                </button>
+                <svg class="x1" viewBox="0 0 18 13" fill="currentColor" aria-hidden="true"><path d="M9 12.6 6.9 10.2a3.1 3.1 0 0 1 4.2 0z"/><path d="M4.4 7.6a6.6 6.6 0 0 1 9.2 0l-1.4 1.6a4.5 4.5 0 0 0-6.4 0z"/><path d="M1.6 4.6a10.6 10.6 0 0 1 14.8 0L15 6.2a8.5 8.5 0 0 0-12 0z"/></svg>
+                <svg viewBox="0 0 27 13" aria-hidden="true"><rect x=".6" y=".6" width="22.8" height="11.8" rx="3.4" fill="none" stroke="currentColor" stroke-opacity=".45" stroke-width="1.2"/><rect x="2.4" y="2.4" width="15.6" height="8.2" rx="2" fill="currentColor"/><path d="M25 4.4v4.2a2.2 2.2 0 0 0 0-4.2z" fill="currentColor" fill-opacity=".45"/></svg>
+                <time id="clock"><span class="wd">Tue</span> 9:41</time>
+              </div>
+            </div>
+            <div class="stage" id="stage">
+              <div class="panel" id="panel" role="group" aria-label="MemeMe panel, interactive demo">
+                <div class="p-main">
+                  <div class="p-left">
+                    <div class="mirror-box" id="mirrorBox">
+                      <div class="mirror" id="mirror" role="img" aria-label="Your face"></div>
+                      <svg class="ring" id="ring" viewBox="0 0 126 126" aria-hidden="true"><rect x="1.5" y="1.5" width="123" height="123" rx="19.5" pathLength="100"/></svg>
+                      <button class="pin eyes" type="button" data-pin="eyes" aria-pressed="false" aria-label="Make your eyes count more"></button>
+                      <button class="pin mouth" type="button" data-pin="mouth" aria-pressed="false" aria-label="Make your mouth count more"></button>
+                    </div>
+                    <div class="hint">
+                      <b id="hintTitle">Make a face. Results follow it.</b>
+                      <span id="hintSub">Click your eyes or mouth to make them count more.</span>
+                      <button class="cap" id="hintAction" type="button" hidden>Clear</button>
+                    </div>
+                  </div>
+                  <div class="p-right">
+                    <label class="search" id="searchBox">
+                      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="6.8" cy="6.8" r="4.9"/><path d="m10.5 10.5 3.6 3.6"/></svg>
+                      <input id="q" type="text" autocomplete="off" spellcheck="false" placeholder="Or type: cat, gif, Maya…" aria-label="Search by typing">
+                      <span class="keys" aria-label="Control Command M"><span>⌃</span><span>⌘</span><span>M</span></span>
+                    </label>
+                    <ol class="grid" id="grid" aria-label="Results"></ol>
+                  </div>
+                </div>
+                <div class="p-foot">
+                  <span class="focusline" id="focusText"></span>
+                  <span class="legend">↵ copy · 1–9 pick · drag into chat · esc</span>
+                </div>
+              </div>
+              <div class="closed" id="closed" hidden>
+                <div class="closed-msg" id="closedMsg"></div>
+                <div class="closed-foot">
+                  <span>Back in the menu bar. Press ⌃⌘M or click the smiley.</span>
+                  <button class="btn-accent" id="reopen" type="button">Open</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="try" id="faces" role="group" aria-label="Try a face"></div>
+        <p class="sr" id="live" aria-live="polite"></p>
+        <p class="demo-note"><b>Pick a face to try it.</b> In the app, your camera does the picking. Tiles are drawn examples.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="get" id="get" aria-labelledby="get-h">
+    <div class="wrap">
+      <div class="get-l">
+        <h2 id="get-h">Install</h2>
+        <p>You do this once. After that, MemeMe updates itself.</p>
+        <div class="note">
+          <p>The camera is on only while the panel is open, and your face never leaves your Mac.</p>
+          <p>GIFs need a free GIPHY API key for now. Add it with <span class="path">Set GIPHY API Key…</span> in the smiley menu.</p>
+        </div>
       </div>
       <ol class="install">
-        <li><span class="n" aria-hidden="true">1</span><h3>Open the disk image</h3><p>Open MemeMe.dmg and drag MemeMe onto the Applications folder next to it.</p></li>
-        <li><span class="n" aria-hidden="true">2</span><h3>Open it the first time</h3><p>MemeMe isn’t notarized by Apple yet, so macOS stops it once. On macOS 15 or later, open <span class="path">System Settings → Privacy &amp; Security</span>, scroll down and click <span class="path">Open Anyway</span>. On macOS 14, Control-click MemeMe, choose <span class="path">Open</span>, then click <span class="path">Open</span> again.</p></li>
-        <li><span class="n" aria-hidden="true">3</span><h3>Say yes to the camera</h3><p>The panel opens by itself the first time and asks for the camera. After that, look for the smiley in your menu bar, or press <kbd>⌃</kbd><kbd>⌘</kbd><kbd>M</kbd> from anywhere.</p></li>
-        <li class="note">MemeMe keeps itself up to date. When a new version is out, a dot appears on the smiley in your menu bar and the panel offers it. One click installs it and restarts MemeMe. Afterwards macOS may ask once more for the camera and your folders.</li>
-        <li class="note">GIFs need a free GIPHY API key for now. Get one at <a href="https://developers.giphy.com/" target="_blank" rel="noopener">developers.giphy.com</a>, then choose <span class="path">Set GIPHY API Key…</span> from the smiley menu. Your own memes and stickers work without it.</li>
+        <li>
+          <h3>Drag it to Applications</h3>
+          <p>Open MemeMe.dmg and drag MemeMe to Applications.</p>
+        </li>
+        <li>
+          <h3>Open it the first time</h3>
+          <p>MemeMe isn’t notarized by Apple yet, so the first open needs one extra step.</p>
+          <dl class="os">
+            <div><dt>macOS 15 or later</dt><dd>System Settings → Privacy &amp; Security → Open Anyway</dd></div>
+            <div><dt>macOS 14</dt><dd>Control-click MemeMe → Open → Open</dd></div>
+          </dl>
+        </li>
+        <li>
+          <h3>Allow the camera</h3>
+          <p>Then press <kbd>⌃⌘M</kbd> in any chat.</p>
+        </li>
       </ol>
     </div>
   </section>
 </main>
 
 <footer class="foot">
-  <div class="wrap">
-    <span class="brand"><svg viewBox="0 0 64 64" aria-hidden="true"><rect x="2" y="2" width="60" height="60" rx="14" fill="#F5C451"/><circle cx="32" cy="33" r="19" fill="none" stroke="#0E1324" stroke-width="3.6"/><circle cx="25.5" cy="29" r="2.4" fill="#0E1324"/><circle cx="38.5" cy="29" r="2.4" fill="#0E1324"/><path d="M23.5 37c2.2 3.5 5 5.2 8.5 5.2s6.3-1.7 8.5-5.2" fill="none" stroke="#0E1324" stroke-width="3.6" stroke-linecap="round"/></svg><b>MemeMe 1.0</b> · For people who answer in pictures.</span>
-    <span><a href="https://github.com/Michaell14/MemeMe" target="_blank" rel="noopener">Source and releases on GitHub</a> · Not affiliated with Apple or GIPHY.</span>
+  <div class="wrap foot-in">
+    <a class="brand" href="#top">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="10" r="8.2"/><circle cx="7.1" cy="8.1" r=".95" fill="currentColor" stroke="none"/><circle cx="12.9" cy="8.1" r=".95" fill="currentColor" stroke="none"/><path d="M6.4 11.6c.9 1.5 2.1 2.2 3.6 2.2s2.7-.7 3.6-2.2"/></svg>
+      MemeMe 1.0
+    </a>
+    <a href="https://github.com/Michaell14/MemeMe" target="_blank" rel="noopener">Source code and releases on GitHub</a>
   </div>
 </footer>
 
@@ -889,7 +564,7 @@ h1 .stk {
   const n1 = v => Math.round(v * 10) / 10;
   const ease = t => 1 - Math.pow(1 - t, 3);
   const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const root = document.documentElement;
+  const finePointer = matchMedia("(pointer: fine)").matches;
 
   // ---------- Faces ----------
   // A face is seven numbers, the same kind of thing MemeMe measures on a real face.
@@ -898,7 +573,7 @@ h1 .stk {
   const face = p => ({ brow: 0, tilt: 0, eye: .55, look: 0, mouth: 0, smile: 0, smirk: 0, ...p });
   const EXPR = {
     shocked:     { label: "Shocked",     mood: "shocked",     p: face({ brow: 1, eye: 1, mouth: 1 }) },
-    sideeye:     { label: "Side eye",    mood: "side+eye",    p: face({ brow: -.35, tilt: .25, eye: .42, look: 1, smile: -.25 }) },
+    sideeye:     { label: "Side eye",    mood: "side eye",    p: face({ brow: -.35, tilt: .25, eye: .42, look: 1, smile: -.25 }) },
     laughing:    { label: "Laughing",    mood: "laughing",    p: face({ brow: .35, eye: 0, mouth: .85, smile: 1 }) },
     unimpressed: { label: "Unimpressed", mood: "unimpressed", p: face({ brow: -.2, eye: .38, smile: -.45 }) },
     confused:    { label: "Confused",    mood: "confused",    p: face({ brow: .3, tilt: 1, eye: .72, look: -.3, mouth: .12, smile: -.3, smirk: .4 }) },
@@ -996,7 +671,6 @@ h1 .stk {
     if (o.cap) s += `<text x="50" y="${o.capPos === "bottom" ? 95 : 17}" text-anchor="middle" font-family="Anton, Impact, 'Arial Narrow', sans-serif" font-size="${o.capSize || 15}" fill="#fff" stroke="#000" stroke-width="3.2" stroke-linejoin="round" paint-order="stroke" letter-spacing=".4">${o.cap}</text>`;
     return s + "</svg>";
   }
-  const SILHOUETTE = '<svg viewBox="0 0 100 100" aria-hidden="true"><path d="M16 106 C18 86 32 78 50 78 C68 78 82 86 84 106 Z" fill="#2B2D34"/><ellipse cx="50" cy="50" rx="21" ry="24" fill="#2B2D34"/></svg>';
 
   // ---------- Library (made-up examples, drawn here) ----------
   const T = (id, title, kind, src, tags, p, o, friend) => ({ id, title, kind, src, tags, p: face(p), o, friend });
@@ -1020,31 +694,24 @@ h1 .stk {
     T("t17", "Deadpan", "own", "Downloads · Oct 2025", "deadpan blank neutral", { eye: .55 }, { skin: "#6E4630", hair: "#0F0D10", shirt: "#5A6472", bg: ["#D2D5DA", "#B4B9C1"] }),
     T("t18", "Scream", "gif", "GIPHY", "cat scream shocked", { brow: .9, eye: .62, mouth: 1, smile: -.45 }, { species: "cat", skin: "#F1EEE9", bg: ["#F3A2A2", "#DF7E7E"] }),
   ];
-  const KIND_WORDS = { own: "mine", gif: "gif", sticker: "sticker friend" };
+  const KIND_WORDS = { own: "mine saved", gif: "gif giphy", sticker: "sticker friend" };
   for (const t of TILES) t.hay = `${t.title} ${t.tags} ${KIND_WORDS[t.kind]} ${t.friend || ""}`.toLowerCase();
   const byId = Object.fromEntries(TILES.map(t => [t.id, t]));
   const tileSVG = t => faceSVG(t.p, t.o);
 
   // ---------- Demo state ----------
-  const panel = $("#panel"), grid = $("#grid"), input = $("#q"), mirror = $("#mirror"), mirrorBox = $("#mirrorBox");
-  const ring = $("#ring"), hintTitle = $("#hintTitle"), hintSub = $("#hintSub"), hintAction = $("#hintAction");
-  const focusText = $("#focusText"), moreLikeBtn = $("#moreLike"), searchBox = $("#searchBox");
-  const S = {
-    open: true, mode: "live", committed: "shocked", holding: null, pins: new Set(), like: null,
-    shown: [], focus: 0, cur: { ...EXPR.shocked.p }, lookX: 0, lookY: 0, blink: false, lastType: 0,
-  };
-  let lastCopied = null;
+  const device = $("#device"), stage = $("#stage"), panel = $("#panel"), grid = $("#grid"), input = $("#q");
+  const mirror = $("#mirror"), ring = $("#ring"), searchBox = $("#searchBox"), focusText = $("#focusText");
+  const hintTitle = $("#hintTitle"), hintSub = $("#hintSub"), hintAction = $("#hintAction");
+  const closed = $("#closed"), closedMsg = $("#closedMsg"), smiley = $("#smiley"), live = $("#live");
+  const S = { open: true, mode: "live", committed: "shocked", holding: null, pins: new Set(), shown: [], focus: 0, cur: { ...EXPR.shocked.p }, lookX: 0, lookY: 0, blink: false, lastType: 0 };
 
   function dist(a, b) {
     let d = 0;
     for (const k of KEYS) { const w = S.pins.has(REGION[k]) ? 3 : 1, x = a[k] - b[k]; d += w * x * x; }
     return d;
   }
-  function rankFace(q, exclude) {
-    return TILES.filter(t => t !== exclude)
-      .map(t => ({ t, d: dist(q, t.p) + (t.kind === "gif" ? .04 : 0) }))
-      .sort((a, b) => a.d - b.d).slice(0, 10).map(x => x.t);
-  }
+  const rankFace = q => TILES.map(t => ({ t, d: dist(q, t.p) + (t.kind === "gif" ? .04 : 0) })).sort((a, b) => a.d - b.d).slice(0, 10).map(x => x.t);
   function rankText(text) {
     const words = text.toLowerCase().split(/\s+/).filter(Boolean);
     const order = { own: 0, sticker: 1, gif: 2 };
@@ -1061,12 +728,12 @@ h1 .stk {
     b.className = `tile ${t.kind}`;
     b.dataset.id = t.id;
     b.draggable = true;
-    const kindLabel = t.kind === "gif" ? "GIF from GIPHY" : t.kind === "sticker" ? `sticker of ${t.friend}` : "from your library";
+    const kindLabel = t.kind === "gif" ? "GIF from GIPHY" : t.kind === "sticker" ? `sticker of ${t.friend}` : "from your saved memes";
     b.setAttribute("aria-label", `${t.title}, ${kindLabel}`);
     b.innerHTML = `<span class="thumb">${tileSVG(t)}</span><span class="num" aria-hidden="true"></span>` +
       (t.kind === "own" ? '<span class="own-dot" aria-hidden="true"></span>' : "") +
       (t.kind === "sticker" ? '<span class="friend-ring" aria-hidden="true"></span>' : "") +
-      (t.kind === "gif" ? '<span class="gif-badge" aria-hidden="true">GIF</span><span class="via" aria-hidden="true">via GIPHY</span>' : "");
+      (t.kind === "gif" ? '<span class="gif-badge" aria-hidden="true">GIF</span>' : "");
     li.append(b);
     nodes.set(t.id, li);
     return li;
@@ -1076,19 +743,25 @@ h1 .stk {
     for (const li of grid.children) if (li.firstChild && li.firstChild.dataset) before.set(li.firstChild.dataset.id, li.getBoundingClientRect());
     S.shown = list;
     S.focus = 0;
+    // Always ten slots, so the panel keeps its height while results change.
+    const items = list.map(tileNode);
+    for (let i = list.length; i < 10; i++) {
+      const ph = document.createElement("li");
+      ph.className = "ph";
+      ph.setAttribute("aria-hidden", "true");
+      items.push(ph);
+    }
     if (!list.length) {
       const li = document.createElement("li");
       li.className = "empty";
       li.textContent = emptyText;
-      grid.replaceChildren(li);
-    } else {
-      grid.replaceChildren(...list.map(tileNode));
+      items.unshift(li);
     }
+    grid.replaceChildren(...items);
     list.forEach((t, i) => {
-      const li = nodes.get(t.id), num = li.querySelector(".num");
+      const li = nodes.get(t.id), num = li.querySelector(".num"), b = li.firstChild;
       num.textContent = i < 9 ? String(i + 1) : "";
       num.hidden = i >= 9;
-      const b = li.firstChild;
       const prev = before.get(t.id);
       if (prev && !reduced) {
         const now = li.getBoundingClientRect();
@@ -1106,13 +779,9 @@ h1 .stk {
     S.shown.forEach((t, i) => nodes.get(t.id).firstChild.classList.toggle("is-focus", i === S.focus));
     const t = S.shown[S.focus];
     focusText.textContent = t ? `↵ copies “${t.title}” · ${t.src}` : "Nothing to copy yet";
-    moreLikeBtn.hidden = !t || S.mode === "text";
   }
 
   function renderMirror() {
-    mirrorBox.classList.toggle("off", S.mode === "text");
-    if (S.mode === "text") { mirror.innerHTML = SILHOUETTE; return; }
-    if (S.mode === "like" && S.like) { mirror.innerHTML = tileSVG(S.like); return; }
     const p = { ...S.cur, look: clamp(S.cur.look + S.lookX, -1.3, 1.3) };
     if (S.blink && p.eye > .12) p.eye = .02;
     mirror.innerHTML = faceSVG(p, { skin: "#F5C451", shirt: "#7AA2FF", lookY: S.lookY, blush: true });
@@ -1121,19 +790,18 @@ h1 .stk {
   const queueMirror = () => { if (!mirrorQueued) { mirrorQueued = true; requestAnimationFrame(() => { mirrorQueued = false; renderMirror(); }); } };
 
   function setHint() {
-    let title = "Make a face. Results follow it.", sub = "Click your eyes or mouth to focus on them.", action = null;
-    if (S.mode === "text") { title = "Searching by words"; sub = "The camera is off while you type."; }
-    else if (S.mode === "like") { title = `More like “${S.like.title}”`; sub = ""; action = "Back to your face"; }
+    let title = "Make a face. Results follow it.", sub = "Click your eyes or mouth to make them count more.", action = null;
+    if (S.mode === "text") { title = "Searching by words"; sub = "Clear the box to go back to your face."; }
     else if (S.pins.size) {
       title = "Focusing on " + (S.pins.size === 2 ? "your eyes and mouth" : S.pins.has("eyes") ? "your eyes" : "your mouth");
       sub = ""; action = "Clear";
-    } else if (S.holding) sub = "New face? Keep holding…";
+    } else if (S.holding) sub = "New face? Hold it for a beat.";
     hintTitle.textContent = title;
     hintSub.textContent = sub;
     hintSub.hidden = !sub;
     hintAction.hidden = !action;
     if (action) hintAction.textContent = action;
-    root.classList.toggle("cam-on", S.open && S.mode !== "text");
+    device.classList.toggle("cam-on", S.open);
   }
 
   // Morph the mirror toward a face over a quarter second.
@@ -1151,14 +819,13 @@ h1 .stk {
     morphRaf = requestAnimationFrame(step);
   }
 
-  // A different expression has to be held for a second before it becomes the query (peak-hold).
+  // A new expression has to be held for a beat before it becomes the search.
   let holdTimer = 0;
   function setFace(key, user = true) {
     if (user) stopAuto();
     if (!S.open) openPanel(false);
-    if (S.mode === "text") { input.value = ""; searchBox.classList.remove("has-text"); }
-    if (S.mode !== "live") { S.mode = "live"; S.like = null; }
-    $$(".face-chip").forEach(c => c.setAttribute("aria-pressed", String(c.dataset.face === key)));
+    if (S.mode === "text") { input.value = ""; searchBox.classList.remove("has-text"); S.mode = "live"; }
+    $$(".chip").forEach(c => c.setAttribute("aria-pressed", String(c.dataset.face === key)));
     morphTo(EXPR[key].p);
     clearTimeout(holdTimer);
     ring.classList.remove("filling");
@@ -1177,16 +844,11 @@ h1 .stk {
     S.committed = key;
     setHint();
     renderGrid(rankFace(EXPR[key].p));
-    $("#moodWord").textContent = EXPR[key].mood;
-    const pr = panel.getBoundingClientRect(), hr = $("#top").getBoundingClientRect();
-    wall.ripple(key, pr.left + pr.width / 2 - hr.left, pr.top + pr.height / 2 - hr.top);
   }
   function refreshResults() {
-    if (S.mode === "text") { const q = input.value.trim(); renderGrid(rankText(q), `Nothing called “${q}”. Try cat, dog, gif, mine or Maya.`); }
-    else if (S.mode === "like") renderGrid(rankFace(S.like.p, S.like));
+    if (S.mode === "text") { const q = input.value.trim(); renderGrid(rankText(q), `Nothing called “${q}”. Try cat, dog, gif or Maya.`); }
     else renderGrid(rankFace(EXPR[S.committed].p));
   }
-
   function togglePin(region) {
     stopAuto();
     if (S.pins.has(region)) S.pins.delete(region); else S.pins.add(region);
@@ -1200,28 +862,10 @@ h1 .stk {
     setHint();
     refreshResults();
   }
-  function moreLike() {
-    const t = S.shown[S.focus];
-    if (!t) return;
-    stopAuto();
-    S.mode = "like";
-    S.like = t;
-    setHint();
-    renderMirror();
-    renderGrid(rankFace(t.p, t));
-  }
-  function backToFace() {
-    S.mode = "live";
-    S.like = null;
-    setHint();
-    renderMirror();
-    refreshResults();
-  }
   function escape() {
     if (S.mode === "text") { input.value = ""; onType(); return; }
     if (S.pins.size) { clearPins(); return; }
-    if (S.mode === "like") { backToFace(); return; }
-    closePanel();
+    closePanel(null);
   }
   function onType() {
     stopAuto();
@@ -1229,86 +873,71 @@ h1 .stk {
     const q = input.value.trim();
     searchBox.classList.toggle("has-text", !!q);
     if (q) {
-      if (S.mode !== "text") { S.mode = "text"; S.like = null; clearTimeout(holdTimer); ring.classList.remove("filling"); S.holding = null; }
+      if (S.mode !== "text") { S.mode = "text"; clearTimeout(holdTimer); ring.classList.remove("filling"); S.holding = null; }
     } else if (S.mode === "text") S.mode = "live";
     setHint();
-    renderMirror();
     refreshResults();
   }
 
-  // ---------- Copy, HUD, open and close ----------
-  const hud = $("#hud");
-  let hudTimer = 0;
-  function showHUD(html, ms = 1600) {
-    hud.innerHTML = html;
-    hud.hidden = false;
-    clearTimeout(hudTimer);
-    hudTimer = setTimeout(() => { hud.hidden = true; }, ms);
-  }
+  // ---------- Copy, close and open ----------
   function commit(t) {
     if (!t) return;
     stopAuto();
-    lastCopied = t;
-    showHUD(`<span class="thumb">${tileSVG(t)}</span><span>Copied “${t.title}” · ⌘V — not sent</span>`);
-    chat.arm(t);
-    closePanel();
+    closePanel(t);
   }
-  const panelWrap = $("#panelWrap"), closedNote = $("#closedNote");
-  function closePanel(quit = false) {
+  function closePanel(copied) {
     if (!S.open) return;
     S.open = false;
     clearTimeout(holdTimer);
     ring.classList.remove("filling");
     S.holding = null;
-    panelWrap.style.minHeight = panel.offsetHeight + "px";
+    const hadFocus = panel.contains(document.activeElement);
+    stage.style.minHeight = stage.offsetHeight + "px";
+    smiley.setAttribute("aria-expanded", "false");
     const done = () => {
       panel.hidden = true;
       panel.classList.remove("closing");
-      $("#closedText").innerHTML = quit
-        ? "MemeMe quit. It’s only a website, so it can come back."
-        : 'Tucked away in the menu bar. <span class="k" aria-label="Control Command M"><span>⌃</span><span>⌘</span><span>M</span></span> brings it back.';
-      closedNote.hidden = false;
+      closedMsg.hidden = !copied;
+      if (copied) closedMsg.innerHTML = `<span class="thumb">${tileSVG(copied)}</span><span><b>Copied “${copied.title}”</b><span>Paste it with ⌘V. MemeMe never sends it for you.</span></span>`;
+      live.textContent = copied ? `Copied “${copied.title}”. Paste it with ⌘V.` : "Panel closed.";
+      closed.hidden = false;
+      if (hadFocus) $("#reopen").focus({ preventScroll: true });
     };
-    if (reduced) done(); else { panel.classList.add("closing"); setTimeout(done, 240); }
-    if (panel.contains(document.activeElement)) document.activeElement.blur();
+    if (reduced) done(); else { panel.classList.add("closing"); setTimeout(done, 230); }
     setHint();
   }
   function openPanel(focus = true) {
-    if (S.open) { if (focus) input.focus({ preventScroll: true }); return; }
+    if (S.open) { if (focus && finePointer) input.focus({ preventScroll: true }); return; }
     S.open = true;
-    $("#mmIcon").classList.remove("quit");
-    closedNote.hidden = true;
+    closed.hidden = true;
+    live.textContent = "";
     panel.hidden = false;
-    if (!reduced) panel.animate([{ transform: "translateY(-14px) scale(.96,.6)", opacity: 0 }, { transform: "none", opacity: 1 }], { duration: 260, easing: "cubic-bezier(.3,.8,.3,1)" });
-    panelWrap.style.minHeight = "";
+    stage.style.minHeight = "";
+    smiley.setAttribute("aria-expanded", "true");
+    if (!reduced) panel.animate([{ transform: "translateY(-12px) scale(.97,.6)", opacity: 0 }, { transform: "none", opacity: 1 }], { duration: 260, easing: "cubic-bezier(.3,.8,.3,1)" });
     input.value = "";
     searchBox.classList.remove("has-text");
-    S.mode = "live"; S.like = null;
+    S.mode = "live";
     setHint();
     renderMirror();
     refreshResults();
-    if (focus) input.focus({ preventScroll: true });
+    if (focus && finePointer) input.focus({ preventScroll: true });
   }
   $("#reopen").addEventListener("click", () => openPanel());
+  smiley.addEventListener("click", () => { stopAuto(); if (S.open) closePanel(null); else openPanel(); });
 
   // ---------- Panel input ----------
   panel.addEventListener("pointerdown", stopAuto);
   input.addEventListener("input", onType);
-  hintAction.addEventListener("click", () => { if (S.mode === "like") backToFace(); else clearPins(); });
-  moreLikeBtn.addEventListener("click", moreLike);
+  hintAction.addEventListener("click", clearPins);
   $$(".pin").forEach(b => b.addEventListener("click", () => togglePin(b.dataset.pin)));
-  grid.addEventListener("click", e => {
-    const b = e.target.closest(".tile");
-    if (b) commit(byId[b.dataset.id]);
-  });
+  grid.addEventListener("click", e => { const b = e.target.closest(".tile"); if (b) commit(byId[b.dataset.id]); });
   grid.addEventListener("dragstart", e => {
     const b = e.target.closest(".tile");
     if (!b) return;
-    chat.dragging = byId[b.dataset.id];
-    e.dataTransfer.setData("text/plain", chat.dragging.title);
+    e.dataTransfer.setData("text/plain", byId[b.dataset.id].title);
     e.dataTransfer.effectAllowed = "copy";
   });
-  grid.addEventListener("dragend", () => { chat.dragging = null; });
   panel.addEventListener("keydown", e => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     const k = e.key, n = S.shown.length;
@@ -1338,20 +967,31 @@ h1 .stk {
     renderFocus();
   });
 
-  // Face chips under the panel.
-  const facesEl = $("#faces"), note = $(".faces-note");
+  // ⌃⌘M toggles the panel, like the real thing.
+  document.addEventListener("keydown", e => {
+    if (e.ctrlKey && e.metaKey && !e.altKey && e.code === "KeyM") {
+      e.preventDefault();
+      stopAuto();
+      if (S.open) closePanel(null); else openPanel();
+    }
+  });
+
+  // Face chips under the display.
+  const facesEl = $("#faces");
   for (const key of EXPR_KEYS) {
     const b = document.createElement("button");
     b.type = "button";
-    b.className = "face-chip";
+    b.className = "chip";
     b.dataset.face = key;
     b.setAttribute("aria-pressed", String(key === S.committed));
-    b.innerHTML = faceSVG(EXPR[key].p, { body: false }) + `<span>${EXPR[key].label}</span>`;
+    b.innerHTML = faceSVG(EXPR[key].p, { body: false }).replace('viewBox="0 0 100 100"', 'viewBox="20 18 60 64"') + `<span>${EXPR[key].label}</span>`;
     b.addEventListener("click", () => setFace(key));
-    facesEl.insertBefore(b, note);
+    facesEl.append(b);
   }
 
   // The mirror's eyes follow the pointer, and it blinks now and then.
+  let heroVisible = true;
+  if ("IntersectionObserver" in window) new IntersectionObserver(es => { heroVisible = es[0].isIntersecting; }).observe(device);
   if (!reduced) {
     addEventListener("pointermove", e => {
       if (!heroVisible || !S.open) return;
@@ -1361,7 +1001,7 @@ h1 .stk {
       queueMirror();
     }, { passive: true });
     const blink = () => {
-      if (S.open && heroVisible && S.mode === "live") {
+      if (S.open && heroVisible) {
         S.blink = true; renderMirror();
         setTimeout(() => { S.blink = false; renderMirror(); }, 120);
       }
@@ -1384,296 +1024,36 @@ h1 .stk {
     autoTimer = setTimeout(autoStep, 4200);
   }
 
-  // ---------- Desktop wallpaper: a field of faces that copies yours ----------
-  const screenEl = $("#top");
-  let heroVisible = true;
-  new IntersectionObserver(es => { heroVisible = es[0].isIntersecting; }).observe(screenEl);
-  const wall = (() => {
-    const cv = $("#wall"), ctx = cv.getContext("2d");
-    const GAP = 64, R = 14;
-    let W = 0, H = 0, dpr = 1, faces = [], ink = "#E0AA2D", raf = 0, ptr = null;
-    const pick = () => EXPR_KEYS[(Math.random() * EXPR_KEYS.length) | 0];
-    function readInk() { ink = getComputedStyle(screenEl).getPropertyValue("--wall-ink").trim() || ink; }
-    function build() {
-      W = screenEl.clientWidth; H = screenEl.clientHeight; dpr = Math.min(2, devicePixelRatio || 1);
-      cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-      faces = [];
-      let row = 0;
-      for (let y = 22; y < H + R; y += GAP * .87, row++) {
-        for (let x = (row % 2 ? GAP / 2 : 0) + 20; x < W + R; x += GAP) {
-          const own = pick();
-          faces.push({ x, y, own, cur: { ...EXPR[own].p }, from: null, to: null, t0: 0, pend: null, at: 0, back: 0 });
-        }
-      }
-      draw();
-    }
-    function drawFace(f, lx, ly) {
-      const { x, y } = f, p = f.cur;
-      ctx.beginPath(); ctx.arc(x, y, R, 0, Math.PI * 2); ctx.stroke();
-      const ey = y - R * .14;
-      for (const s of [-1, 1]) {
-        const cx = x + s * R * .38;
-        if (p.eye < .12) {
-          ctx.beginPath();
-          if (p.smile > .3) { ctx.moveTo(cx - R * .16, ey + R * .05); ctx.quadraticCurveTo(cx, ey - R * .2, cx + R * .16, ey + R * .05); }
-          else { ctx.moveTo(cx - R * .15, ey); ctx.lineTo(cx + R * .15, ey); }
-          ctx.stroke();
-        } else {
-          ctx.beginPath();
-          ctx.ellipse(cx + p.look * R * .07 + lx, ey + ly, R * .11, R * (.05 + .12 * p.eye), 0, 0, Math.PI * 2);
-          ctx.fill();
-        }
-        if (Math.abs(p.brow) > .25 || p.tilt > .3) {
-          const by = ey - R * (.3 + p.brow * .1) + (s < 0 ? -p.tilt * R * .12 : p.tilt * R * .05);
-          const drop = p.brow < 0 ? -p.brow * R * .14 : 0;
-          ctx.beginPath(); ctx.moveTo(cx - s * R * .18, by); ctx.lineTo(cx + s * R * .14, by + drop); ctx.stroke();
-        }
-      }
-      const my = y + R * .42;
-      if (p.mouth > .22) {
-        ctx.beginPath();
-        ctx.ellipse(x, my, R * (.13 + .17 * Math.max(p.smile, 0)), R * (.07 + .17 * p.mouth), 0, 0, Math.PI * 2);
-        ctx.fill();
-      } else {
-        const w = R * .3, cy = my - p.smile * R * .1;
-        ctx.beginPath(); ctx.moveTo(x - w, cy); ctx.quadraticCurveTo(x, my + p.smile * R * .3, x + w, cy - p.smirk * R * .14); ctx.stroke();
-      }
-    }
-    function draw() {
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.clearRect(0, 0, W, H);
-      ctx.strokeStyle = ink; ctx.fillStyle = ink; ctx.lineWidth = 2; ctx.lineCap = "round";
-      for (const f of faces) {
-        let lx = 0, ly = 0;
-        if (ptr) {
-          const dx = ptr.x - f.x, dy = ptr.y - f.y, d = Math.hypot(dx, dy) || 1, m = Math.min(1, d / 40);
-          lx = dx / d * R * .1 * m; ly = dy / d * R * .07 * m;
-        }
-        drawFace(f, lx, ly);
-      }
-    }
-    function morph(f, key, now) { f.from = { ...f.cur }; f.to = EXPR[key].p; f.t0 = now; }
-    function tick(now) {
-      let busy = false;
-      for (const f of faces) {
-        if (f.pend) { if (now >= f.at) { morph(f, f.pend, now); f.pend = null; } else busy = true; }
-        if (f.back) { if (now >= f.back && !f.pend) { morph(f, f.own, now); f.back = 0; } else busy = true; }
-        if (f.to) {
-          const k = Math.min(1, (now - f.t0) / 240);
-          f.cur = lerpFace(f.from, f.to, ease(k));
-          if (k >= 1) f.to = null; else busy = true;
-        }
-      }
-      draw();
-      raf = busy ? requestAnimationFrame(tick) : 0;
-    }
-    const kick = () => { if (!raf) raf = requestAnimationFrame(tick); };
-    let built = false;
-    new ResizeObserver(() => { built = true; build(); }).observe(screenEl);
-    readInk();
-    const onTheme = () => { readInk(); draw(); };
-    matchMedia("(prefers-color-scheme: dark)").addEventListener("change", onTheme);
-    new MutationObserver(onTheme).observe(root, { attributes: true, attributeFilter: ["data-theme"] });
-    if (!reduced) {
-      screenEl.addEventListener("pointermove", e => { const r = screenEl.getBoundingClientRect(); ptr = { x: e.clientX - r.left, y: e.clientY - r.top }; kick(); }, { passive: true });
-      screenEl.addEventListener("pointerleave", () => { ptr = null; kick(); });
-    }
-    return {
-      ripple(key, ox, oy) {
-        if (!built) return;
-        const now = performance.now();
-        for (const f of faces) {
-          if (reduced) { f.cur = { ...EXPR[key].p }; continue; }
-          f.pend = key;
-          f.at = now + Math.hypot(f.x - ox, f.y - oy) / .8;
-          f.back = f.at + 1600 + Math.random() * 4800;
-        }
-        if (reduced) draw(); else kick();
-      },
-    };
-  })();
-
-  // ---------- Dock (none of these is MemeMe) ----------
-  (() => {
-    const today = new Date();
-    const day = today.getDate(), mon = today.toLocaleString("en-US", { month: "short" }).toUpperCase();
-    const icons = [
-      ["", '<rect width="60" height="60" fill="#5AA9F0"/><path d="M8 20h17l4 5h23v25H8z" fill="#2F7FD8"/><path d="M8 27h44v23H8z" fill="#8CCBFF"/>', "Not MemeMe"],
-      ["", '<rect width="60" height="60" fill="#3DCB5F"/><path d="M30 14c-11.6 0-21 7.4-21 16.5 0 5.4 3.3 10.2 8.4 13.2-.5 2.8-2 5.4-4.4 7.3 4.5-.3 8.3-2 10.9-4.3 1.9.4 4 .6 6.1.6 11.6 0 21-7.4 21-16.8S41.6 14 30 14z" fill="#fff"/>', "Not MemeMe"],
-      ["opt", '<rect width="60" height="60" fill="#FFF6D5"/><rect width="60" height="14" fill="#F7C744"/><path d="M10 26h40M10 34h40M10 42h28" stroke="#C9C2A7" stroke-width="2.4"/>', "Still not MemeMe"],
-      ["", `<rect width="60" height="60" fill="#fff"/><rect width="60" height="17" fill="#F0453A"/><text x="30" y="13" text-anchor="middle" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif" font-size="10" font-weight="700" fill="#fff">${mon}</text><text x="30" y="47" text-anchor="middle" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif" font-size="28" font-weight="300" fill="#222">${day}</text>`, "Not MemeMe"],
-      ["opt", '<rect width="60" height="60" fill="#fff"/><circle cx="42" cy="18" r="6" fill="#F7B733"/><path d="M4 50l16-20 12 13 8-8 16 15z" fill="#4FA35A"/>', "Not MemeMe"],
-      ["opt", '<rect width="60" height="60" fill="#FC3C5F"/><path d="M24 40V18l20-4v22" fill="none" stroke="#fff" stroke-width="3.4" stroke-linejoin="round"/><circle cx="20" cy="40" r="5" fill="#fff"/><circle cx="40" cy="36" r="5" fill="#fff"/>', "Not MemeMe"],
-      ["", '<rect width="60" height="60" fill="#22252B"/><path d="M14 22l9 8-9 8" fill="none" stroke="#7CF29A" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M28 39h14" stroke="#E8E8E8" stroke-width="3.2" stroke-linecap="round"/>', "Not MemeMe"],
-      ["sep"],
-      ["", '<rect width="60" height="60" fill="#E6E8EC"/><path d="M19 20h22l-2 28H21z" fill="#C3C8D1"/><path d="M16 18h28" stroke="#9EA5B1" stroke-width="3" stroke-linecap="round"/><path d="M26 25v18M30 25v18M34 25v18" stroke="#9EA5B1" stroke-width="1.6"/>', "Definitely not MemeMe"],
-    ];
-    const dock = $("#dock");
-    for (const [cls, art, tip] of icons) {
-      const el = document.createElement("span");
-      if (cls === "sep") { el.className = "dock-sep"; dock.append(el); continue; }
-      el.className = `dock-icon ${cls}`;
-      el.dataset.tip = tip;
-      el.innerHTML = `<svg viewBox="0 0 60 60">${art}</svg>`;
-      dock.append(el);
-    }
-    if (reduced) return;
-    const items = $$(".dock-icon", dock);
-    dock.addEventListener("pointermove", e => {
-      for (const el of items) {
-        const r = el.getBoundingClientRect(), d = Math.abs(e.clientX - (r.left + r.width / 2));
-        el.style.setProperty("--s", (1 + .5 * Math.max(0, 1 - d / 110)).toFixed(3));
-      }
-    });
-    dock.addEventListener("pointerleave", () => items.forEach(el => el.style.setProperty("--s", "1")));
-  })();
-  $("#dockNote").addEventListener("pointerenter", () => {
-    const icon = $("#mmIcon");
-    icon.classList.remove("nudge"); void icon.offsetWidth; icon.classList.add("nudge");
-  });
-
-  // ---------- Menu bar ----------
+  // Menu bar clock.
   const clock = $("#clock");
   function tickClock() {
     const d = new Date();
-    const date = d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
-    const time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-    clock.textContent = innerWidth < 560 ? time : `${date}  ${time}`;
+    const wd = document.createElement("span");
+    wd.className = "wd";
+    wd.textContent = d.toLocaleDateString("en-US", { weekday: "short" });
+    clock.replaceChildren(wd, ` ${d.getHours() % 12 || 12}:${String(d.getMinutes()).padStart(2, "0")}`);
     clock.dateTime = d.toISOString();
   }
   tickClock();
-  setInterval(tickClock, 15000);
-  addEventListener("resize", tickClock, { passive: true });
+  setInterval(tickClock, 20000);
 
-  const mmIcon = $("#mmIcon"), mmMenu = $("#mmMenu");
-  const menuItems = () => $$(":scope > .mi, :scope > .msub > .mi", mmMenu);
-  function openMenu(viaKeyboard) {
-    const r = mmIcon.getBoundingClientRect();
-    mmMenu.hidden = false;
-    const w = mmMenu.offsetWidth;
-    mmMenu.style.left = clamp(r.left, 8, innerWidth - w - 8) + "px";
-    mmIcon.setAttribute("aria-expanded", "true");
-    if (viaKeyboard) menuItems()[0].focus();
+  // "Lives up here." points at the smiley wherever the menu bar ends up.
+  const heroDemo = $("#heroDemo"), callout = $("#callout");
+  function placeCallout() {
+    const d = heroDemo.getBoundingClientRect(), a = smiley.getBoundingClientRect();
+    heroDemo.style.setProperty("--co-r", Math.round(d.right - (a.left + a.width / 2)) + "px");
+    const c = callout.getBoundingClientRect();
+    heroDemo.style.setProperty("--co-h", Math.max(0, Math.round(a.top - c.top - 5)) + "px");
   }
-  function closeMenu() {
-    if (mmMenu.hidden) return;
-    mmMenu.hidden = true;
-    mmIcon.setAttribute("aria-expanded", "false");
-  }
-  mmIcon.addEventListener("click", e => { stopAuto(); if (mmMenu.hidden) openMenu(e.detail === 0); else closeMenu(); });
-  document.addEventListener("pointerdown", e => { if (!mmMenu.hidden && !mmMenu.contains(e.target) && !mmIcon.contains(e.target)) closeMenu(); });
-  mmMenu.addEventListener("click", e => {
-    const b = e.target.closest(".mi");
-    if (!b || b.getAttribute("aria-haspopup")) return;
-    const role = b.getAttribute("role");
-    if (role === "menuitemcheckbox") b.setAttribute("aria-checked", String(b.getAttribute("aria-checked") !== "true"));
-    if (role === "menuitemradio") $$(`[data-group="${b.dataset.group}"]`, mmMenu).forEach(x => x.setAttribute("aria-checked", String(x === b)));
-    const act = b.dataset.act;
-    if (act === "pause") { b.dataset.act = "resume"; b.textContent = "Resume Collecting"; }
-    else if (act === "resume") { b.dataset.act = "pause"; b.textContent = "Pause Collecting for 1 Hour"; }
-    closeMenu();
-    if (act === "open") { if (scrollY > 40) scrollTo({ top: 0, behavior: reduced ? "auto" : "smooth" }); openPanel(); }
-    if (act === "quit") { closePanel(true); mmIcon.classList.add("quit"); }
-    mmIcon.focus({ preventScroll: true });
-  });
-  mmMenu.addEventListener("keydown", e => {
-    const items = menuItems(), i = items.indexOf(document.activeElement);
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      e.preventDefault();
-      const d = e.key === "ArrowDown" ? 1 : -1;
-      items[(i + d + items.length) % items.length].focus();
-    } else if (e.key === "Escape") { e.preventDefault(); closeMenu(); mmIcon.focus(); }
-  });
-
-  // ⌃⌘M toggles, like the real thing.
-  document.addEventListener("keydown", e => {
-    if (e.ctrlKey && e.metaKey && !e.altKey && e.code === "KeyM") {
-      e.preventDefault();
-      stopAuto();
-      if (S.open) closePanel(); else openPanel();
-      return;
-    }
-    if (e.key === "Escape" && !mmMenu.hidden) closeMenu();
-  });
-
-  // ---------- The chat ----------
-  const chat = (() => {
-    const log = $("#chatLog"), field = $("#composer"), btn = $("#pasteBtn"), fig = $("#chat"), cap = $("#chatCap");
-    const bubble = (t, isNew) => {
-      const li = document.createElement("li");
-      li.className = "me" + (t.kind === "sticker" ? " sticker" : "") + (isNew ? " new" : "");
-      li.setAttribute("aria-label", `You sent ${t.title}`);
-      li.innerHTML = tileSVG(t);
-      return li;
-    };
-    $("#firstReply").replaceWith(bubble(byId.t1, false));
-    let lastPaste = 0;
-    const api = {
-      dragging: null,
-      arm(t) {
-        field.textContent = `⌘V pastes “${t.title}”`;
-        field.classList.add("armed");
-        btn.disabled = false;
-        cap.innerHTML = `Copied “${t.title}”. Press <kbd>⌘</kbd><kbd>V</kbd> or click Paste.`;
-      },
-      paste(t, reveal) {
-        if (!t || performance.now() - lastPaste < 250) return;
-        lastPaste = performance.now();
-        log.append(bubble(t, true));
-        log.scrollTop = log.scrollHeight;
-        field.textContent = "Message";
-        field.classList.remove("armed");
-        cap.textContent = "Sent by you, not by MemeMe. Copy another one up top to keep going.";
-        if (reveal) {
-          const r = fig.getBoundingClientRect();
-          if (r.top > innerHeight || r.bottom < 0) fig.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "center" });
-        }
-      },
-    };
-    btn.addEventListener("click", () => api.paste(lastCopied, false));
-    fig.addEventListener("dragover", e => { if (api.dragging) { e.preventDefault(); fig.classList.add("drop-ok"); } });
-    fig.addEventListener("dragleave", () => fig.classList.remove("drop-ok"));
-    fig.addEventListener("drop", e => {
-      fig.classList.remove("drop-ok");
-      if (!api.dragging) return;
-      e.preventDefault();
-      api.paste(api.dragging, false);
-      closePanel();
-    });
-    return api;
-  })();
-  const editable = el => el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
-  document.addEventListener("paste", e => {
-    if (!lastCopied || editable(e.target)) return;
-    e.preventDefault();
-    chat.paste(lastCopied, true);
-  });
-  document.addEventListener("keydown", e => {
-    if (lastCopied && (e.metaKey || e.ctrlKey) && !e.altKey && e.code === "KeyV" && !editable(e.target)) chat.paste(lastCopied, true);
-  });
-
-  // ---------- Sticker demo ----------
-  (() => {
-    const photo = $("#photo"), make = $("#makeStickers"), undo = $("#undoStickers"), line = $("#madeLine");
-    const maya = { brow: .3, eye: .72, mouth: .4, smile: .85 };
-    const jordan = { brow: .3, eye: .1, mouth: .55, smile: .95 };
-    $(".person.p1", photo).insertAdjacentHTML("afterbegin", faceSVG(face(maya), { skin: "#A86E4A", hair: "#1F1A1C", shirt: "#E2725B", cut: true }));
-    $(".person.p2", photo).insertAdjacentHTML("afterbegin", faceSVG(face(jordan), { skin: "#F2C7A5", hair: "#D9A84A", shirt: "#3E7A5A", cut: true }));
-    const set = made => {
-      photo.classList.toggle("made", made);
-      make.hidden = made;
-      line.hidden = !made;
-      undo.hidden = !made;
-      (made ? undo : make).focus({ preventScroll: true });
-    };
-    make.addEventListener("click", () => set(true));
-    undo.addEventListener("click", () => set(false));
-  })();
+  placeCallout();
+  if ("ResizeObserver" in window) new ResizeObserver(placeCallout).observe(heroDemo);
+  else addEventListener("resize", placeCallout, { passive: true });
+  if (document.fonts) document.fonts.ready.then(placeCallout);
 
   // ---------- Start ----------
   setHint();
   renderMirror();
   renderGrid(rankFace(EXPR[S.committed].p));
-  if (autoOn) autoTimer = setTimeout(autoStep, 2400);
+  if (autoOn) autoTimer = setTimeout(autoStep, 2600);
 })();
 </script>
