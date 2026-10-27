@@ -271,8 +271,11 @@ import SwiftUI
         }
 
         menu.addItem(.separator())
-        let webDiscover = makeItem("Web Discover (GIPHY)", action: #selector(toggleWebDiscover(_:)))
-        webDiscover.state = settings.webDiscoverEnabled ? .on : .off
+        // Without a key Web Discover can't search, so it shows as off until one is set.
+        let hasGiphyKey = model.web.hasAPIKey
+        let webDiscover = makeItem(hasGiphyKey ? "Web Discover (GIPHY)" : "Web Discover (GIPHY): No API Key", action: #selector(toggleWebDiscover(_:)))
+        webDiscover.state = settings.webDiscoverEnabled && hasGiphyKey ? .on : .off
+        webDiscover.isEnabled = hasGiphyKey
         menu.addItem(webDiscover)
         menu.addItem(makeItem("Set GIPHY API Key…", action: #selector(setGiphyAPIKey(_:))))
 

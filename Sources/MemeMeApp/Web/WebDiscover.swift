@@ -59,6 +59,11 @@ private let webLog = Logger(subsystem: "com.mememe.app", category: "web")
         pruneSearchTimes()
     }
 
+    /// A key was set from the menu or baked into this build.
+    var hasAPIKey: Bool {
+        apiKey != nil
+    }
+
     /// settings.webDiscoverEnabled && an API key exists && under the rate limit.
     var isAvailable: Bool {
         store.settings.webDiscoverEnabled && apiKey != nil && recentSearchCount < WebDiscover.searchesPerHour

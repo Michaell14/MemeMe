@@ -55,6 +55,16 @@ final class ResultMergerTests: XCTestCase {
         XCTAssertEqual(names(merged), ["x"])
     }
 
+    func testChangedSlots() {
+        let a = result("a"), b = result("b"), c = result("c"), x = result("x")
+        XCTAssertEqual(ResultMerger.changedSlots(from: [a, b, c], to: [a, b, c]), [])
+        XCTAssertEqual(ResultMerger.changedSlots(from: [a, b, c], to: [a, x, c]), [1])
+        XCTAssertEqual(ResultMerger.changedSlots(from: [a, b, c], to: [a, c, b]), [1, 2])
+        XCTAssertEqual(ResultMerger.changedSlots(from: [a], to: [a, x, b]), [1, 2])
+        XCTAssertEqual(ResultMerger.changedSlots(from: [a, b], to: [a]), [1])
+        XCTAssertEqual(ResultMerger.changedSlots(from: [], to: []), [])
+    }
+
     func testStrongOwnPrefix() {
         let results = [result("own", score: 0.8), result("friend", kind: .friend, score: 0.7),
                        result("web", kind: .web, score: 0.9), result("own2", score: 0.9)]

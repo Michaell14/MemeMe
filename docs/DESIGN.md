@@ -117,12 +117,12 @@ On open, before a face is captured, the grid shows **Recent in this app** (per f
 
 ## Web discover (GIPHY)
 
-- On by default when a GIPHY API key is available (Info.plist `GiphyAPIKey` baked at build time from the `GIPHY_API_KEY` env var, or set from the menu). Without a key it silently does nothing.
+- On by default when a GIPHY API key is available (Info.plist `GiphyAPIKey` baked at build time from the `GIPHY_API_KEY` env var, or set from the menu). Without a key it does nothing, and the menu shows it as "Web Discover (GIPHY): No API Key", off and dimmed.
 - The face is mapped on-device to one **mood word** (shocked, screaming, laughing, happy, smug, side eye, crying, sad, angry, confused, unimpressed, nervous, excited). Only that word is sent: `GET https://api.giphy.com/v1/gifs/search?api_key=…&q=<mood> reaction&limit=25&rating=pg-13&lang=en`.
 - Small stills (`fixed_width_small_still`) are downloaded in parallel, analyzed on-device (face features, fingerprint) and ranked with the same scorer as local items, with a small penalty so own items win ties.
-- Cache per mood for 24 h (`~/Library/Caches/MemeMe/Web`), LRU capped at 50 MB. The search starts as soon as the mood is clear. Popular moods are prefetched in the background on unmetered networks, not in Low Power Mode. A web round-trip longer than 1.5 s is dropped from the current grid (still cached for next time).
-- Rate limit guard: at most 90 GIPHY calls per rolling hour (beta keys allow 100).
-- Merging never moves the focused tile or the user's strong own matches (ResultMerger).
+- Cache per mood for 24 h (`~/Library/Caches/MemeMe/Web`), LRU capped at 50 MB. The search starts as soon as the mood is clear. Popular moods are prefetched in the background on unmetered networks, not in Low Power Mode. A cold search takes a few seconds; its results fill in behind the focused tile when they arrive (up to 8 s; anything slower is still cached for next time). If nothing on screen matches the face yet (recent or "reaction" tiles), they replace those tiles, except one the user hovered or moved to. A number key pressed within 0.8 s of a merge that changed its tile does nothing, so it can't copy a tile the user never saw.
+- Rate limit guard: at most 90 GIPHY calls per rolling hour per Mac. GIPHY counts calls per key, so every install of a build with a baked-in key shares that key's limit (100 per hour for a beta key): a public release needs a production key.
+- Merging never moves the focused tile or the user's strong own matches (ResultMerger), except placeholder tiles that don't match the face (above).
 
 ## First run
 

@@ -17,6 +17,17 @@ public enum ResultMerger {
         return merged
     }
 
+    /// Positions whose result differs between two grids, including positions only one of them has.
+    public static func changedSlots(from old: [RankedResult], to new: [RankedResult]) -> Set<Int> {
+        var slots = Set<Int>()
+        for index in 0..<max(old.count, new.count) {
+            if index >= old.count || index >= new.count || old[index].id != new[index].id {
+                slots.insert(index)
+            }
+        }
+        return slots
+    }
+
     /// Count of leading results that are own items with score ≥ threshold (default 0.6).
     public static func strongOwnPrefix(_ results: [RankedResult], threshold: Double = 0.6) -> Int {
         var count = 0

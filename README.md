@@ -109,9 +109,9 @@ Every change to the app on the default branch is released automatically. When `S
 
 ## GIPHY API key
 
-Web Discover finds reaction GIFs on GIPHY when your library has nothing good. It is on by default, but it does nothing without an API key.
+Web Discover finds reaction GIFs on GIPHY for the face you make, next to the memes you already have. It is on by default, but it does nothing without an API key; the menu then shows **Web Discover (GIPHY): No API Key**.
 
-1. Create an app at [developers.giphy.com](https://developers.giphy.com) and copy its API key. Beta keys allow 100 calls per hour; MemeMe stays under 90 per rolling hour and caches results.
+1. Create an app at [developers.giphy.com](https://developers.giphy.com) (choose **API**) and copy its API key. A new key is a beta key: 100 calls per hour. MemeMe stays under 90 per rolling hour on each Mac and caches results for 24 hours, but GIPHY counts calls per key, so every copy of a release shares the built-in key's limit. That's fine for you and a few friends; before sharing MemeMe widely, use **Upgrade to Production** on the key in GIPHY's dashboard.
 2. Choose one way to provide it:
    - **Build time:** `GIPHY_API_KEY=your-key ./scripts/build-app.sh` writes it into the bundle's Info.plist (`GiphyAPIKey`).
    - **CI:** add a repository secret named `GIPHY_API_KEY` (Settings → Secrets and variables → Actions). The workflow passes it to the build script. Builds without the secret, such as pull requests from forks, get an empty key.

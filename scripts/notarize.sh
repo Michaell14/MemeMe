@@ -137,20 +137,20 @@ fi
 log "Notarized: $(basename "$FILE") (submission $SUBMISSION_ID)"
 
 # 3. Staple the ticket, so Gatekeeper can check it offline. The ticket can take a moment to be
-#    served after the verdict, so stapling gets a few attempts.
+#    served after the verdict, and both stapling and validating ask Apple's servers, which sometimes
+#    drop the connection, so they get a few attempts.
 if (( $# > 0 )); then
   for path in "$@"; do
     log "Stapling $path"
     attempt=1
-    until xcrun stapler staple "$path"; do
+    until xcrun stapler staple "$path" && xcrun stapler validate "$path"; do
       if (( attempt >= STAPLE_ATTEMPTS )); then
-        fail "stapler failed $STAPLE_ATTEMPTS times for $path"
+        fail "stapling or validating failed $STAPLE_ATTEMPTS times for $path"
       fi
       attempt=$((attempt + 1))
-      log "stapler failed; retrying in 20 s (attempt $attempt of $STAPLE_ATTEMPTS)"
+      log "stapling or validating failed; retrying in 20 s (attempt $attempt of $STAPLE_ATTEMPTS)"
       sleep 20
     done
-    xcrun stapler validate "$path"
   done
 fi
 

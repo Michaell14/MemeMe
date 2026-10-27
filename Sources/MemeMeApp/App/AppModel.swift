@@ -145,6 +145,8 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
 
     /// ↵ is ignored this soon after the last edit of the search field.
     private static let enterGuard: TimeInterval = 0.3
+    /// A number key is ignored this soon after a late merge put a different tile in its slot.
+    private static let reshuffleGuard: TimeInterval = 0.8
     private static let textDebounceNanoseconds: UInt64 = 80_000_000
     private static let newRingNanoseconds: UInt64 = 600_000_000
     private static let saveDelayNanoseconds: UInt64 = 2_000_000_000
@@ -154,10 +156,8 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
     private static let typingStopsCameraWindow: TimeInterval = 1.0
     /// A HUD says "Copying…" when fetching a web GIF takes longer than this.
     private static let slowCopyNanoseconds: UInt64 = 150_000_000
-    /// First-run fallback: wait this long for GIPHY "reaction" results when nothing local exists.
-    private static let reactionFetchTimeout: TimeInterval = 8
-    /// Fresh web results that take longer are dropped from the current grid (DESIGN.md: 1.5 s).
-    private static let webMergeTimeout: TimeInterval = 1.5
+    /// How long a search waits for GIPHY results; slower ones are cached for next time.
+    private static let webFetchTimeout: TimeInterval = 8
     private static let poseActiveThreshold = 0.3
     private static let keptSource = "Kept"
 
@@ -179,6 +179,9 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
     private var isKeepingImage = false
     private var isSettingQueryTextInternally = false
     private var lastTextEditAt: TimeInterval = 0
+    /// When a late web merge last changed the grid, and the positions it changed.
+    private var reshuffledAt: TimeInterval = 0
+    private var reshuffledSlots: Set<Int> = []
     private var textBeganAt: TimeInterval?
     private var searchGeneration = 0
     private var imageGeneration = 0
@@ -315,6 +318,15 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
         // ↵ pressed to "run the search" right after typing must not copy something.
         guard CACurrentMediaTime() - lastTextEditAt >= AppModel.enterGuard else { return }
         commit(index: focusedIndex)
+    }
+
+    /// Number keys pick by position, so one pressed just as a late merge swapped that tile would copy
+    /// something the user never saw.
+    func commitNumbered(index: Int) {
+        if reshuffledSlots.contains(index), CACurrentMediaTime() - reshuffledAt < AppModel.reshuffleGuard {
+            return
+        }
+        commit(index: index)
     }
 
     func moveFocus(dx: Int, dy: Int) {
@@ -795,7 +807,7 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
         let generation = searchGeneration
         webTask = Task { [weak self] in
             guard let self else { return }
-            let items = await self.web.items(for: .reaction, timeout: AppModel.reactionFetchTimeout)
+            let items = await self.web.items(for: .reaction, timeout: AppModel.webFetchTimeout)
             guard !Task.isCancelled, generation == self.searchGeneration, self.resultSource == .recent,
                   self.results.isEmpty, !items.isEmpty else { return }
             self.setResults(self.reactionResults(items), animateNew: false, resetFocus: true)
@@ -826,13 +838,12 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
         }
 
         guard cached.isEmpty, web.isAvailable else { return }
-        // With no match for this face on screen nothing can be reshuffled, so wait for the whole fetch.
+        // A cold search takes a few seconds; its results fill in behind what the user may be about to click.
         let showsNoMatch = ranked.isEmpty
-        let timeout = showsNoMatch ? AppModel.reactionFetchTimeout : AppModel.webMergeTimeout
         webTask = Task { [weak self] in
             guard let self else { return }
             // A fetch that outlasts the timeout still fills the cache for next time.
-            let fetched = await self.web.items(for: mood, timeout: timeout)
+            let fetched = await self.web.items(for: mood, timeout: AppModel.webFetchTimeout)
             guard !Task.isCancelled, generation == self.searchGeneration, !fetched.isEmpty else { return }
             self.mergeWebResults(fetched, sample: sample, weights: weights, replacingPlaceholders: showsNoMatch)
         }
@@ -851,6 +862,11 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
             ? (userInteracted ? focusedIndex + 1 : 0)
             : max(ResultMerger.strongOwnPrefix(results), focusedIndex + 1)
         let merged = ResultMerger.merge(current: results, incoming: incoming, lockedCount: lockedCount, limit: limit)
+        let changed = ResultMerger.changedSlots(from: results, to: merged)
+        if !changed.isEmpty {
+            reshuffledAt = CACurrentMediaTime()
+            reshuffledSlots = changed
+        }
         setResults(merged, animateNew: true, resetFocus: false)
     }
 

@@ -279,10 +279,25 @@ jobs:
               return 1
             fi
           }
+          # stapler validate asks Apple's servers, which sometimes drop the connection.
+          validate_ticket() {
+            local attempt
+            for attempt in 1 2 3; do
+              if xcrun stapler validate "$1"; then
+                return 0
+              fi
+              if (( attempt < 3 )); then
+                echo "stapler validate failed for $1; retrying in 20 s"
+                sleep 20
+              fi
+            done
+            echo "::error::The notarization ticket stapled to $1 does not validate"
+            return 1
+          }
           assess MemeMe.app -a -vvv build/MemeMe.app
           assess MemeMe.dmg -a -vvv -t open --context context:primary-signature build/MemeMe.dmg
-          xcrun stapler validate build/MemeMe.app
-          xcrun stapler validate build/MemeMe.dmg
+          validate_ticket build/MemeMe.app
+          validate_ticket build/MemeMe.dmg
 
           requirement="=anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = \"$DEVELOPER_TEAM_ID\""
           if ! codesign --verify --deep --strict --verbose=2 -R "$requirement" build/MemeMe.app; then

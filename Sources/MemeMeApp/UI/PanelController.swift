@@ -29,6 +29,8 @@ final class PanelController: NSObject {
         case closes
         /// Answers a macOS consent alert: the panel stays.
         case answersConsentAlert
+        /// Uses macOS's screenshot tool (⇧⌘4 selection, ⇧⌘5 toolbar): the panel stays, so it can be captured.
+        case takesScreenshot
     }
 
     private let model: AppModel
@@ -60,6 +62,8 @@ final class PanelController: NSObject {
 
     /// macOS draws its consent alerts (camera; Desktop, Downloads and Documents folders) from this agent.
     private static let consentAlertBundleID = "com.apple.UserNotificationCenter"
+    /// macOS draws the ⇧⌘4 selection and the ⇧⌘5 toolbar from this agent.
+    private static let screenshotBundleID = "com.apple.screencaptureui"
 
     init(model: AppModel) {
         self.model = model
@@ -304,6 +308,8 @@ final class PanelController: NSObject {
             if isAnsweringConsentAlert(at: location) {
                 outsidePress = .answersConsentAlert
                 extendConsentAlertGrace()
+            } else if PanelController.ownerBundleID(ofWindowAt: location) == PanelController.screenshotBundleID {
+                outsidePress = .takesScreenshot
             } else {
                 outsidePress = .closes
             }
@@ -322,13 +328,13 @@ final class PanelController: NSObject {
                 }
             case .answersConsentAlert:
                 extendConsentAlertGrace()
-            case .idle:
+            case .takesScreenshot, .idle:
                 break
             }
         case .rightMouseDown:
             if isAnsweringConsentAlert(at: location) {
                 extendConsentAlertGrace()
-            } else {
+            } else if PanelController.ownerBundleID(ofWindowAt: location) != PanelController.screenshotBundleID {
                 hide(restoringPreviousApp: false)
             }
         default:
@@ -341,6 +347,8 @@ final class PanelController: NSObject {
         guard panel.isVisible, let app else { return }
         // MemeMe itself: activated for the camera alert, a menu command or a drop on the menu-bar icon.
         if app.processIdentifier == ProcessInfo.processInfo.processIdentifier { return }
+        // macOS's screenshot tool, while the user captures the panel.
+        if app.bundleIdentifier == PanelController.screenshotBundleID { return }
         if app.bundleIdentifier == PanelController.consentAlertBundleID || isCameraAccessUndecided {
             extendConsentAlertGrace()
             return
@@ -368,16 +376,21 @@ final class PanelController: NSObject {
     }
 
     /// True when the topmost window at `screenPoint` belongs to the agent that shows consent alerts.
-    /// Owner PIDs are readable without Screen Recording access (only window titles are not).
     private static func isConsentAlertWindow(at screenPoint: NSPoint) -> Bool {
+        ownerBundleID(ofWindowAt: screenPoint) == consentAlertBundleID
+    }
+
+    /// Bundle id of the app that owns the topmost window at `screenPoint`.
+    /// Owner PIDs are readable without Screen Recording access (only window titles are not).
+    private static func ownerBundleID(ofWindowAt screenPoint: NSPoint) -> String? {
         let windowNumber = NSWindow.windowNumber(at: screenPoint, belowWindowWithWindowNumber: 0)
         guard windowNumber > 0,
               let windows = CGWindowListCopyWindowInfo([.optionIncludingWindow], CGWindowID(clamping: windowNumber)) as? [[String: Any]],
               let ownerPID = (windows.first?[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value,
               let owner = NSRunningApplication(processIdentifier: ownerPID) else {
-            return false
+            return nil
         }
-        return owner.bundleIdentifier == consentAlertBundleID
+        return owner.bundleIdentifier
     }
 
     /// A tile drag ends in another process's drop, which no monitor sees: poll the button and close
@@ -492,7 +505,7 @@ final class PanelController: NSObject {
             guard hasNoCommandLikeModifiers, let digit = PanelController.typedDigit(of: event) else { return event }
             // Digits never type: 1–9 (main row or keypad) pick, 0 does nothing.
             if digit >= 1 {
-                model.commit(index: digit - 1)
+                model.commitNumbered(index: digit - 1)
             }
             return nil
         }
