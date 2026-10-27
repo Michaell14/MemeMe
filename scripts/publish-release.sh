@@ -139,7 +139,7 @@ jq -e '
   echo
   echo "## Install"
   echo
-  echo "Open MemeMe.dmg and drag MemeMe into your Applications folder. The first time you open it, macOS blocks it because it is not notarized: go to System Settings → Privacy & Security and click Open Anyway. If you already have MemeMe, it offers this update itself."
+  echo "Open MemeMe.dmg and drag MemeMe into your Applications folder. MemeMe is signed with a Developer ID and notarized by Apple, so the first time you open it macOS only asks whether to open an app downloaded from the internet. If you already have MemeMe, it offers this update itself."
   echo
   printf "SHA-256: \`%s\`\n" "$SHA256"
 } > "$NOTES_MD"

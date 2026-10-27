@@ -1,16 +1,21 @@
 #!/usr/bin/env bash
 # Builds build/MemeMe.app from the Swift package, fills in the version, the update feed and the
-# GIPHY API key, and signs the bundle ad hoc. scripts/build-dmg.sh packs it into build/MemeMe.dmg.
+# GIPHY API key, and signs the bundle: ad hoc by default, or with a Developer ID for releases.
+# scripts/build-dmg.sh packs it into build/MemeMe.dmg.
 #
 # Usage:  GIPHY_API_KEY=your-key ./scripts/build-app.sh
 #
 # Environment (all optional):
-#   GIPHY_API_KEY    written into the bundle; without it the key is empty and Web Discover stays
-#                    off until a key is set from the menu-bar menu
-#   APP_VERSION      CFBundleShortVersionString, e.g. 1.0 (default: the VERSION file)
-#   APP_BUILD        CFBundleVersion, a whole number (default: git rev-list --count HEAD)
-#   UPDATE_FEED_URL  https URL of the release feed, latest.json (default: empty, so the app never
-#                    checks for updates)
+#   GIPHY_API_KEY      written into the bundle; without it the key is empty and Web Discover stays
+#                      off until a key is set from the menu-bar menu
+#   APP_VERSION        CFBundleShortVersionString, e.g. 1.0 (default: the VERSION file)
+#   APP_BUILD          CFBundleVersion, a whole number (default: git rev-list --count HEAD)
+#   UPDATE_FEED_URL    https URL of the release feed, latest.json (default: empty, so the app never
+#                      checks for updates)
+#   CODESIGN_IDENTITY  "-" (the default, also when empty) signs ad hoc. A "Developer ID Application"
+#                      identity in the keychain (its name or SHA-1) signs with the hardened runtime,
+#                      a secure timestamp and Resources/MemeMe.entitlements, ready for
+#                      scripts/notarize.sh
 set -euo pipefail
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
@@ -27,6 +32,9 @@ APP="$BUILD_DIR/$PRODUCT.app"
 PLIST_SOURCE="$ROOT/Resources/Info.plist"
 PLIST="$APP/Contents/Info.plist"
 PLISTBUDDY="/usr/libexec/PlistBuddy"
+ENTITLEMENTS="$ROOT/Resources/MemeMe.entitlements"
+SIGN_IDENTITY="${CODESIGN_IDENTITY:--}"
+SIGN_ATTEMPTS=3
 
 log() {
   printf '==> %s\n' "$*"
@@ -58,6 +66,14 @@ FEED_URL_PATTERN=$'^https://[A-Za-z0-9._~:/?#@!$&\'()*+,;=%-]+$'
 if [[ -n "$FEED_URL" && ! "$FEED_URL" =~ $FEED_URL_PATTERN ]]; then
   echo "warning: UPDATE_FEED_URL is not a plain https URL; building with updates off" >&2
   FEED_URL=""
+fi
+
+if [[ "$SIGN_IDENTITY" != "-" ]]; then
+  if [[ ! -f "$ENTITLEMENTS" ]]; then
+    echo "error: $ENTITLEMENTS not found; Developer ID builds need it for camera access" >&2
+    exit 1
+  fi
+  plutil -lint "$ENTITLEMENTS"
 fi
 
 # 1. Compile. A universal binary (Apple silicon + Intel) when the toolchain can build one,
@@ -128,9 +144,46 @@ else
 fi
 plutil -lint "$PLIST"
 
-# 5. Ad-hoc signature (no Developer ID). No hardened runtime, so no camera entitlement is needed.
-log "Signing ad hoc"
-codesign --force --sign - "$APP"
-codesign --verify --strict --verbose=1 "$APP"
+# 5. Sign. Ad hoc by default: no hardened runtime, so no camera entitlement is needed.
+if [[ "$SIGN_IDENTITY" == "-" ]]; then
+  log "Signing ad hoc"
+  codesign --force --sign - "$APP"
+  codesign --verify --strict --verbose=1 "$APP"
+  log "Done: $APP"
+  exit 0
+fi
+
+# Developer ID: the hardened runtime (required for notarization) blocks the camera unless the
+# entitlement grants it, and the secure timestamp keeps the signature valid after the certificate
+# expires. The timestamp server is sometimes busy, so signing gets a few attempts.
+log "Signing with a Developer ID (hardened runtime, secure timestamp)"
+attempt=1
+until codesign --force --timestamp --options runtime --entitlements "$ENTITLEMENTS" \
+    --sign "$SIGN_IDENTITY" "$APP"; do
+  if (( attempt >= SIGN_ATTEMPTS )); then
+    echo "error: codesign failed $SIGN_ATTEMPTS times" >&2
+    exit 1
+  fi
+  attempt=$((attempt + 1))
+  log "codesign failed; retrying in 10 s (attempt $attempt of $SIGN_ATTEMPTS)"
+  sleep 10
+done
+codesign --verify --deep --strict --verbose=2 "$APP"
+
+# The signer and team are public (they are in every copy of the app); print them for the log.
+SIGNATURE_INFO="$(codesign -dv --verbose=2 "$APP" 2>&1)"
+grep -E '^(Identifier|Authority|Timestamp|TeamIdentifier)=|^CodeDirectory ' <<< "$SIGNATURE_INFO" || true
+if ! grep -Eq '^CodeDirectory .*flags=0x[0-9a-f]+\([^)]*runtime' <<< "$SIGNATURE_INFO"; then
+  echo "error: the signature has no hardened runtime" >&2
+  exit 1
+fi
+if ! grep -q '^Timestamp=' <<< "$SIGNATURE_INFO"; then
+  echo "error: the signature has no secure timestamp" >&2
+  exit 1
+fi
+if ! grep -Eq '^TeamIdentifier=[A-Z0-9]{10}$' <<< "$SIGNATURE_INFO"; then
+  echo "error: the signature has no Team ID; is $SIGN_IDENTITY a Developer ID identity?" >&2
+  exit 1
+fi
 
 log "Done: $APP"

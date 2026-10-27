@@ -103,6 +103,91 @@ final class UpdateInstallerTests: XCTestCase {
         }
     }
 
+    // MARK: - Signing team
+
+    func testParseTeamIdentifierReadsOnlyAValidTeamIdentifierLine() {
+        let developerID = """
+        Executable=/Applications/MemeMe.app/Contents/MacOS/MemeMe
+        Identifier=com.mememe.app
+        Format=app bundle with Mach-O universal (x86_64 arm64)
+        CodeDirectory v=20500 size=6874 flags=0x10000(runtime) hashes=204+7 location=embedded
+        Signature size=9049
+        Authority=Developer ID Application: Michael Li (XG6X9X3J6V)
+        Authority=Developer ID Certification Authority
+        Authority=Apple Root CA
+        Timestamp=27 Oct 2026 at 10:15:42
+        Notarization Ticket=stapled
+        Info.plist entries=24
+        TeamIdentifier=XG6X9X3J6V
+        Runtime Version=15.0.0
+        Sealed Resources version=2 rules=13 files=4
+        Internal requirements count=1 size=184
+        """
+        let adHoc = """
+        Executable=/Users/me/MemeMe/build/MemeMe.app/Contents/MacOS/MemeMe
+        Identifier=com.mememe.app
+        Format=app bundle with Mach-O universal (x86_64 arm64)
+        CodeDirectory v=20400 size=6851 flags=0x2(adhoc) hashes=204+7 location=embedded
+        Signature=adhoc
+        Info.plist entries=24
+        TeamIdentifier=not set
+        Sealed Resources version=2 rules=13 files=4
+        Internal requirements count=0 size=12
+        """
+        let table: [(String, String?)] = [
+            (developerID, "XG6X9X3J6V"),
+            ("TeamIdentifier=ABCDE12345", "ABCDE12345"),
+            (adHoc, nil),
+            ("/Applications/MemeMe.app: code object is not signed at all", nil),
+            ("", nil),
+            ("TeamIdentifier=", nil),
+            ("TeamIdentifier=xg6x9x3j6v", nil),
+            ("TeamIdentifier=XG6X9X3J6", nil),
+            ("TeamIdentifier=XG6X9X3J6VX", nil),
+            ("TeamIdentifier=XG6X 9X3J6", nil),
+            ("TeamIdentifier= XG6X9X3J6V", nil),
+            ("TeamIdentifier=XG6X9X3J6V ", nil),
+            ("TeamIdentifier=\"XG6X9X3J6V\"", nil),
+            ("TeamIdentifier=XG6X\"9X3J6", nil),
+            ("Authority=TeamIdentifier=XG6X9X3J6V", nil),
+        ]
+        for (output, expected) in table {
+            XCTAssertEqual(UpdateInstaller.parseTeamIdentifier(fromCodesignOutput: output), expected, output)
+        }
+    }
+
+    func testDeveloperIDRequirementNamesOnlyAValidTeam() {
+        XCTAssertEqual(
+            UpdateInstaller.developerIDRequirement(team: "XG6X9X3J6V"),
+            "=anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = \"XG6X9X3J6V\""
+        )
+        let invalid = [
+            "", "XG6X9X3J6", "xg6x9x3j6v", "XG6X9X3J6VX", "XG6X\"9X3J6", "XG6X9X3J6V\" or anchor apple",
+            " XG6X9X3J6V", "XG6X9X3J6V\n", "not set",
+        ]
+        for team in invalid {
+            XCTAssertNil(UpdateInstaller.developerIDRequirement(team: team), "\"\(team)\"")
+        }
+    }
+
+    func testAnAdHocAppHasNoTeamAndFailsTheDeveloperIDRequirement() async throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.remove() }
+        let app = sandbox.url.appendingPathComponent("MemeMe.app", isDirectory: true)
+        try makeSignedFakeApp(at: app, build: 58)
+        let requirement = try XCTUnwrap(UpdateInstaller.developerIDRequirement(team: "XG6X9X3J6V"))
+
+        // 3 = the code is intact but doesn't satisfy the -R requirement, so codesign parsed the requirement text
+        // (a syntax error or a broken signature exits with another status).
+        let check = try runTool("/usr/bin/codesign", ["--verify", "--deep", "--strict", "-R", requirement, app.path])
+        XCTAssertEqual(check.status, 3, check.output)
+
+        let team = await UpdateInstaller.teamIdentifier(ofAppAt: app)
+        XCTAssertNil(team, "An ad-hoc signature has no Team ID")
+        let missing = await UpdateInstaller.teamIdentifier(ofAppAt: sandbox.url.appendingPathComponent("Missing.app", isDirectory: true))
+        XCTAssertNil(missing, "codesign fails on a missing app")
+    }
+
     // MARK: - Download
 
     func testDownloadVerifiesAndReplacesAnOlderFile() async throws {
@@ -286,13 +371,7 @@ final class UpdateInstallerTests: XCTestCase {
     func testStageMountsVerifiesCopiesAndDetaches() async throws {
         let sandbox = try TestSandbox()
         defer { sandbox.remove() }
-        let source = try sandbox.directory("DMGSource")
-        try makeSignedFakeApp(at: source.appendingPathComponent("MemeMe.app", isDirectory: true), build: 58)
-        let dmg = sandbox.file("MemeMe.dmg")
-        let create = try runTool("/usr/bin/hdiutil", [
-            "create", "-volname", "MemeMeTest", "-srcfolder", source.path, "-format", "UDZO", "-ov", dmg.path,
-        ])
-        guard create.status == 0 else { throw XCTSkip("hdiutil create failed on this machine: \(create.output)") }
+        let dmg = try makeFixtureDMG(in: sandbox, build: 58)
 
         let current = try sandbox.directory("Apps/MemeMe.app")
         let installer = UpdateInstaller(session: .shared, updatesDirectory: sandbox.url.appendingPathComponent("Updates", isDirectory: true))
@@ -320,6 +399,58 @@ final class UpdateInstallerTests: XCTestCase {
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: staged.path))
         XCTAssertEqual(mountFolders(installer, build: 58), [])
+    }
+
+    func testStageRejectsAnAdHocUpdateWhenATeamIsRequired() async throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.remove() }
+        let dmg = try makeFixtureDMG(in: sandbox, build: 58)
+        let current = try sandbox.directory("Apps/MemeMe.app")
+        let installer = UpdateInstaller(session: .shared, updatesDirectory: sandbox.url.appendingPathComponent("Updates", isDirectory: true))
+        let release = manifest(sha256: String(repeating: "0", count: 64))
+        let staged = UpdateInstaller.stagedURL(for: current, build: 58)
+
+        // An intact ad-hoc app can't satisfy a Developer ID requirement; a team that isn't a Team ID never
+        // reaches codesign.
+        for team in ["XG6X9X3J6V", "XG6X9X3J6V\" or anchor apple"] {
+            do {
+                _ = try await installer.stage(
+                    dmg: dmg,
+                    manifest: release,
+                    currentApp: current,
+                    bundleIdentifier: UpdateInstallerTests.testBundleIdentifier,
+                    requiredTeam: team
+                )
+                XCTFail("An ad-hoc update must be rejected when team \(team) is required")
+            } catch UpdateInstaller.Failure.mountFailed(let output) {
+                throw XCTSkip("hdiutil attach failed on this machine: \(output)")
+            } catch let failure as UpdateInstaller.Failure {
+                XCTAssertEqual(failure, .signatureInvalid, team)
+                XCTAssertTrue(failure.isVerificationFailure, "The DMG is never opened")
+            }
+            XCTAssertFalse(FileManager.default.fileExists(atPath: staged.path), "Nothing is staged")
+            XCTAssertEqual(mountFolders(installer, build: 58), [], "The DMG is detached and its mount point removed")
+        }
+    }
+
+    func testVerifyDMGSignatureRejectsUnsignedAndAdHocImagesWhenATeamIsRequired() async throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.remove() }
+        // `hdiutil create` leaves the image unsigned; a team that isn't a Team ID never reaches codesign.
+        let unsigned = try makeFixtureDMG(in: sandbox, build: 58)
+        for team in ["XG6X9X3J6V", "XG6X9X3J6V\" or anchor apple"] {
+            await assertDMGRejected(unsigned, team: team)
+        }
+
+        let adHoc = sandbox.file("AdHoc.dmg")
+        try FileManager.default.copyItem(at: unsigned, to: adHoc)
+        let sign = try runTool("/usr/bin/codesign", ["--force", "--sign", "-", adHoc.path])
+        guard sign.status == 0 else { throw XCTSkip("Ad-hoc signing a disk image failed on this machine: \(sign.output)") }
+        await assertDMGRejected(adHoc, team: "XG6X9X3J6V")
+
+        // The check reads the image's signature; it never attaches it.
+        let attached = try runTool("/usr/bin/hdiutil", ["info"])
+        XCTAssertFalse(attached.output.contains(sandbox.url.lastPathComponent), attached.output)
     }
 
     func testStageRefusesAnAppItCannotReplace() async throws {
@@ -383,6 +514,15 @@ final class UpdateInstallerTests: XCTestCase {
         }
     }
 
+    private func assertDMGRejected(_ dmg: URL, team: String, file: StaticString = #filePath, line: UInt = #line) async {
+        do {
+            try await UpdateInstaller.verifyDMGSignature(dmg, requiredTeam: team)
+            XCTFail("\(dmg.lastPathComponent) must be rejected when team \(team) is required", file: file, line: line)
+        } catch {
+            XCTAssertEqual(error as? UpdateInstaller.Failure, UpdateInstaller.Failure.signatureInvalid, team, file: file, line: line)
+        }
+    }
+
     private func writeInfoPlist(_ info: [String: Any], toApp app: URL) throws {
         let contents = app.appendingPathComponent("Contents", isDirectory: true)
         try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true, attributes: nil)
@@ -409,6 +549,19 @@ final class UpdateInstallerTests: XCTestCase {
 
         let sign = try runTool("/usr/bin/codesign", ["--force", "--sign", "-", app.path])
         guard sign.status == 0 else { throw XCTSkip("Ad-hoc signing failed on this machine: \(sign.output)") }
+    }
+
+    /// sandbox/MemeMe.dmg holding an ad-hoc signed MemeMe.app (`makeSignedFakeApp`) of this build. Skips the test
+    /// when signing or `hdiutil create` isn't available.
+    private func makeFixtureDMG(in sandbox: TestSandbox, build: Int) throws -> URL {
+        let source = try sandbox.directory("DMGSource")
+        try makeSignedFakeApp(at: source.appendingPathComponent("MemeMe.app", isDirectory: true), build: build)
+        let dmg = sandbox.file("MemeMe.dmg")
+        let create = try runTool("/usr/bin/hdiutil", [
+            "create", "-volname", "MemeMeTest", "-srcfolder", source.path, "-format", "UDZO", "-ov", dmg.path,
+        ])
+        guard create.status == 0 else { throw XCTSkip("hdiutil create failed on this machine: \(create.output)") }
+        return dmg
     }
 
     /// `mount-*` folders left in the build's updates folder.

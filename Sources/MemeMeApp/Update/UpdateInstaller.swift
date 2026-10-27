@@ -36,6 +36,10 @@ struct UpdateInstaller {
 
     /// Exit status and combined stdout/stderr of one command-line tool.
     private typealias ToolResult = (status: Int32, output: String)
+    /// Characters of a tool's output that are kept: enough for an error message.
+    private static let toolOutputLimit = 1000
+    /// `codesign -dv` prints the bundle's full path before TeamIdentifier, so it gets more room.
+    private static let signingDetailsLimit = 16_384
 
     init(session: URLSession = .shared, updatesDirectory: URL = UpdateInstaller.defaultUpdatesDirectory()) {
         self.session = session
@@ -174,12 +178,75 @@ struct UpdateInstaller {
         currentApp.deletingLastPathComponent().appendingPathComponent(".MemeMe-update-\(build).app", isDirectory: true)
     }
 
+    // MARK: - Signing team
+
+    /// The value of the "TeamIdentifier=" line (a line of its own) in `codesign -dv --verbose=2` output; nil when
+    /// the line is missing, says "not set" (ad-hoc) or isn't a Team ID (10 characters A-Z, 0-9).
+    static func parseTeamIdentifier(fromCodesignOutput output: String) -> String? {
+        let key = "TeamIdentifier="
+        for line in output.split(whereSeparator: \.isNewline) where line.hasPrefix(key) {
+            let value = String(line.dropFirst(key.count))
+            return isTeamIdentifier(value) ? value : nil
+        }
+        return nil
+    }
+
+    /// The code requirement "signed with a Developer ID Application certificate of this team"; nil unless `team`
+    /// is a Team ID (10 characters A-Z, 0-9), so nothing else ever reaches the requirement text.
+    static func developerIDRequirement(team: String) -> String? {
+        guard isTeamIdentifier(team) else { return nil }
+        // Apple-anchored, issued by the Developer ID CA (…6.2.6), a Developer ID Application leaf (…6.1.13).
+        let requirement: String = "=anchor apple generic"
+            + " and certificate 1[field.1.2.840.113635.100.6.2.6] exists"
+            + " and certificate leaf[field.1.2.840.113635.100.6.1.13] exists"
+            + " and certificate leaf[subject.OU] = \"\(team)\""
+        return requirement
+    }
+
+    /// The Team ID the app at `url` is signed with: `codesign -dv --verbose=2` (run off the main actor), parsed
+    /// with `parseTeamIdentifier(fromCodesignOutput:)`. nil on any failure, for ad-hoc and for unsigned code.
+    static func teamIdentifier(ofAppAt url: URL) async -> String? {
+        let details = await UpdateInstaller.run(
+            UpdateInstaller.codesign,
+            ["-dv", "--verbose=2", url.path],
+            outputLimit: UpdateInstaller.signingDetailsLimit
+        )
+        guard details.status == 0 else { return nil }
+        return parseTeamIdentifier(fromCodesignOutput: details.output)
+    }
+
+    /// Checks the downloaded DMG itself (CI signs MemeMe.dmg with the same Developer ID) before it is mounted or
+    /// shown in Finder: `codesign --verify --strict -R developerIDRequirement(team:) <dmg>`, run off the main
+    /// actor. Any exit status other than 0, or a `requiredTeam` that isn't a Team ID: `.signatureInvalid`.
+    static func verifyDMGSignature(_ dmg: URL, requiredTeam: String) async throws {
+        guard let requirement = developerIDRequirement(team: requiredTeam) else {
+            installerLog.error("The required signing team isn't a Team ID")
+            throw Failure.signatureInvalid
+        }
+        let check = await UpdateInstaller.run(
+            UpdateInstaller.codesign,
+            ["--verify", "--strict", "-R", requirement, dmg.path]
+        )
+        guard check.status == 0 else {
+            installerLog.error("The update's disk image isn't signed with MemeMe's Developer ID (\(check.status, privacy: .public))")
+            throw Failure.signatureInvalid
+        }
+    }
+
+    /// Exactly 10 characters, each A-Z or 0-9 (^[A-Z0-9]{10}$).
+    private static func isTeamIdentifier(_ value: String) -> Bool {
+        let bytes = Array(value.utf8)
+        return bytes.count == 10 && bytes.allSatisfy { (0x41...0x5A).contains($0) || (0x30...0x39).contains($0) }
+    }
+
     // MARK: - Staging
 
     /// Mounts the DMG read-only (hdiutil attach -nobrowse -readonly -noautoopen -mountpoint), finds the .app
-    /// (MemeMe.app first), validates it, checks `codesign --verify --deep --strict`, copies it with `ditto` to
-    /// `stagedURL(for:build:)`, and always detaches. Runs the tools off the main actor.
-    func stage(dmg: URL, manifest: UpdateManifest, currentApp: URL, bundleIdentifier: String) async throws -> URL {
+    /// (MemeMe.app first), validates it, checks `codesign --verify --deep --strict` and, when `requiredTeam` is
+    /// set, also `-R developerIDRequirement(team:)` (unsatisfied, or not a Team ID: `.signatureInvalid`), copies
+    /// it with `ditto` to `stagedURL(for:build:)`, and always detaches. Runs the tools off the main actor.
+    func stage(dmg: URL, manifest: UpdateManifest, currentApp: URL, bundleIdentifier: String,
+               requiredTeam: String? = nil) async throws -> URL {
         guard UpdateInstaller.canReplace(appAt: currentApp) else { throw Failure.notReplaceable }
 
         let fileManager = FileManager.default
@@ -207,7 +274,8 @@ struct UpdateInstaller {
                 fromVolume: mountPoint,
                 manifest: manifest,
                 currentApp: currentApp,
-                bundleIdentifier: bundleIdentifier
+                bundleIdentifier: bundleIdentifier,
+                requiredTeam: requiredTeam
             )
             staged = .success(app)
         } catch {
@@ -225,7 +293,8 @@ struct UpdateInstaller {
     }
 
     /// Validates the app on the mounted volume and copies it next to the running app.
-    private func copyApp(fromVolume volume: URL, manifest: UpdateManifest, currentApp: URL, bundleIdentifier: String) async throws -> URL {
+    private func copyApp(fromVolume volume: URL, manifest: UpdateManifest, currentApp: URL, bundleIdentifier: String,
+                         requiredTeam: String?) async throws -> URL {
         guard let app = UpdateInstaller.findApp(in: volume) else { throw Failure.appNotFound }
         try UpdateInstaller.validateBundle(at: app, bundleIdentifier: bundleIdentifier, build: manifest.build)
 
@@ -233,6 +302,22 @@ struct UpdateInstaller {
         guard signature.status == 0 else {
             installerLog.error("codesign rejected the update (\(signature.status, privacy: .public))")
             throw Failure.signatureInvalid
+        }
+
+        // A Developer ID build only takes updates signed by its own team (codesign exits 3 when -R isn't met).
+        if let requiredTeam {
+            guard let requirement = UpdateInstaller.developerIDRequirement(team: requiredTeam) else {
+                installerLog.error("The required signing team isn't a Team ID")
+                throw Failure.signatureInvalid
+            }
+            let team = await UpdateInstaller.run(
+                UpdateInstaller.codesign,
+                ["--verify", "--deep", "--strict", "-R", requirement, app.path]
+            )
+            guard team.status == 0 else {
+                installerLog.error("The update isn't signed with MemeMe's Developer ID (\(team.status, privacy: .public))")
+                throw Failure.signatureInvalid
+            }
         }
 
         let fileManager = FileManager.default
@@ -270,15 +355,17 @@ struct UpdateInstaller {
     }
 
     /// Runs a tool on a global queue, so neither the main thread nor the cooperative pool blocks on it.
-    private static func run(_ executable: String, _ arguments: [String]) async -> ToolResult {
+    /// Keeps the first `outputLimit` characters of its output.
+    private static func run(_ executable: String, _ arguments: [String],
+                            outputLimit: Int = UpdateInstaller.toolOutputLimit) async -> ToolResult {
         await withCheckedContinuation { (continuation: CheckedContinuation<ToolResult, Never>) in
             DispatchQueue.global(qos: .userInitiated).async {
-                continuation.resume(returning: UpdateInstaller.runBlocking(executable, arguments))
+                continuation.resume(returning: UpdateInstaller.runBlocking(executable, arguments, outputLimit: outputLimit))
             }
         }
     }
 
-    private static func runBlocking(_ executable: String, _ arguments: [String]) -> ToolResult {
+    private static func runBlocking(_ executable: String, _ arguments: [String], outputLimit: Int) -> ToolResult {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
@@ -295,7 +382,7 @@ struct UpdateInstaller {
         let data = (try? pipe.fileHandleForReading.readToEnd()) ?? Data()
         process.waitUntilExit()
         let output = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-        return (status: process.terminationStatus, output: String(output.prefix(1000)))
+        return (status: process.terminationStatus, output: String(output.prefix(outputLimit)))
     }
 
     // MARK: - Relaunch

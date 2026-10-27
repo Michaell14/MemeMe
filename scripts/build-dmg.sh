@@ -3,6 +3,11 @@
 # installing is one drag. The image is compressed (UDZO) and verified.
 #
 # Usage:  ./scripts/build-dmg.sh   (run scripts/build-app.sh first)
+#
+# Environment (optional):
+#   CODESIGN_IDENTITY  "-" or empty (the default) leaves the image unsigned, as for ad-hoc builds. A
+#                      "Developer ID Application" identity (name or SHA-1) signs it with a secure
+#                      timestamp, ready for scripts/notarize.sh
 set -euo pipefail
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
@@ -18,6 +23,7 @@ BUILD_DIR="$ROOT/build"
 APP="$BUILD_DIR/$PRODUCT.app"
 DMG="$BUILD_DIR/$PRODUCT.dmg"
 ATTEMPTS=3
+SIGN_IDENTITY="${CODESIGN_IDENTITY:--}"
 
 log() {
   printf '==> %s\n' "$*"
@@ -57,10 +63,30 @@ until hdiutil create -volname "$PRODUCT" -srcfolder "$STAGING" -fs HFS+ -format 
   sleep 5
 done
 
-# 3. Check the image and print what CI publishes.
+# 3. Check the image.
 log "Verifying $DMG"
 hdiutil verify "$DMG"
 
+# 4. Developer ID builds: sign the image too, so it can be notarized and Gatekeeper checks it on
+#    open. The timestamp server is sometimes busy, so signing gets a few attempts.
+if [[ "$SIGN_IDENTITY" != "-" ]]; then
+  log "Signing $DMG with a Developer ID (secure timestamp)"
+  attempt=1
+  until codesign --force --timestamp --sign "$SIGN_IDENTITY" "$DMG"; do
+    if (( attempt >= ATTEMPTS )); then
+      echo "error: codesign failed $ATTEMPTS times" >&2
+      exit 1
+    fi
+    attempt=$((attempt + 1))
+    log "codesign failed; retrying in 10 s (attempt $attempt of $ATTEMPTS)"
+    sleep 10
+  done
+  codesign --verify --strict --verbose=2 "$DMG"
+  codesign -dv --verbose=2 "$DMG" 2>&1 | grep -E '^(Authority|Timestamp|TeamIdentifier)=' || true
+fi
+
+# 5. Print what CI publishes. On release builds, stapling the notarization ticket afterwards
+#    changes both; scripts/publish-release.sh measures the final image.
 SIZE="$(wc -c < "$DMG" | tr -d '[:space:]')"
 SHA256="$(shasum -a 256 "$DMG" | awk '{ print $1 }')"
 log "Size: $SIZE bytes"

@@ -33,6 +33,9 @@ private let updateLog = Logger(subsystem: "com.mememe.app", category: "update")
     private var scheduler: Task<Void, Never>?
     private var wakeObserver: NSObjectProtocol?
     private var started = false
+    /// The running app's Team ID, looked up once, when the first install starts; nil inside for ad-hoc and
+    /// local builds.
+    private var runningTeamLookup: Task<String?, Never>?
 
     /// The build that ran last time, for the one-time "Updated to MemeMe …" HUD.
     private static let lastLaunchedBuildKey = "lastLaunchedBuild"
@@ -251,6 +254,8 @@ private let updateLog = Logger(subsystem: "com.mememe.app", category: "update")
 
     private func install(_ manifest: UpdateManifest) async {
         let currentApp = Bundle.main.bundleURL
+        // Runs while the DMG downloads.
+        let teamLookup = lookUpRunningTeam()
         let dmg: URL
         do {
             dmg = try await installer.download(manifest)
@@ -263,6 +268,22 @@ private let updateLog = Logger(subsystem: "com.mememe.app", category: "update")
                 showDownloadFailure(manifest)
             }
             return
+        }
+
+        // A Developer ID build only takes its own team's Developer ID builds; ad-hoc builds get the integrity check.
+        let requiredTeam = await teamLookup.value
+        updateLog.info("Update signing team required: \(requiredTeam ?? "none", privacy: .public)")
+        // The DMG's own signature is checked before it is mounted or opened in Finder (every fallback below).
+        if let requiredTeam {
+            do {
+                try await UpdateInstaller.verifyDMGSignature(dmg, requiredTeam: requiredTeam)
+            } catch {
+                phase = .idle
+                updateLog.error("Update disk image rejected: \(String(describing: error), privacy: .public)")
+                try? FileManager.default.removeItem(at: dmg)
+                showVerificationFailure(manifest)
+                return
+            }
         }
 
         // Translocated, read-only or unwritable location: the user finishes in Finder.
@@ -279,7 +300,8 @@ private let updateLog = Logger(subsystem: "com.mememe.app", category: "update")
                 dmg: dmg,
                 manifest: manifest,
                 currentApp: currentApp,
-                bundleIdentifier: Bundle.main.bundleIdentifier ?? UpdateChecker.fallbackBundleIdentifier
+                bundleIdentifier: Bundle.main.bundleIdentifier ?? UpdateChecker.fallbackBundleIdentifier,
+                requiredTeam: requiredTeam
             )
             stagedApp = staged
             try installer.launchRelauncher(
@@ -308,6 +330,18 @@ private let updateLog = Logger(subsystem: "com.mememe.app", category: "update")
         HUDController.shared.show("Restarting to finish the update…")
         try? await Task.sleep(nanoseconds: UpdateChecker.nanoseconds(UpdateChecker.quitDelay))
         NSApplication.shared.terminate(nil)
+    }
+
+    /// Starts the running app's Team ID lookup (`codesign`, off the main actor) the first time; later calls
+    /// return the same task.
+    private func lookUpRunningTeam() -> Task<String?, Never> {
+        if let lookup = runningTeamLookup { return lookup }
+        let app = Bundle.main.bundleURL
+        let lookup = Task.detached(priority: .userInitiated) {
+            await UpdateInstaller.teamIdentifier(ofAppAt: app)
+        }
+        runningTeamLookup = lookup
+        return lookup
     }
 
     // MARK: - Alerts

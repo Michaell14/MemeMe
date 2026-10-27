@@ -889,10 +889,28 @@ struct UpdateInstaller {
     static func canReplace(appAt url: URL) -> Bool
     /// The staged bundle's location: a hidden sibling, `<parent>/.MemeMe-update-<build>.app`.
     static func stagedURL(for currentApp: URL, build: Int) -> URL
+    /// The value of the "TeamIdentifier=" line (a line of its own) in `codesign -dv --verbose=2` output; nil when
+    /// the line is missing, says "not set" (ad-hoc) or isn't a Team ID (^[A-Z0-9]{10}$).
+    static func parseTeamIdentifier(fromCodesignOutput output: String) -> String?
+    /// nil unless `team` matches ^[A-Z0-9]{10}$ (nothing else reaches the requirement text); else
+    /// `=anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate
+    /// leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "<team>"` (one line):
+    /// signed with a Developer ID Application certificate of that team.
+    static func developerIDRequirement(team: String) -> String?
+    /// Runs `codesign -dv --verbose=2 <app>` off the main actor and parses its output (stderr included) with
+    /// `parseTeamIdentifier(fromCodesignOutput:)`; nil on any failure, for ad-hoc and for unsigned code.
+    static func teamIdentifier(ofAppAt url: URL) async -> String?
+    /// Checks the downloaded DMG itself (CI signs MemeMe.dmg with the same Developer ID) before it is mounted or
+    /// shown in Finder: `codesign --verify --strict -R developerIDRequirement(team:) <dmg>`, off the main actor.
+    /// Any exit status other than 0, or a `requiredTeam` that isn't a Team ID: `.signatureInvalid`.
+    static func verifyDMGSignature(_ dmg: URL, requiredTeam: String) async throws
     /// Mounts the DMG read-only (hdiutil attach -nobrowse -readonly -noautoopen -mountpoint), finds the .app
-    /// (MemeMe.app first), validates it, checks `codesign --verify --deep --strict`, copies it with `ditto` to
+    /// (MemeMe.app first), validates it, checks `codesign --verify --deep --strict` and, when `requiredTeam` is
+    /// set, also `codesign --verify --deep --strict -R developerIDRequirement(team:)` (exit status other than 0,
+    /// or `requiredTeam` isn't a Team ID: `.signatureInvalid`), copies it with `ditto` to
     /// `stagedURL(for:build:)`, and always detaches. Runs the tools off the main actor.
-    func stage(dmg: URL, manifest: UpdateManifest, currentApp: URL, bundleIdentifier: String) async throws -> URL
+    func stage(dmg: URL, manifest: UpdateManifest, currentApp: URL, bundleIdentifier: String,
+               requiredTeam: String? = nil) async throws -> URL
     /// The relaunch script (POSIX sh). Arguments: $1 pid, $2 current app, $3 staged app, $4 open command.
     /// Waits up to 30 s for the pid to exit, moves current aside, moves staged into place (restoring current if
     /// that fails), deletes the old copy, then runs `$4 "$2"`. Paths are never interpolated into the text.
@@ -932,6 +950,12 @@ struct UpdateInstaller {
     func checkFromMenu()
     /// Download, verify, stage, relaunch; the fallbacks and alerts from DESIGN.md. Ignored unless an update is
     /// available and phase is .idle or .checking (a background check doesn't block the footer's Update button).
+    /// When the running app is signed with a Team ID, the update must be too: the team is looked up once
+    /// (`UpdateInstaller.teamIdentifier(ofAppAt: Bundle.main.bundleURL)`, when the first install starts, never on
+    /// the main thread) and awaited right after the download. With a team, `UpdateInstaller.verifyDMGSignature`
+    /// runs before anything mounts or opens the DMG (a failure deletes it and shows "The update didn't check out",
+    /// never Finder), then the team goes to `stage(…requiredTeam:)` for the app inside; without one (ad-hoc,
+    /// local builds) it's nil and only the integrity checks run.
     func installAvailableUpdate()
     /// Runs when an install starts, from every Update path; AppModel closes the panel here.
     var willInstall: (@MainActor () -> Void)?
