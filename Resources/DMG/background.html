@@ -1,0 +1,70 @@
+<!doctype html>
+<!--
+  The source of the MemeMe.dmg window background. scripts/render-dmg-background.mjs renders it to
+  background.png and background@2x.png (660×400 at 1x and 2x), and with ?hint to
+  background-open-anyway.png and background-open-anyway@2x.png, the version for builds that are not
+  notarized. scripts/dmg-settings.py places the icons on it: MemeMe.app centred at (170, 196) and
+  Applications at (490, 196), 128 pt each, with Finder's labels below them.
+
+  Finder shows a window with a background picture in light mode even when the Mac is in dark mode,
+  so this is a light design. Keep the bottom 40 px free of anything important: the window can come
+  out a title bar shorter than the picture.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Funnel+Display:wght@600&family=Funnel+Sans:wght@400..600&display=block">
+<style>
+  html, body { margin: 0; width: 660px; height: 400px; overflow: hidden; }
+  body {
+    position: relative;
+    background:
+      radial-gradient(ellipse 62% 70% at 50% -8%, rgba(255, 255, 255, .95), rgba(255, 255, 255, 0) 72%),
+      linear-gradient(#F3F4F8, #E6E9F1);
+    color: #0E1118;
+    font: 400 14px/1.4 "Funnel Sans", Inter, -apple-system, BlinkMacSystemFont, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, .sub { position: absolute; left: 0; right: 0; margin: 0; text-align: center; }
+  h1 { top: 40px; font: 600 25px/1.2 "Funnel Display", "Inter Display", Inter, -apple-system, sans-serif; letter-spacing: -.02em; }
+  .sub { top: 76px; font-size: 14.5px; color: #5F6676; }
+  .arrow { position: absolute; left: 0; top: 0; }
+  .hint {
+    position: absolute; top: 314px; left: 50%; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 8px; white-space: nowrap;
+    padding: 7px 14px 7px 10px; border-radius: 99px;
+    background: rgba(255, 255, 255, .72); box-shadow: 0 0 0 1px #D5DAE4;
+    font-size: 12.5px; color: #474E5E;
+  }
+  .hint b { font-weight: 600; color: #0E1118; }
+  .hint svg { flex: none; }
+  body:not(.with-hint) .hint { display: none; }
+</style>
+</head>
+<body>
+  <h1>Drag MemeMe into Applications</h1>
+  <p class="sub">Then open it from Applications. It lives in your menu bar.</p>
+
+  <!-- From the app's right edge (234) to the Applications icon's left edge (426), at the icons' centre line. -->
+  <svg class="arrow" width="660" height="400" viewBox="0 0 660 400" aria-hidden="true">
+    <g fill="none" stroke="#3A5FD9" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M262 196 H306" stroke-width="5" stroke-dasharray="0 13" opacity=".45"/>
+      <path d="M322 196 H396" stroke-width="5"/>
+      <path d="M380 180 L398 196 L380 212" stroke-width="5"/>
+    </g>
+  </svg>
+
+  <p class="hint">
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+      <circle cx="8" cy="8" r="7.25" fill="#3A5FD9"/>
+      <path d="M8 4.2v4.6" stroke="#fff" stroke-width="1.7" stroke-linecap="round"/>
+      <circle cx="8" cy="11.4" r="1" fill="#fff"/>
+    </svg>
+    <span>macOS can’t verify MemeMe? <b>System Settings → Privacy &amp; Security → Open Anyway</b></span>
+  </p>
+
+  <script>
+    if (new URLSearchParams(location.search).has("hint")) document.body.classList.add("with-hint");
+  </script>
+</body>
+</html>

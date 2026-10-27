@@ -10,7 +10,7 @@ Requires macOS 14 (Sonoma) or later, on Apple silicon or Intel.
 
 ## Get the app
 
-Download `MemeMe.dmg` from the website or from the [latest release](https://github.com/Michaell14/MemeMe/releases/latest). Open it and drag MemeMe into your Applications folder.
+Download `MemeMe.dmg` from the website or from the [latest release](https://github.com/Michaell14/MemeMe/releases/latest). Open it and, in the window that appears, drag MemeMe onto the Applications folder.
 
 Releases are signed with a Developer ID and notarized by Apple, so there is nothing to allow in System Settings: on the first launch macOS asks once whether to open an app downloaded from the internet, and MemeMe asks for the camera.
 
@@ -42,7 +42,7 @@ GIPHY_API_KEY=your-key ./scripts/build-app.sh
 open build/MemeMe.app
 ```
 
-`scripts/build-app.sh` builds a release binary (universal when possible; builds with an update feed must be universal and fail otherwise), assembles `build/MemeMe.app` with `Resources/Info.plist`, writes the version, the update feed and the GIPHY key into the bundle and signs it, ad hoc unless told otherwise. `scripts/build-dmg.sh` packs the app and an Applications link into `build/MemeMe.dmg`. The build script reads these environment variables, all optional:
+`scripts/build-app.sh` builds a release binary (universal when possible; builds with an update feed must be universal and fail otherwise), assembles `build/MemeMe.app` with `Resources/Info.plist`, writes the version, the update feed and the GIPHY key into the bundle and signs it, ad hoc unless told otherwise. `scripts/build-dmg.sh` packs the app and an Applications link into `build/MemeMe.dmg`. Opening it shows the usual install window: MemeMe on the left, an arrow, Applications on the right. [dmgbuild](https://github.com/dmgbuild/dmgbuild) writes that layout; the script installs it, pinned by hash (`scripts/dmgbuild-requirements.txt`), into `build/.dmgbuild-venv`. It needs Python 3.10 or later (`python3`, or set `PYTHON`); without one the DMG is built without the layout. The window is `scripts/dmg-settings.py` and its background is `Resources/DMG/background.html`; after changing the HTML, render the PNGs again with `node scripts/render-dmg-background.cjs` (needs Playwright) and commit them. Ad-hoc builds use the version that says how to get past Gatekeeper. The build script reads these environment variables, all optional:
 
 - `GIPHY_API_KEY`: without it the app is built with an empty key.
 - `APP_VERSION`: the marketing version, `CFBundleShortVersionString`. Defaults to the `VERSION` file.
@@ -148,8 +148,12 @@ Tests/MemeMeCoreTests/        XCTest suite for the core
 VERSION                       the marketing version; the build number is the commit count
 Resources/Info.plist          bundle Info.plist (LSUIElement, usage strings, GiphyAPIKey, MemeMeUpdateFeedURL)
 Resources/MemeMe.entitlements the camera entitlement for Developer ID builds (hardened runtime)
+Resources/DMG/                the DMG window background: background.html and the PNGs rendered from it
 scripts/build-app.sh          builds and signs build/MemeMe.app (version, update feed, GIPHY key; ad hoc or Developer ID)
-scripts/build-dmg.sh          packs it into build/MemeMe.dmg (signed too for Developer ID builds)
+scripts/build-dmg.sh          packs it into build/MemeMe.dmg with the drag-to-Applications window (signed too for Developer ID builds)
+scripts/dmg-settings.py       the DMG window layout (dmgbuild settings)
+scripts/dmgbuild-requirements.txt  dmgbuild, pinned by hash
+scripts/render-dmg-background.cjs  renders Resources/DMG/background.html to the window backgrounds
 scripts/notarize.sh           notarizes a file with notarytool and staples the ticket
 scripts/publish-release.sh    publishes a GitHub Release with MemeMe.dmg and latest.json
 scripts/build-site.sh         standalone copy of the website in build/site/

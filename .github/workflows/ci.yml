@@ -71,7 +71,8 @@ jobs:
             echo "No v* tag yet: first release"
             release=true
           elif git diff --quiet "$prev" HEAD -- Sources Resources Package.swift VERSION \
-              scripts/build-app.sh scripts/build-dmg.sh; then
+              scripts/build-app.sh scripts/build-dmg.sh scripts/dmg-settings.py \
+              scripts/dmgbuild-requirements.txt; then
             echo "The app is unchanged since $prev: no release"
           else
             echo "The app changed since $prev: release"
@@ -230,6 +231,12 @@ jobs:
           ditto -c -k --keepParent build/MemeMe.app build/MemeMe-notarize.zip
           ./scripts/notarize.sh build/MemeMe-notarize.zip build/MemeMe.app
           rm -f build/MemeMe-notarize.zip
+
+      # For dmgbuild, which writes the DMG's drag-to-Applications window (needs Python 3.10+).
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
       # Release builds also sign the DMG (CODESIGN_IDENTITY).
       - name: Build MemeMe.dmg
