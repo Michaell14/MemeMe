@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
 # Builds build/MemeMe.app from the Swift package, fills in the version, the update feed and the
-# GIPHY API key, and signs the bundle ad hoc. scripts/build-dmg.sh packs it into build/MemeMe.dmg.
+# GIPHY API key, and signs the bundle: ad hoc, or with a Developer ID and the hardened runtime.
+# scripts/build-dmg.sh packs it into build/MemeMe.dmg.
 #
 # Usage:  GIPHY_API_KEY=your-key ./scripts/build-app.sh
 #
 # Environment (all optional):
-#   GIPHY_API_KEY    written into the bundle; without it the key is empty and Web Discover stays
-#                    off until a key is set from the menu-bar menu
-#   APP_VERSION      CFBundleShortVersionString, e.g. 1.0 (default: the VERSION file)
-#   APP_BUILD        CFBundleVersion, a whole number (default: git rev-list --count HEAD)
-#   UPDATE_FEED_URL  https URL of the release feed, latest.json (default: empty, so the app never
-#                    checks for updates)
+#   GIPHY_API_KEY      written into the bundle; without it the key is empty and Web Discover stays
+#                      off until a key is set from the menu-bar menu
+#   APP_VERSION        CFBundleShortVersionString, e.g. 1.0 (default: the VERSION file)
+#   APP_BUILD          CFBundleVersion, a whole number (default: git rev-list --count HEAD)
+#   UPDATE_FEED_URL    https URL of the release feed, latest.json (default: empty, so the app never
+#                      checks for updates)
+#   CODESIGN_IDENTITY  a "Developer ID Application" identity in the keychain (name or SHA-1), needed
+#                      for notarization (default: "-", ad hoc)
 set -euo pipefail
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
@@ -128,9 +131,18 @@ else
 fi
 plutil -lint "$PLIST"
 
-# 5. Ad-hoc signature (no Developer ID). No hardened runtime, so no camera entitlement is needed.
-log "Signing ad hoc"
-codesign --force --sign - "$APP"
+# 5. Signature. Ad hoc by default, without the hardened runtime, so no entitlements are needed.
+#    A Developer ID signature adds the hardened runtime (required for notarization), a secure
+#    timestamp and the camera entitlement the hardened runtime asks for.
+SIGN_IDENTITY="${CODESIGN_IDENTITY:--}"
+if [[ "$SIGN_IDENTITY" == "-" ]]; then
+  log "Signing ad hoc"
+  codesign --force --sign - "$APP"
+else
+  log "Signing with a Developer ID (hardened runtime)"
+  codesign --force --sign "$SIGN_IDENTITY" --options runtime --timestamp \
+    --entitlements "$ROOT/Resources/MemeMe.entitlements" "$APP"
+fi
 codesign --verify --strict --verbose=1 "$APP"
 
 log "Done: $APP"

@@ -11,6 +11,7 @@
 #   GITHUB_REPOSITORY  owner/repo (required unless DRY_RUN=1, which defaults to Michaell14/MemeMe)
 #   GITHUB_SHA         the commit to release (default: git rev-parse HEAD)
 #   GH_TOKEN           token for gh with contents: write
+#   NOTARIZED=true     the DMG is notarized, so the install notes skip the Gatekeeper step
 #   DRY_RUN=1          only write latest.json and release-notes.md and print what would be published
 #
 # latest.json and release-notes.md are written next to the DMG. Needs git, jq and (unless
@@ -139,7 +140,11 @@ jq -e '
   echo
   echo "## Install"
   echo
-  echo "Open MemeMe.dmg and drag MemeMe into your Applications folder. The first time you open it, macOS blocks it because it is not notarized: go to System Settings → Privacy & Security and click Open Anyway. If you already have MemeMe, it offers this update itself."
+  if [[ "${NOTARIZED:-}" == "true" ]]; then
+    echo "Open MemeMe.dmg and drag MemeMe into your Applications folder. If you already have MemeMe, it offers this update itself."
+  else
+    echo "Open MemeMe.dmg and drag MemeMe into your Applications folder. The first time you open it, macOS blocks it because it is not notarized: go to System Settings → Privacy & Security and click Open Anyway. If you already have MemeMe, it offers this update itself."
+  fi
   echo
   printf "SHA-256: \`%s\`\n" "$SHA256"
 } > "$NOTES_MD"

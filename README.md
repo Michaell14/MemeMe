@@ -10,9 +10,9 @@ Requires macOS 14 (Sonoma) or later, on Apple silicon or Intel.
 
 ## Get the app
 
-Download `MemeMe.dmg` from the website or from the [latest release](https://github.com/Michaell14/MemeMe/releases/latest). Open it and drag MemeMe into your Applications folder.
+Download `MemeMe.dmg` from the website or from the [latest release](https://github.com/Michaell14/MemeMe/releases/latest). Open it and, in the window that appears, drag MemeMe onto the Applications folder.
 
-The app is signed ad hoc, not with a Developer ID, and it is not notarized, so Gatekeeper blocks the first launch:
+Until releases are notarized (see [Signing and notarization](#signing-and-notarization)), the app is signed ad hoc, so Gatekeeper blocks the first launch with "Apple could not verify “MemeMe” is free of malware":
 
 - **macOS 15:** open the app once, then go to **System Settings → Privacy & Security** and click **Open Anyway**.
 - **macOS 14:** Control-click the app in Finder, choose **Open**, then confirm.
@@ -40,12 +40,15 @@ GIPHY_API_KEY=your-key ./scripts/build-app.sh
 open build/MemeMe.app
 ```
 
-`scripts/build-app.sh` builds a release binary (universal when possible; builds with an update feed must be universal and fail otherwise), assembles `build/MemeMe.app` with `Resources/Info.plist`, writes the version, the update feed and the GIPHY key into the bundle and signs it ad hoc. `scripts/build-dmg.sh` packs the app and an Applications link into `build/MemeMe.dmg`. The build script reads these environment variables, all optional:
+`scripts/build-app.sh` builds a release binary (universal when possible; builds with an update feed must be universal and fail otherwise), assembles `build/MemeMe.app` with `Resources/Info.plist`, writes the version, the update feed and the GIPHY key into the bundle and signs it (ad hoc unless `CODESIGN_IDENTITY` is set). The build script reads these environment variables, all optional:
 
 - `GIPHY_API_KEY`: without it the app is built with an empty key.
 - `APP_VERSION`: the marketing version, `CFBundleShortVersionString`. Defaults to the `VERSION` file.
 - `APP_BUILD`: the build number, `CFBundleVersion`. Defaults to the commit count (`git rev-list --count HEAD`).
 - `UPDATE_FEED_URL`: the `latest.json` the app checks for updates. Empty by default, so local builds never check. CI sets `https://github.com/Michaell14/MemeMe/releases/latest/download/latest.json`.
+- `CODESIGN_IDENTITY`: a Developer ID to sign with (see [Signing and notarization](#signing-and-notarization)).
+
+`scripts/build-dmg.sh` packs the app and an Applications link into `build/MemeMe.dmg`. Opening it shows the usual install window: MemeMe on the left, an arrow, Applications on the right. [dmgbuild](https://github.com/dmgbuild/dmgbuild) writes that layout; the script installs it, pinned by hash (`scripts/dmgbuild-requirements.txt`), into `build/.dmgbuild-venv`. It needs Python 3.10 or later (`python3`, or set `PYTHON`); without one the DMG is built without the layout. The window is `scripts/dmg-settings.py` and its background is `Resources/DMG/background.html`. After changing the HTML, render the PNGs again with `node scripts/render-dmg-background.cjs` (needs Playwright) and commit them. Builds that are not notarized use the version that says how to get past Gatekeeper.
 
 Run the app from the bundle rather than with `swift run`: camera access and Open at Login depend on the bundle's Info.plist and identity.
 
@@ -57,7 +60,24 @@ Every change to the app on the default branch is released automatically. When `S
 - **Forcing a release.** **Actions → CI → Run workflow** on the default branch releases the current commit even when the app didn't change. A commit that already has a release keeps it unchanged; rebuilding needs a new commit, which gets a new build number.
 - **Trying it locally.** `DRY_RUN=1 ./scripts/publish-release.sh build/MemeMe.dmg 1.0 57 14.0` writes `latest.json` and `release-notes.md` next to the DMG and publishes nothing.
 - **In the app.** Release builds check `latest.json` 20 seconds after launch and then every 6 hours. When a newer build is out, the menu-bar icon gets a dot, the menu starts with **Update to MemeMe 1.0 (58)…** and the panel shows a line with **Update**. One click downloads the DMG, checks its size, SHA-256 and signature, replaces the app and restarts it. **Check for Updates…** in the menu checks right away.
-- **Permissions after an update.** Builds are signed ad hoc, so macOS may ask again for camera and folder access after an update. A Developer ID signature avoids that.
+- **Permissions after an update.** Ad-hoc builds get a new signature every time, so macOS may ask again for camera and folder access after an update. A Developer ID signature avoids that.
+
+## Signing and notarization
+
+Only an app signed with a Developer ID and notarized by Apple opens without the "Apple could not verify" dialog. That needs a paid [Apple Developer Program](https://developer.apple.com/programs/) membership. CI signs and notarizes as soon as these repository secrets exist (**Settings → Secrets and variables → Actions**); without them it builds as before, ad hoc and not notarized.
+
+1. Create a **Developer ID Application** certificate (Xcode → Settings → Accounts → Manage Certificates, or developer.apple.com → Certificates). In Keychain Access, export it with its private key as a `.p12` with a password.
+2. Add the secrets:
+   - `MACOS_CERTIFICATE`: the `.p12` in base64 (`base64 -i DeveloperID.p12 | pbcopy`).
+   - `MACOS_CERTIFICATE_PASSWORD`: the `.p12`'s password.
+   - `APPLE_ID`: the developer account's Apple Account email.
+   - `APPLE_TEAM_ID`: the 10-character Team ID (developer.apple.com → Account → Membership details).
+   - `APPLE_APP_PASSWORD`: an app-specific password from account.apple.com → Sign-In and Security → App-Specific Passwords.
+3. Push. CI signs the app with the hardened runtime (`Resources/MemeMe.entitlements` keeps camera access), signs the DMG, notarizes it with `notarytool` (usually a few minutes; the limit is 30), staples the ticket and checks it with `spctl`. The DMG window then drops the Open Anyway hint, and so do the release notes. Remove the Gatekeeper step from the website (`site/index.html`) and from [Get the app](#get-the-app) once a notarized release is out.
+
+Half a set fails the build: the Apple ID secrets need the certificate. Locally, set `CODESIGN_IDENTITY` (the identity's name or SHA-1, from `security find-identity -v -p codesigning`) for both scripts, and `APPLE_ID`, `APPLE_TEAM_ID` and `APPLE_APP_PASSWORD` for `scripts/build-dmg.sh`.
+
+The in-app updater accepts the signed builds, so existing users move over with a normal update. macOS asks for camera and folder access once more after that update, and then keeps it across later ones.
 
 ## Website
 
@@ -94,7 +114,7 @@ Every change to the app on the default branch is released automatically. When `S
 - **Update checks.** Release builds fetch `latest.json` from GitHub Releases every 6 hours. The request carries nothing about you or your library. The new DMG is downloaded only after you click **Update**.
 - **Friend stickers.** Grouping stickers by person is opt-in. Face matching compares a sticker's face only with stickers you made, and the data never leaves your Mac.
 - **Where data lives.** `~/Library/Application Support/MemeMe` (index, settings, kept images, stickers) and `~/Library/Caches/MemeMe`. Delete both to start over.
-- **Ad-hoc signatures.** macOS ties the camera and folder permissions to the app's signature, and an ad-hoc signature changes with every build. After updating to a new build, macOS may ask for access again.
+- **Ad-hoc signatures.** macOS ties the camera and folder permissions to the app's signature, and an ad-hoc signature changes with every build. After updating to a new ad-hoc build, macOS may ask for access again; Developer ID builds keep it.
 
 ## GIPHY API key
 
@@ -136,8 +156,13 @@ Sources/MemeMeApp/            the macOS app (AppKit + SwiftUI)
 Tests/MemeMeCoreTests/        XCTest suite for the core
 VERSION                       the marketing version; the build number is the commit count
 Resources/Info.plist          bundle Info.plist (LSUIElement, usage strings, GiphyAPIKey, MemeMeUpdateFeedURL)
+Resources/MemeMe.entitlements the camera entitlement for Developer ID builds (hardened runtime)
+Resources/DMG/                the DMG window background: background.html and the PNGs rendered from it
 scripts/build-app.sh          builds and signs build/MemeMe.app (version, update feed, GIPHY key)
-scripts/build-dmg.sh          packs it into build/MemeMe.dmg
+scripts/build-dmg.sh          packs it into build/MemeMe.dmg; signs and notarizes it with a Developer ID
+scripts/dmg-settings.py       the DMG window layout (dmgbuild settings)
+scripts/dmgbuild-requirements.txt  dmgbuild, pinned by hash
+scripts/render-dmg-background.cjs  renders Resources/DMG/background.html to PNGs
 scripts/publish-release.sh    publishes a GitHub Release with MemeMe.dmg and latest.json
 scripts/build-site.sh         standalone copy of the website in build/site/
 site/index.html               the website
@@ -151,5 +176,5 @@ docs/                         DESIGN.md (product spec) and ARCHITECTURE.md (code
 - **Expressions are approximate.** Features come from Vision's 2D face landmarks; strong lighting, glasses or a turned head make them noisier. Moods are a coarse set of words.
 - **KLIPY is not wired up yet.** The provider protocol is ready, but its API shape is unverified, so GIPHY is the only web source.
 - **The shortcut is fixed to ⌃⌘M in v1.** If another app already holds it, the first-run card says so.
-- **Not notarized.** See [Get the app](#get-the-app) for opening the ad-hoc signed build.
+- **Not notarized** until the signing secrets are set up (see [Signing and notarization](#signing-and-notarization)). See [Get the app](#get-the-app) for opening the ad-hoc signed build.
 - **Out of scope for v1:** auto-paste, a full library window, Photos library access, importing Messages history.
