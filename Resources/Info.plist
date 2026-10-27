@@ -28,6 +28,8 @@
 	<string>14.0</string>
 	<key>LSUIElement</key>
 	<true/>
+	<key>MemeMeUpdateFeedURL</key>
+	<string></string>
 	<key>NSCameraUsageDescription</key>
 	<string>MemeMe uses the camera only while its panel is open, to match your expression. Nothing leaves your Mac.</string>
 	<key>NSDesktopFolderUsageDescription</key>

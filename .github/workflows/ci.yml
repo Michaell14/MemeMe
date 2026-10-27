@@ -4,7 +4,7 @@ on:
   push:
     branches: ["**"]
   pull_request:
-  # Run by hand to also refresh the website's download (site/MemeMe.zip).
+  # Run by hand on the default branch to publish a release even when the app didn't change.
   workflow_dispatch:
 
 permissions:
@@ -12,19 +12,42 @@ permissions:
 
 concurrency:
   group: ci-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Default-branch runs may be publishing a release, so they are never cancelled midway.
+  cancel-in-progress: ${{ github.ref_name != github.event.repository.default_branch }}
 
 jobs:
   build:
     name: Build, test and package
     runs-on: macos-15
     timeout-minutes: 45
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      build: ${{ steps.version.outputs.build }}
+      min_macos: ${{ steps.version.outputs.min_macos }}
+      release: ${{ steps.decide.outputs.release }}
     steps:
       - name: Check out
         uses: actions/checkout@v4
+        with:
+          # Full history and tags: the build number is the commit count, and the release
+          # decision compares with the last v* tag.
+          fetch-depth: 0
 
       - name: Toolchain
         run: swift --version
+
+      - name: Version
+        id: version
+        run: |
+          version="$(tr -d '[:space:]' < VERSION)"
+          build="$(git rev-list --count HEAD)"
+          min_macos="$(plutil -extract LSMinimumSystemVersion raw -o - Resources/Info.plist)"
+          echo "MemeMe $version ($build), macOS $min_macos or later"
+          {
+            echo "version=$version"
+            echo "build=$build"
+            echo "min_macos=$min_macos"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Build
         run: swift build
@@ -35,42 +58,81 @@ jobs:
       - name: Build MemeMe.app
         env:
           GIPHY_API_KEY: ${{ secrets.GIPHY_API_KEY }}
+          APP_VERSION: ${{ steps.version.outputs.version }}
+          APP_BUILD: ${{ steps.version.outputs.build }}
+          UPDATE_FEED_URL: https://github.com/${{ github.repository }}/releases/latest/download/latest.json
         run: |
           chmod +x scripts/build-app.sh
           ./scripts/build-app.sh
 
-      - name: Upload MemeMe.zip
+      - name: Build MemeMe.dmg
+        run: |
+          chmod +x scripts/build-dmg.sh
+          ./scripts/build-dmg.sh
+
+      - name: Upload MemeMe.dmg
         uses: actions/upload-artifact@v4
         with:
           name: MemeMe-app
-          path: build/MemeMe.zip
+          path: build/MemeMe.dmg
           if-no-files-found: error
 
-  publish-download:
-    name: Publish site download
-    if: github.event_name == 'workflow_dispatch'
+      # A release for every change to the app on the default branch, and for every manual run there.
+      - name: Release decision
+        id: decide
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          release=false
+          if [[ "$EVENT_NAME" == "pull_request" || "$REF_NAME" != "$DEFAULT_BRANCH" ]]; then
+            echo "Not the default branch: no release"
+          elif [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            echo "Manual run on $DEFAULT_BRANCH: release"
+            release=true
+          elif ! prev="$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null)"; then
+            echo "No v* tag yet: first release"
+            release=true
+          elif git diff --quiet "$prev" HEAD -- Sources Resources Package.swift VERSION \
+              scripts/build-app.sh scripts/build-dmg.sh; then
+            echo "The app is unchanged since $prev: no release"
+          else
+            echo "The app changed since $prev: release"
+            release=true
+          fi
+          echo "release=$release" >> "$GITHUB_OUTPUT"
+
+  release:
+    name: Publish release
     needs: build
+    if: needs.build.outputs.release == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
+    concurrency:
+      group: release-${{ github.repository }}
+      cancel-in-progress: false
     steps:
       - name: Check out
         uses: actions/checkout@v4
+        with:
+          # History and tags for the release notes (commits since the previous v* tag).
+          fetch-depth: 0
 
-      - name: Fetch MemeMe.zip
+      - name: Fetch MemeMe.dmg
         uses: actions/download-artifact@v4
         with:
           name: MemeMe-app
-          path: site
+          path: dist
 
-      - name: Commit site/MemeMe.zip
+      - name: Publish v${{ needs.build.outputs.version }}-${{ needs.build.outputs.build }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APP_VERSION: ${{ needs.build.outputs.version }}
+          APP_BUILD: ${{ needs.build.outputs.build }}
+          MIN_MACOS: ${{ needs.build.outputs.min_macos }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add site/MemeMe.zip
-          if git diff --cached --quiet; then
-            echo "site/MemeMe.zip is unchanged"
-            exit 0
-          fi
-          git commit -m "Update site download from ${GITHUB_SHA::7}"
-          git push origin "HEAD:${GITHUB_REF_NAME}"
+          chmod +x scripts/publish-release.sh
+          ./scripts/publish-release.sh dist/MemeMe.dmg "$APP_VERSION" "$APP_BUILD" "$MIN_MACOS"

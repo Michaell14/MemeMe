@@ -22,7 +22,7 @@ struct PanelHint: Equatable {
     var action: HintAction?
 }
 
-enum FooterState: Equatable { case legend, libraryOffer, indexing(count: Int), added(IndexBatch) }
+enum FooterState: Equatable { case legend, libraryOffer, indexing(count: Int), added(IndexBatch), update(UpdateManifest) }
 
 struct NamingCandidate: Identifiable, Equatable {
     let personID: UUID
@@ -132,6 +132,8 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
     let indexer: LibraryIndexer
     let web: WebDiscover
     let friends: FriendService
+    /// Update checks and the one-click install; disabled when the bundle has no feed URL (local builds, tests).
+    let updates: UpdateChecker
 
     var onRequestClose: (() -> Void)?
 
@@ -196,6 +198,7 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
     private var cameraAccessTask: Task<Void, Never>?
     private var saveTask: Task<Void, Never>?
     private var indexerObservation: AnyCancellable?
+    private var updatesObservation: AnyCancellable?
 
     private var limit: Int { Theme.resultLimit }
 
@@ -210,6 +213,7 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
         self.indexer = LibraryIndexer(store: store)
         self.web = WebDiscover(store: store, cacheRoot: webCacheRoot)
         self.friends = FriendService(store: store)
+        self.updates = UpdateChecker(bundle: .main)
         self.tracker = PeakHoldTracker(baseline: store.settings.baseline)
 
         camera.onSample = { [weak self] sample in
@@ -225,15 +229,28 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
                 model?.refreshFooter()
             }
         }
+        updatesObservation = updates.objectWillChange.sink { [weak self] _ in
+            // Same as the indexer: the new update or phase is readable on the next main-actor turn.
+            let model = self
+            Task { @MainActor in
+                model?.refreshFooter()
+            }
+        }
+        // Every Update (footer, menu item, "is available" alert) closes the panel first.
+        updates.willInstall = { [weak self] in
+            guard let self, self.isPanelVisible else { return }
+            self.onRequestClose?()
+        }
     }
 
-    /// After launch: start monitoring, watching folders and warming the web cache.
+    /// After launch: start monitoring, watching folders, warming the web cache and checking for updates.
     func start() {
         SystemConditions.startMonitoring()
         syncLoginItem()
         indexer.startWatching()
         web.prefetch(Mood.prefetchOrder)
         web.pruneCache()
+        updates.start()
         refreshFooter()
     }
 
@@ -520,6 +537,23 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
         }
         refreshFooter()
         refreshHint()
+    }
+
+    // MARK: - Updates
+
+    /// Footer "Update" and the menu item: closes the panel (updates.willInstall), then downloads, verifies and installs.
+    func installUpdate() {
+        updates.installAvailableUpdate()
+    }
+
+    /// Footer "Not now": hides the line for this build only; the menu-bar dot and menu item stay.
+    func dismissUpdateOffer() {
+        guard let manifest = updates.available else { return }
+        var settings = store.settings
+        settings.skippedUpdateBuild = manifest.build
+        store.settings = settings
+        refreshFooter()
+        saveSoon()
     }
 
     // MARK: - Menu-bar drops
@@ -1247,6 +1281,8 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
         } else if isPanelVisible, let summary = indexer.pendingSummary {
             shownSummaryID = summary.id
             state = .added(summary)
+        } else if let manifest = offeredUpdate {
+            state = .update(manifest)
         } else if shouldOfferLibrary {
             state = .libraryOffer
         } else {
@@ -1255,6 +1291,17 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
         if footer != state {
             footer = state
         }
+    }
+
+    /// The update the footer offers: one is available, no install is running and its build wasn't dismissed.
+    /// A background check (`.checking`) keeps the line, so it doesn't blink while the panel is open.
+    private var offeredUpdate: UpdateManifest? {
+        guard let manifest = updates.available,
+              updates.phase == .idle || updates.phase == .checking,
+              UpdatePolicy.shouldOfferInPanel(manifest, skippedBuild: store.settings.skippedUpdateBuild) else {
+            return nil
+        }
+        return manifest
     }
 
     /// "Search memes you already saved?" on later opens when the card was skipped, until two "Not now"s.

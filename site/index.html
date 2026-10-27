@@ -258,9 +258,7 @@ h1 .stk {
 .dl:focus-visible { outline: 3px solid var(--on-sun); outline-offset: 3px; }
 .dl svg { width: 22px; height: 22px; flex: none; }
 .dl small { display: block; font-weight: 500; font-size: 12.5px; opacity: .72; margin-top: 2px; }
-.dl[aria-busy="true"] { opacity: .8; }
 .meta { font-size: 13px; color: var(--on-sun-2); }
-.dl-status { font-size: 13.5px; font-weight: 600; min-height: 1.3em; color: var(--on-sun); }
 
 .dock-row {
   width: 100%; margin-top: clamp(40px, 6vw, 76px);
@@ -646,6 +644,9 @@ h1 .stk {
     <button class="mi" role="menuitemcheckbox" aria-checked="true" type="button">Open at Login</button>
     <button class="mi" role="menuitem" type="button">Show Library in Finder</button>
     <div class="msep" role="separator"></div>
+    <button class="mi" role="menuitem" type="button">Check for Updates…</button>
+    <div class="mh" role="menuitem" aria-disabled="true">Version 1.0</div>
+    <div class="msep" role="separator"></div>
     <button class="mi" role="menuitem" data-act="quit" type="button">Quit MemeMe<span class="sc">⌘Q</span></button>
   </div>
 </header>
@@ -702,12 +703,11 @@ h1 .stk {
         <div class="hero-row">
           <p>MemeMe lives in your Mac’s menu bar. Press <kbd>⌃</kbd><kbd>⌘</kbd><kbd>M</kbd> in any chat and make the face you’re already making. It finds the reaction that matches from your saved memes, GIPHY and stickers of your friends. <kbd>↵</kbd> copies it.</p>
           <div class="cta">
-            <a class="dl" href="MemeMe.zip" download data-download>
+            <a class="dl" href="https://github.com/Michaell14/MemeMe/releases/latest/download/MemeMe.dmg" target="_blank" rel="noopener">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="m7 10.5 5 5 5-5"/><path d="M5 19.5h14"/></svg>
-              <span>Download for Mac<small>MemeMe.zip · 2 MB</small></span>
+              <span>Download for Mac<small>MemeMe.dmg · 2 MB</small></span>
             </a>
             <span class="meta">Version 1.0 · macOS 14 or later · Apple silicon and Intel</span>
-            <span class="dl-status" role="status"></span>
           </div>
         </div>
       </div>
@@ -793,7 +793,7 @@ h1 .stk {
         </article>
         <article>
           <h3>Reaction GIFs</h3>
-          <p>GIFs from GIPHY fill in next to your own. Your face becomes one mood word on your Mac, and that word is the only thing MemeMe sends. Popular moods are cached for a day, so most GIFs show up instantly.</p>
+          <p>GIFs from GIPHY fill in next to your own. Your face becomes one mood word on your Mac, and that word is all MemeMe sends to GIPHY. Popular moods are cached for a day, so most GIFs show up instantly.</p>
           <pre class="req" aria-label="The request MemeMe sends to GIPHY"><code><b>GET</b> https://api.giphy.com/v1/gifs/search
   ?api_key=…
   &amp;q=<mark id="moodWord">shocked</mark>+reaction
@@ -822,7 +822,7 @@ h1 .stk {
           <dl>
             <dt>Kind:</dt><dd>Application (Universal)</dd>
             <dt>Size:</dt><dd>6,957,845 bytes</dd>
-            <dt>Download:</dt><dd>2 MB zip</dd>
+            <dt>Download:</dt><dd>2 MB disk image</dd>
             <dt>Requires:</dt><dd>macOS 14 Sonoma or later</dd>
           </dl>
         </details>
@@ -832,6 +832,7 @@ h1 .stk {
             <dt>Camera:</dt><dd>On only while the panel is open</dd>
             <dt>Camera frames:</dt><dd>Read on your Mac, then dropped</dd>
             <dt>Sent online:</dt><dd>One mood word, to GIPHY</dd>
+            <dt>Update check:</dt><dd>Asks GitHub every few hours</dd>
             <dt>Your memes:</dt><dd>Indexed in place, never copied</dd>
             <dt>Accessibility:</dt><dd>Not needed. It never types for you.</dd>
           </dl>
@@ -855,17 +856,17 @@ h1 .stk {
         <h2>Get MemeMe</h2>
         <p class="lede">Version 1.0 for macOS 14 Sonoma or later. One universal app for Apple silicon and Intel Macs.</p>
         <div class="cta">
-          <a class="dl" href="MemeMe.zip" download data-download>
+          <a class="dl" href="https://github.com/Michaell14/MemeMe/releases/latest/download/MemeMe.dmg" target="_blank" rel="noopener">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="m7 10.5 5 5 5-5"/><path d="M5 19.5h14"/></svg>
-            <span>Download for Mac<small>MemeMe.zip · 2 MB</small></span>
+            <span>Download for Mac<small>MemeMe.dmg · 2 MB</small></span>
           </a>
-          <span class="dl-status" role="status"></span>
         </div>
       </div>
       <ol class="install">
-        <li><span class="n" aria-hidden="true">1</span><h3>Unzip and move it</h3><p>Open MemeMe.zip, then drag MemeMe into your Applications folder.</p></li>
+        <li><span class="n" aria-hidden="true">1</span><h3>Open the disk image</h3><p>Open MemeMe.dmg and drag MemeMe onto the Applications folder next to it.</p></li>
         <li><span class="n" aria-hidden="true">2</span><h3>Open it the first time</h3><p>MemeMe isn’t notarized by Apple yet, so macOS stops it once. On macOS 15 or later, open <span class="path">System Settings → Privacy &amp; Security</span>, scroll down and click <span class="path">Open Anyway</span>. On macOS 14, Control-click MemeMe, choose <span class="path">Open</span>, then click <span class="path">Open</span> again.</p></li>
         <li><span class="n" aria-hidden="true">3</span><h3>Say yes to the camera</h3><p>The panel opens by itself the first time and asks for the camera. After that, look for the smiley in your menu bar, or press <kbd>⌃</kbd><kbd>⌘</kbd><kbd>M</kbd> from anywhere.</p></li>
+        <li class="note">MemeMe keeps itself up to date. When a new version is out, a dot appears on the smiley in your menu bar and the panel offers it. One click installs it and restarts MemeMe. Afterwards macOS may ask once more for the camera and your folders.</li>
         <li class="note">GIFs need a free GIPHY API key for now. Get one at <a href="https://developers.giphy.com/" target="_blank" rel="noopener">developers.giphy.com</a>, then choose <span class="path">Set GIPHY API Key…</span> from the smiley menu. Your own memes and stickers work without it.</li>
       </ol>
     </div>
@@ -875,7 +876,7 @@ h1 .stk {
 <footer class="foot">
   <div class="wrap">
     <span class="brand"><svg viewBox="0 0 64 64" aria-hidden="true"><rect x="2" y="2" width="60" height="60" rx="14" fill="#F5C451"/><circle cx="32" cy="33" r="19" fill="none" stroke="#0E1324" stroke-width="3.6"/><circle cx="25.5" cy="29" r="2.4" fill="#0E1324"/><circle cx="38.5" cy="29" r="2.4" fill="#0E1324"/><path d="M23.5 37c2.2 3.5 5 5.2 8.5 5.2s6.3-1.7 8.5-5.2" fill="none" stroke="#0E1324" stroke-width="3.6" stroke-linecap="round"/></svg><b>MemeMe 1.0</b> · For people who answer in pictures.</span>
-    <span>Not affiliated with Apple or GIPHY.</span>
+    <span><a href="https://github.com/Michaell14/MemeMe" target="_blank" rel="noopener">Source and releases on GitHub</a> · Not affiliated with Apple or GIPHY.</span>
   </div>
 </footer>
 
@@ -1668,56 +1669,6 @@ h1 .stk {
     make.addEventListener("click", () => set(true));
     undo.addEventListener("click", () => set(false));
   })();
-
-  // ---------- Download ----------
-  // In a claude.ai artifact the page offers the file through the downloads capability. Artifacts
-  // can't serve a .zip, so the zip comes as base64 in download.json and is checked against its
-  // SHA-256 before it's offered. Anywhere else the button is a plain link to MemeMe.zip.
-  const host = window.claude && typeof window.claude.use === "function" ? window.claude : null;
-  const downloads = host ? host.use("downloads").catch(() => null) : Promise.resolve(null);
-  let zip = null;
-  async function loadZip() {
-    const res = await fetch("download.json");
-    if (!res.ok) throw new Error(`download.json: ${res.status}`);
-    const pkg = await res.json();
-    const bin = atob(pkg.base64);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    if (bytes.length !== pkg.size) throw new Error("size mismatch");
-    if (crypto.subtle) {
-      const sum = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
-      if ([...sum].map(b => b.toString(16).padStart(2, "0")).join("") !== pkg.sha256) throw new Error("checksum mismatch");
-    }
-    return new Blob([bytes], { type: "application/zip" });
-  }
-  const getZip = () => (zip ||= loadZip().catch(err => { zip = null; throw err; }));
-  const statuses = $$(".dl-status");
-  const say = msg => statuses.forEach(s => { s.textContent = msg; });
-  for (const a of $$("[data-download]")) {
-    if (host) a.addEventListener("pointerenter", () => { getZip().catch(() => {}); }, { once: true });
-    a.addEventListener("click", async e => {
-      if (!host) return;
-      e.preventDefault();
-      if (a.getAttribute("aria-busy") === "true") return;
-      a.setAttribute("aria-busy", "true");
-      say("Getting MemeMe.zip ready…");
-      try {
-        const ns = await downloads;
-        if (!ns) { say("This view can’t save files. Open the page in your browser to download."); return; }
-        const data = await getZip();
-        await ns.save({ filename: "MemeMe.zip", data });
-        say("Saved. Open MemeMe.zip from your Downloads folder.");
-      } catch (err) {
-        const code = err && err.code;
-        if (code === "declined") say("");
-        else if (code === "rate_limited") say("A save prompt is already open.");
-        else if (code && code !== "bad_request" && code !== "transform_error") say("This view can’t save files. Open the page in your browser to download.");
-        else say("The download didn’t start. Try again in a moment.");
-      } finally {
-        a.removeAttribute("aria-busy");
-      }
-    });
-  }
 
   // ---------- Start ----------
   setHint();

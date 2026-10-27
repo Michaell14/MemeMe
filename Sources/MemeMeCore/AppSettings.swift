@@ -15,6 +15,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var libraryOfferDismissals: Int = 0
     public var libraryOfferAccepted: Bool = false
     public var baseline: RestingBaseline = RestingBaseline()
+    public var skippedUpdateBuild: Int? = nil           // the build whose panel line got "Not now"
 
     public init() {}
 
@@ -23,6 +24,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case hotKeyKeyCode, hotKeyModifiers, openAtLogin, stickerPolicy, groupFaces, watchedFolders, collectingPausedUntil
         case webDiscoverEnabled, giphyAPIKey, hasCompletedFirstRun, libraryOfferDismissals, libraryOfferAccepted, baseline
+        case skippedUpdateBuild
     }
 
     public init(from decoder: Decoder) throws {
@@ -41,6 +43,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         libraryOfferDismissals = container.decodeLenient(Int.self, forKey: .libraryOfferDismissals, default: defaults.libraryOfferDismissals)
         libraryOfferAccepted = container.decodeLenient(Bool.self, forKey: .libraryOfferAccepted, default: defaults.libraryOfferAccepted)
         baseline = container.decodeLenient(RestingBaseline.self, forKey: .baseline, default: defaults.baseline)
+        skippedUpdateBuild = container.decodeLenientIfPresent(Int.self, forKey: .skippedUpdateBuild)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -58,5 +61,6 @@ public struct AppSettings: Codable, Equatable, Sendable {
         try container.encode(libraryOfferDismissals, forKey: .libraryOfferDismissals)
         try container.encode(libraryOfferAccepted, forKey: .libraryOfferAccepted)
         try container.encode(baseline, forKey: .baseline)
+        try container.encodeIfPresent(skippedUpdateBuild, forKey: .skippedUpdateBuild)
     }
 }

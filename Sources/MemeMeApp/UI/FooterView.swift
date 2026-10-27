@@ -1,7 +1,7 @@
 import MemeMeCore
 import SwiftUI
 
-/// Footer under the strip: focus line + legend, or one quiet library line.
+/// Footer under the strip: focus line + legend, or one quiet library or update line.
 struct FooterView: View {
     @ObservedObject var model: AppModel
 
@@ -27,6 +27,8 @@ struct FooterView: View {
             indexing(count: count)
         case .added(let batch):
             added(batch)
+        case .update(let manifest):
+            updateOffer(manifest)
         }
     }
 
@@ -141,5 +143,36 @@ struct FooterView: View {
                 .foregroundColor(Theme.mutedText)
         }
         return summary
+    }
+
+    // MARK: Update line
+
+    private func updateOffer(_ manifest: UpdateManifest) -> some View {
+        HStack(spacing: 8) {
+            updateSummary(manifest)
+                .font(.system(size: 12))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Button("Update") {
+                model.installUpdate()
+            }
+            .buttonStyle(PanelFilledButtonStyle(fontSize: 12, cornerRadius: 7))
+            .help("Install the update and restart MemeMe")
+            Button("Not now") {
+                model.dismissUpdateOffer()
+            }
+            .buttonStyle(PanelLinkButtonStyle(fontSize: 12, color: Theme.softText))
+        }
+    }
+
+    /// "MemeMe 1.0 (58) is ready · <first release note>"
+    private func updateSummary(_ manifest: UpdateManifest) -> Text {
+        let summary = Text(verbatim: "MemeMe \(manifest.displayVersion) is ready").foregroundColor(Theme.text)
+        let firstNote = manifest.notes
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first(where: { !$0.isEmpty })
+        guard let note = firstNote else { return summary }
+        return summary + Text(verbatim: " · \(note)").foregroundColor(Theme.mutedText)
     }
 }

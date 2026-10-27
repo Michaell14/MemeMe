@@ -1,10 +1,11 @@
 import AppKit
+import Combine
 import MemeMeCore
 import QuartzCore
 import SwiftUI
 
-/// The menu-bar icon: its menu, its drop target (dropped files are kept or turned into stickers)
-/// and the popover that reports what a drop did.
+/// The menu-bar icon: its menu, its drop target (dropped files are kept or turned into stickers),
+/// the popover that reports what a drop did and the dot that says an update is ready.
 @MainActor final class StatusItemController: NSObject {
     private let model: AppModel
     private let popoverModel: StickerPopoverModel
@@ -13,6 +14,8 @@ import SwiftUI
     private let menu: NSMenu
     private let menuDelegate: StatusMenuDelegate
 
+    private var dropView: DropTargetView?
+    private var updateObservation: AnyCancellable?
     private var popover: NSPopover?
     private var popoverWatch: Task<Void, Never>?
     private var popoverCloseObserver: NSObjectProtocol?
@@ -22,6 +25,8 @@ import SwiftUI
     private static let popoverIdleTimeout: TimeInterval = 8
     private static let popoverPollNanoseconds: UInt64 = 250_000_000
     private static let pauseInterval: TimeInterval = 3600
+    private static let defaultToolTip = "MemeMe (⌃⌘M). Drop images here to keep them."
+    private static let updateToolTip = "MemeMe (⌃⌘M). An update is ready."
 
     init(model: AppModel, popoverModel: StickerPopoverModel, openPanel: @escaping @MainActor () -> Void) {
         self.model = model
@@ -41,6 +46,15 @@ import SwiftUI
         configureButton()
         rebuildMenu()
 
+        updateObservation = model.updates.$available
+            .receive(on: RunLoop.main)
+            .sink { [weak self] manifest in
+                MainActor.assumeIsolated {
+                    guard let controller = self else { return }
+                    controller.showUpdateBadge(manifest != nil)
+                }
+            }
+
         popoverModel.onClose = { [weak self] in
             self?.closePopover()
         }
@@ -50,11 +64,9 @@ import SwiftUI
 
     private func configureButton() {
         guard let button = statusItem.button else { return }
-        let image = NSImage(systemSymbolName: "face.smiling", accessibilityDescription: "MemeMe")
-        image?.isTemplate = true
-        button.image = image
+        button.image = StatusItemController.statusImage(badged: false)
         button.imagePosition = .imageOnly
-        button.toolTip = "MemeMe (⌃⌘M). Drop images here to keep them."
+        button.toolTip = StatusItemController.defaultToolTip
 
         let dropView = DropTargetView(frame: button.bounds)
         dropView.autoresizingMask = [.width, .height]
@@ -63,6 +75,44 @@ import SwiftUI
             self?.handleDrop(urls)
         }
         button.addSubview(dropView)
+        self.dropView = dropView
+    }
+
+    /// The dot on the icon while an update is available; the drop view's tooltip mirrors the button's.
+    private func showUpdateBadge(_ badged: Bool) {
+        guard let button = statusItem.button else { return }
+        button.image = StatusItemController.statusImage(badged: badged)
+        button.toolTip = badged ? StatusItemController.updateToolTip : StatusItemController.defaultToolTip
+        dropView?.toolTip = button.toolTip
+    }
+
+    /// `face.smiling` as a template image. Badged, a small dot sits in the top-right corner with a gap
+    /// cut around it; one template image, so the menu bar tints the face and the dot alike.
+    private static func statusImage(badged: Bool) -> NSImage? {
+        guard let symbol = NSImage(systemSymbolName: "face.smiling", accessibilityDescription: "MemeMe") else { return nil }
+        symbol.isTemplate = true
+        guard badged else { return symbol }
+
+        let size = symbol.size
+        let diameter = (min(size.width, size.height) * 0.34).rounded()
+        let gap: CGFloat = 1.5
+        let image = NSImage(size: size, flipped: false) { rect in
+            let dot = NSRect(x: rect.maxX - diameter, y: rect.maxY - diameter, width: diameter, height: diameter)
+            // Even-odd clip: the face is drawn everywhere except a ring around the dot.
+            NSGraphicsContext.saveGraphicsState()
+            let clip = NSBezierPath(rect: rect)
+            clip.appendOval(in: dot.insetBy(dx: -gap, dy: -gap))
+            clip.windingRule = .evenOdd
+            clip.addClip()
+            symbol.draw(in: rect)
+            NSGraphicsContext.restoreGraphicsState()
+            NSColor.black.setFill()
+            NSBezierPath(ovalIn: dot).fill()
+            return true
+        }
+        image.isTemplate = true
+        image.accessibilityDescription = "MemeMe. An update is ready."
+        return image
     }
 
     private func handleDrop(_ urls: [URL]) {
@@ -172,6 +222,15 @@ import SwiftUI
     private func rebuildMenu() {
         menu.removeAllItems()
         let settings = model.store.settings
+        let updates = model.updates
+
+        if updates.phase == .downloading || updates.phase == .installing {
+            menu.addItem(makeHeader("Updating MemeMe…"))
+            menu.addItem(.separator())
+        } else if let manifest = updates.available {
+            menu.addItem(makeItem("Update to MemeMe \(manifest.displayVersion)…", action: #selector(installUpdate(_:))))
+            menu.addItem(.separator())
+        }
 
         let open = makeItem("Open MemeMe", action: #selector(openMemeMe(_:)))
         open.keyEquivalent = "m"
@@ -244,6 +303,14 @@ import SwiftUI
         login.state = settings.openAtLogin ? .on : .off
         menu.addItem(login)
         menu.addItem(makeItem("Show Library in Finder", action: #selector(showLibrary(_:))))
+
+        if updates.isEnabled {
+            menu.addItem(.separator())
+            let check = makeItem("Check for Updates…", action: #selector(checkForUpdates(_:)))
+            check.isEnabled = updates.phase != .downloading && updates.phase != .installing
+            menu.addItem(check)
+            menu.addItem(makeHeader("Version \(updates.installedDisplayVersion)"))
+        }
 
         menu.addItem(.separator())
         let quitItem = makeItem("Quit MemeMe", action: #selector(quit(_:)))
@@ -381,6 +448,14 @@ import SwiftUI
 
     @objc private func showLibrary(_ sender: Any?) {
         NSWorkspace.shared.activateFileViewerSelecting([model.store.rootURL])
+    }
+
+    @objc private func installUpdate(_ sender: Any?) {
+        model.installUpdate()
+    }
+
+    @objc private func checkForUpdates(_ sender: Any?) {
+        model.updates.checkFromMenu()
     }
 
     @objc private func quit(_ sender: Any?) {

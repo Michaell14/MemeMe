@@ -930,9 +930,11 @@ struct UpdateInstaller {
     @discardableResult func check() async -> UpdateDecision?
     /// "Check for Updates…": runs `check()` and answers in an alert (DESIGN.md strings).
     func checkFromMenu()
-    /// Download, verify, stage, relaunch; the fallbacks and alerts from DESIGN.md. Ignored unless phase is .idle
-    /// and an update is available.
+    /// Download, verify, stage, relaunch; the fallbacks and alerts from DESIGN.md. Ignored unless an update is
+    /// available and phase is .idle or .checking (a background check doesn't block the footer's Update button).
     func installAvailableUpdate()
+    /// Runs when an install starts, from every Update path; AppModel closes the panel here.
+    var willInstall: (@MainActor () -> Void)?
 }
 ```
 
@@ -1015,7 +1017,7 @@ enum DropOutcome { case kept(IndexBatch), stickers(StickerBatch), nothing }
     func dismissSetupCard()
 
     // Updates
-    func installUpdate()          // closes the panel (onRequestClose), then updates.installAvailableUpdate()
+    func installUpdate()          // updates.installAvailableUpdate(); init sets updates.willInstall to close the panel (onRequestClose)
     func dismissUpdateOffer()     // "Not now": settings.skippedUpdateBuild = available build; footer refreshes; saveSoon()
 
     // Menu-bar drops
@@ -1034,4 +1036,4 @@ Behavior summary (details in DESIGN.md):
 - Text changes (debounced 80 ms) → text mode; camera stops if typing began within 1 s of show, otherwise `showsFaceToken = true`; naming prompt when `TextQuery.possibleName` is set, no results, and `friends.unnamedPeople` is non-empty. Empty text → back to live (restart camera if it was stopped).
 - `commit`: resolve file (web → `await web.prepareForCopy`, HUD "Copying…" if it takes > 150 ms); `Clipboard.copy`; increment `timesSent`, set `lastSentAt`, `recents.record`; first run → `showSetupCard = true` and `hasCompletedFirstRun = true` (panel stays open); otherwise close and HUD "Copied “<displayName>” · ⌘V — not sent". ↵ is ignored within 300 ms of the last text edit.
 - Persist the store (debounced 2 s) after changes; persist `tracker.baseline` into settings on hide.
-- Footer priority: `.indexing` > `.added` (panel visible) > `.update(manifest)` (when `updates.available` is set, `updates.phase == .idle` and `UpdatePolicy.shouldOfferInPanel(manifest, skippedBuild: settings.skippedUpdateBuild)`) > `.libraryOffer` > `.legend`. AppModel subscribes to `updates.objectWillChange` like it does to the indexer and refreshes the footer on the next main-actor turn.
+- Footer priority: `.indexing` > `.added` (panel visible) > `.update(manifest)` (when `updates.available` is set, `updates.phase` is `.idle` or `.checking` and `UpdatePolicy.shouldOfferInPanel(manifest, skippedBuild: settings.skippedUpdateBuild)`) > `.libraryOffer` > `.legend`. AppModel subscribes to `updates.objectWillChange` like it does to the indexer and refreshes the footer on the next main-actor turn.
