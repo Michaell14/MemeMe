@@ -530,30 +530,66 @@ final class PoseTrackingTests: XCTestCase {
         XCTAssertTrue(tracker.ingest(frame(TestFaces.neutral, 15, pose: otherSeen)))
     }
 
-    func testFinishingAGestureReplacesTheFrameCaughtOnTheWay() throws {
-        // A hand rising to the face over a second, the other hand below the frame. The hold catches the arm on its
-        // way up, already at full strength but with no word for it yet; the facepalm it ends in is no stronger, and
-        // still replaces it.
-        let tracker = PeakHoldTracker(baseline: RestingBaseline(sampleCount: 100))
-        func between(_ from: (x: Double, y: Double), _ to: (x: Double, y: Double), _ u: Double) -> (x: Double, y: Double) {
-            (x: from.x + (to.x - from.x) * u, y: from.y + (to.y - from.y) * u)
+    /// Hands rising from the desk to the face over a second (the face hidden for the last fifth), then held there
+    /// for two seconds: one hand (the other below the frame) or both.
+    private func raiseHandsToTheFace(_ tracker: PeakHoldTracker, both: Bool, to end: TestArm) {
+        func between(_ from: (x: Double, y: Double), _ to: (x: Double, y: Double)?, _ u: Double) -> (x: Double, y: Double) {
+            guard let to else { return from }
+            return (x: from.x + (to.x - from.x) * u, y: from.y + (to.y - from.y) * u)
+        }
+        func pose(_ arm: TestArm) -> PoseFeatures {
+            TestPoses.features(both ? TestPoses.both(arm) : TestPoses.body(left: arm, right: nil))
         }
         var step = 0
         for tenth in 0...10 {
             let u = Double(tenth) / 10
-            let arm = TestArm(elbow: between((x: 0.6, y: -0.8), (x: 0.45, y: -0.6), u),
-                              wrist: between((x: 0.3, y: -0.85), (x: 0.15, y: 0.45), u))
+            let arm = TestArm(elbow: between((x: 0.6, y: -0.8), end.elbow, u), wrist: between((x: 0.3, y: -0.85), end.wrist, u))
             step += 1
-            tracker.ingest(frame(u >= 0.8 ? nil : TestFaces.neutral, step, pose: TestPoses.features(TestPoses.body(left: arm, right: nil))))
+            tracker.ingest(frame(u >= 0.8 ? nil : TestFaces.neutral, step, pose: pose(arm)))
         }
-        let onFace = TestPoses.features(TestPoses.body(left: TestPoses.onFace, right: nil))
         for _ in 0..<20 {
             step += 1
-            tracker.ingest(frame(nil, step, pose: onFace))
+            tracker.ingest(frame(nil, step, pose: pose(end)))
         }
+    }
+
+    func testFinishingAGestureReplacesTheFrameCaughtOnTheWay() throws {
+        // The hold catches the arm on its way up, already at full strength but with no word for it yet; the facepalm
+        // it ends in is no stronger, and still replaces it once held for a second.
+        let tracker = PeakHoldTracker(baseline: RestingBaseline(sampleCount: 100))
+        raiseHandsToTheFace(tracker, both: false, to: TestPoses.onFace)
         let query = try XCTUnwrap(tracker.query)
         XCTAssertNil(query.face)
         XCTAssertEqual(MoodClassifier.mood(for: nil, pose: query.pose, baseline: tracker.baseline), .facepalm)
+    }
+
+    func testFaceInHandsReplacesTheClapCaughtOnTheWay() throws {
+        // Both hands on the way up pass through clapping (wrists together in front of the chest), and the hold can
+        // catch them there; the face in hands that follows has its own word.
+        let tracker = PeakHoldTracker(baseline: RestingBaseline(sampleCount: 100))
+        raiseHandsToTheFace(tracker, both: true, to: TestArm(elbow: (x: 0.4, y: -0.6), wrist: (x: 0.12, y: 0.45)))
+        let query = try XCTUnwrap(tracker.query)
+        XCTAssertNil(query.face)
+        XCTAssertEqual(MoodClassifier.mood(for: nil, pose: query.pose, baseline: tracker.baseline), .facepalm)
+    }
+
+    func testOneGestureWordAfterAnotherIsANewExpression() {
+        // A clap, then hands at the head: both at full strength and pointing much the same way, told apart by their word.
+        let tracker = PeakHoldTracker(baseline: RestingBaseline(sampleCount: 100))
+        let clapping = TestPoses.features(TestPoses.both(TestPoses.clap))
+        let atHead = TestPoses.features(TestPoses.both(TestPoses.atHead))
+        for step in 1...3 {
+            XCTAssertFalse(tracker.ingest(frame(TestFaces.neutral, step, pose: clapping)))
+        }
+        XCTAssertTrue(tracker.ingest(frame(TestFaces.neutral, 4, pose: clapping)))
+        XCTAssertEqual(MoodClassifier.mood(for: TestFaces.neutral, pose: tracker.query?.pose, baseline: tracker.baseline), .clapping)
+        XCTAssertFalse(tracker.ingest(frame(TestFaces.neutral, 5, pose: atHead)))
+        XCTAssertTrue(tracker.candidateIsNewExpression)
+        for step in 6...14 {
+            XCTAssertFalse(tracker.ingest(frame(TestFaces.neutral, step, pose: atHead)), "step \(step)")
+        }
+        XCTAssertTrue(tracker.ingest(frame(TestFaces.neutral, 15, pose: atHead)))
+        XCTAssertEqual(MoodClassifier.mood(for: TestFaces.neutral, pose: tracker.query?.pose, baseline: tracker.baseline), .mindBlown)
     }
 
     func testAWeakGestureWithAWordDoesntTakeOverAHeldFace() throws {
@@ -575,19 +611,21 @@ final class PoseTrackingTests: XCTestCase {
     }
 
     func testAShrugAfterAHeldSmileBecomesTheQuery() throws {
-        // The face is quicker than the arms: the smile is held first, then the shoulders shrug. The shrug is weaker
-        // than the smile on its own, and still replaces the resting arms.
+        // The face is quicker than the arms: the smile is held first, then the shoulders shrug while the smile eases a
+        // little. The shrug is weaker than the smile on its own, and still replaces the resting arms.
         let tracker = PeakHoldTracker(baseline: RestingBaseline(sampleCount: 100))
         let resting = TestPoses.features(TestPoses.both(TestPoses.rest))
         let shrugging = TestPoses.features(TestPoses.both(TestPoses.shrug))
+        let easedSmile = makeFace(width: 0.73, smile: 0.88)
         XCTAssertGreaterThanOrEqual(shrugging.gestureStrength, Ranker.gestureWithoutFace)
-        XCTAssertLessThan(0.8 * shrugging.gestureStrength, tracker.baseline.intensity(of: TestFaces.smile))
+        XCTAssertLessThan(0.8 * shrugging.gestureStrength, tracker.baseline.intensity(of: easedSmile))
+        XCTAssertLessThan(tracker.baseline.intensity(of: easedSmile), tracker.baseline.intensity(of: TestFaces.smile))
         for step in 1...3 {
             XCTAssertFalse(tracker.ingest(frame(TestFaces.smile, step, pose: resting)))
         }
         XCTAssertTrue(tracker.ingest(frame(TestFaces.smile, 4, pose: resting)))
-        for step in 5...15 {
-            tracker.ingest(frame(TestFaces.smile, step, pose: shrugging))
+        for step in 5...20 {
+            tracker.ingest(frame(easedSmile, step, pose: shrugging))
         }
         let query = try XCTUnwrap(tracker.query)
         XCTAssertEqual(query.pose, shrugging)

@@ -247,12 +247,13 @@ enum Pick: Equatable {
         self.friends = FriendService(store: store)
         self.updates = UpdateChecker(bundle: .main)
         self.tracker = PeakHoldTracker(baseline: store.settings.baseline)
-        // Earlier versions kept sent GIPHY picks in the library; GIPHY's media is no longer kept.
-        if store.removeSavedWebItems() > 0 {
+        // Earlier versions kept sent GIPHY picks in the library; GIPHY's media is no longer kept. A kept image or
+        // sticker deleted in Finder is forgotten too.
+        if store.removeSavedWebItems() + store.removeItemsWithMissingFiles() > 0 {
             do {
                 try store.save()
             } catch {
-                modelLog.error("Saving the library after removing saved GIPHY picks failed")
+                modelLog.error("Saving the library after removing saved GIPHY picks or missing files failed")
             }
         }
 
@@ -831,11 +832,19 @@ enum Pick: Equatable {
         HUDController.shared.show("Making your sticker…")
         Task { [weak self] in
             guard let self else { return }
-            let item = try? await self.friends.makeOwnSticker(fromCapture: url)
-            if let item {
+            let made = try? await self.friends.makeOwnSticker(fromCapture: url)
+            if let made {
                 // Reopened meanwhile: the notice would cover the panel, and the sticker is in the library.
                 guard !self.isPanelVisible else { return }
-                HUDController.shared.show("Saved “\(item.displayName)” as a sticker", thumbnail: item.fileURL)
+                guard made.isNew else {
+                    HUDController.shared.show("Already one of your stickers", thumbnail: made.item.fileURL)
+                    return
+                }
+                let undo = HUDAction(title: "Undo") { [weak self] in
+                    self?.friends.removeOwnSticker(id: made.item.id)
+                    HUDController.shared.show("Sticker removed")
+                }
+                HUDController.shared.show("Saved “\(made.item.displayName)” as a sticker", thumbnail: made.item.fileURL, action: undo)
             } else {
                 // Shown even over a reopened panel (like "Couldn’t read that image"): nothing else would say it failed.
                 HUDController.shared.show("Couldn’t find you in that one.")
@@ -1429,6 +1438,10 @@ enum Pick: Equatable {
         // The panel this pick came from may have closed (and another opened) while a GIPHY GIF downloaded.
         let isSameOpen = session == sessionID && isPanelVisible
         guard let fileURL = resolved else {
+            // A kept image or sticker deleted in Finder: forget it, so it stops coming up.
+            if case .meme = pick, store.removeItemsWithMissingFiles() > 0 {
+                saveSoon()
+            }
             HUDController.shared.show("Couldn’t copy that one. Try another.")
             return
         }

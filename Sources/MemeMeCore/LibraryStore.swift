@@ -207,6 +207,18 @@ public final class LibraryStore {
         }
     }
 
+    /// Forgets items whose file MemeMe keeps itself (kept images, stickers: under rootURL) is gone, deleted in Finder
+    /// say, with their recents. Files in watched folders are the indexer's to reconcile. Returns how many were removed.
+    @discardableResult
+    public func removeItemsWithMissingFiles() -> Int {
+        let rootPath = LibraryStore.pathKey(for: rootURL)
+        let ids = Set(items.filter { item in
+            LibraryStore.isFile(item.fileURL, insideDirectoryAtPath: rootPath) && !FileManager.default.fileExists(atPath: item.fileURL.path)
+        }.map(\.id))
+        remove(ids: ids)
+        return ids.count
+    }
+
     /// rootURL/Sent, where earlier versions kept the stills of GIPHY picks that were sent. Never created.
     public var legacySentDirectory: URL {
         rootURL.appendingPathComponent("Sent", isDirectory: true)

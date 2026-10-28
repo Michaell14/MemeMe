@@ -155,7 +155,7 @@ private struct BatchRecord {
     /// "Save as sticker" on a camera capture: your face (the largest one) cut out as a die-cut sticker, kept as one
     /// of your own memes (source "Camera"). No sticker policy, size rule or grouping: it's you, saved on purpose.
     /// nil when no face or person could be cut out. A capture saved before returns that sticker.
-    func makeOwnSticker(fromCapture url: URL) async throws -> LibraryItem? {
+    func makeOwnSticker(fromCapture url: URL) async throws -> (item: LibraryItem, isNew: Bool)? {
         let directory = store.stickersDirectory
         let work = try await Task.detached(priority: .userInitiated) { () async throws -> OwnStickerWork? in
             let analysis = try ImageAnalyzer.analyze(url: url, includeText: false)
@@ -185,10 +185,16 @@ private struct BatchRecord {
         )
         guard store.add(item) else {
             try? FileManager.default.removeItem(at: cut.pngURL)
-            return store.items.first(where: { $0.contentHash == cut.contentHash })
+            return store.items.first(where: { $0.contentHash == cut.contentHash }).map { (item: $0, isNew: false) }
         }
         saveStore()
-        return item
+        return (item: item, isNew: true)
+    }
+
+    /// Undo for Save as sticker: forgets the sticker and deletes its file.
+    func removeOwnSticker(id: UUID) {
+        store.remove(ids: [id])
+        saveStore()
     }
 
     /// Persists consent. When enabled, matches the batch's stickers (and earlier unmatched stickers) and returns the updated batch.

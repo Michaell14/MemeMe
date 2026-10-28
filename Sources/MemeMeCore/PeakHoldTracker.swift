@@ -113,8 +113,8 @@ public final class PeakHoldTracker {
 
         let required: TimeInterval
         if let reference = queryDirection {
-            if VectorMath.cosine(current.direction, reference) >= config.sameDirectionCosine {
-                guard best.intensity >= queryIntensity * config.strongerRatio || completesGesture(best) else {
+            if VectorMath.cosine(current.direction, reference) >= config.sameDirectionCosine, !changesGestureWord(best) {
+                guard best.intensity >= queryIntensity * config.strongerRatio else {
                     // Same expression, not clearly stronger: nothing to hold toward. Dropping the run means a
                     // later, stronger version is held for the full `holdDuration` from its first frame.
                     clearCandidate()
@@ -202,17 +202,17 @@ public final class PeakHoldTracker {
         return Entry(sample: sample, intensity: intensity, direction: VectorMath.normalized(direction))
     }
 
-    /// As strong as the query, with a clear gesture (at least `minimumGesture`) whose pose has a word of its own (a
-    /// facepalm, a shrug) where the query, caught on the way there, had none. Gesture strength saturates before the hand
-    /// gets to the face, and a face is usually held before the arms arrive, so the finished gesture is rarely stronger
-    /// than the held frame; it still replaces it. Forearms on armrests (a shrug's shape, too weak to be a gesture) don't.
-    private func completesGesture(_ entry: Entry) -> Bool {
-        let strength = entry.sample.pose?.gestureStrength ?? 0
-        guard let query, strength >= PeakHoldTracker.minimumGesture, entry.intensity >= queryIntensity - 1e-9,
+    /// A clear gesture (at least `minimumGesture`) with a word the query doesn't have: a facepalm after the hold caught
+    /// the hand on its way up (as "clapping", or as nothing yet), a shrug after a held smile, mind blown after a clap.
+    /// Strong gestures all reach the same intensity and many point the same way, so the word, not the strength or the
+    /// direction, tells them apart: it is a new expression, held for `newExpressionHold` like any other. Forearms on
+    /// armrests (a shrug's shape, too weak to be a gesture) aren't one.
+    private func changesGestureWord(_ entry: Entry) -> Bool {
+        guard let query, (entry.sample.pose?.gestureStrength ?? 0) >= PeakHoldTracker.minimumGesture,
               let descriptor = entry.sample.pose?.descriptor,
-              MoodClassifier.gestureMood(descriptor, face: entry.sample.face, baseline: baseline) != nil else { return false }
-        guard let held = query.pose?.descriptor else { return true }
-        return MoodClassifier.gestureMood(held, face: query.face, baseline: baseline) == nil
+              let word = MoodClassifier.gestureMood(descriptor, face: entry.sample.face, baseline: baseline) else { return false }
+        let held = query.pose?.descriptor.flatMap { MoodClassifier.gestureMood($0, face: query.face, baseline: baseline) }
+        return word != held
     }
 
     /// Highest `intensity * sharpness`; the newest wins ties.

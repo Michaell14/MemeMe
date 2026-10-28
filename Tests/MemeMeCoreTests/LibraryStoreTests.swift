@@ -211,6 +211,29 @@ final class LibraryStoreTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: sent.path), "a library file still lives there")
     }
 
+    func testItemsWhoseKeptFileWasDeletedAreForgotten() throws {
+        let store = try LibraryStore(rootURL: root)
+        let stickers = store.stickersDirectory
+        try FileManager.default.createDirectory(at: stickers, withIntermediateDirectories: true, attributes: nil)
+        let kept = stickers.appendingPathComponent("kept.png")
+        let deleted = stickers.appendingPathComponent("deleted.png")
+        try Data([1]).write(to: kept)
+        let keptItem = makeItem(name: "kept", fileURL: kept)
+        let deletedItem = makeItem(name: "deleted", fileURL: deleted)
+        // A file in a watched folder is the indexer's business, even when it's gone.
+        let elsewhere = makeItem(name: "elsewhere", fileURL: URL(fileURLWithPath: "/tmp/mememe-tests/missing-\(UUID().uuidString).png"))
+        store.add(keptItem)
+        store.add(deletedItem)
+        store.add(elsewhere)
+        store.recents.record(deletedItem.id, appBundleID: "app")
+
+        XCTAssertEqual(store.removeItemsWithMissingFiles(), 1)
+        XCTAssertEqual(Set(store.items.map(\.id)), [keptItem.id, elsewhere.id])
+        XCTAssertEqual(store.recents.recent(appBundleID: "app"), [])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: kept.path))
+        XCTAssertEqual(store.removeItemsWithMissingFiles(), 0)
+    }
+
     func testRemovingUnknownIDsChangesNothing() throws {
         let store = try LibraryStore(rootURL: root)
         store.add(makeItem(name: "a"))
