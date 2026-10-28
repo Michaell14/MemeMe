@@ -116,12 +116,12 @@ public struct PoseDescriptor: Codable, Hashable, Sendable {
     public var mirrored: PoseDescriptor { get }    // arms swapped
     public var showsArms: Bool { get }             // a wrist, an elbow or a hand sign was seen
     public var gestureStrength: Double { get }
-    public var gestureDirection: [Double] { get }  // 6 numbers for the tracker (0 at rest)
+    public var gestureDirection: [Double] { get }  // 9 numbers for the tracker (0 at rest): 6 for the arms, then thumbs up, pointing, peace (each from 0.7)
     public static func compare(_ a: PoseDescriptor, _ b: PoseDescriptor) -> (similarity: Double, coverage: Double)
 }
 ```
 Pose (binding):
-- Body frame: origin O = shoulder midpoint (else the neck); x along the shoulder line (oriented left to right in the image, so the tilt is taken out either way the person faces); unit S = shoulder distance, at least 0.8 × the head's estimate (2.6 × ear distance, else 6 × eye distance). Head H = mean of nose, eyes, ears. Points p' = rotate(p − O) / S.
+- Body frame: origin O = shoulder midpoint (else the neck); x along the shoulder line (oriented left to right in the image, so the tilt is taken out either way the person faces); unit S = shoulder distance, at least 0.8 × the head's estimate (2.6 × ear distance, else 6 × eye distance, else 3 × nose-to-ear distance seen from the side) and at least 0.7 × the longer upper arm. The shoulder line gives the tilt (and `shoulderTilt`) only when it is at least 0.5 S long; a body turned to the side keeps roll 0. Head H = mean of nose, eyes, ears. Points p' = rotate(p − O) / S.
 - Per arm (wrist w', elbow e', shoulder s'): `lift = (w'.y + 1.5) / 3.5`, `out = |w'.x| / 2.5`, `head = |w' − H'| / 2`, `elbowLift` = upper-arm angle from straight down / 180°, `elbowBend` = 1 − elbow angle / 180°. `wristGap = |wL − wR| / S / 3`, `shoulderTilt = |roll| / 30°`, `headRise = H'.y / 1.5`. All clamped to 0...1.
 - Hand: a finger is straight when |tip − wrist| / |PIP − wrist| ≥ 1.2 (ramp from 0.95) and curled when ≤ 0.8 (ramp to 1.05). thumbsUp = min(others curled, thumb tip−IP within ~35° of up, thumb tip above the other fingers by 0.1–0.35 palms); point = index straight, 3 others curled; peace = index and middle straight, ring and little curled; openPalm / fist = all straight / curled.
 - gestureStrength: weighted RMS distance from arms at rest (lift .03, out .2, head 1, elbowLift .05, elbowBend .1, gap .37; weights 1, .5, 1, .5, .25, .5) over the numbers seen, `clamp((rms − 0.1) / 0.3)`; a hand sign ≥ 0.7 raises it to the sign's strength.
@@ -202,7 +202,7 @@ public final class PeakHoldTracker {
 
 Algorithm (binding):
 - `ingest`: set `lastSample`. No face and a gesture strength below `minimumGestureWithoutFace` (0.5) → clear the candidate, `holdProgress = 0`, return false (a facepalm hides the face: its gesture carries on). Calm frames with a face feed `baseline.observe`.
-- Effective intensity `e = max(baseline.intensity(of: face) (0 without), 0.8 * (pose?.gestureStrength ?? 0))`. Direction vector = `signedDeviation(of: face)` (7 zeros without) + `0.5 × descriptor.gestureDirection` (a pose without a descriptor: `[activity, 0, 0, 0, 0, 0]`), 13 values, normalized.
+- Effective intensity `e = max(baseline.intensity(of: face) (0 without), 0.8 * (pose?.gestureStrength ?? 0))`. Direction vector = `signedDeviation(of: face)` (7 zeros without) + `0.5 × descriptor.gestureDirection` (a pose without a descriptor: `[activity, 0, 0, 0, 0, 0, 0, 0, 0]`), 16 values, normalized. A different hand sign with the arm where it was is therefore a different expression.
 - A sample is a candidate if `e >= minimumIntensity`; otherwise clear the candidate, return false.
 - The candidate is a run of consecutive candidate samples whose direction cosine with the run's first sample is ≥ `sameDirectionCosine`; a sample outside that cone starts a new run. Within a run keep the best sample by `e * sharpness` among samples whose timestamp is within `bufferWindow` of the newest.
 - Required hold: no query → `holdDuration`. Same direction as the query (cosine ≥ `sameDirectionCosine`) → `holdDuration`, and only if `bestE >= queryIntensity * strongerRatio` (otherwise `holdProgress = 0`, no replacement). Different direction → `newExpressionHold` and `candidateIsNewExpression = true`.

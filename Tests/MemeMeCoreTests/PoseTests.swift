@@ -102,6 +102,20 @@ final class PoseDescriptorTests: XCTestCase {
         XCTAssertNil(PoseDescriptor(TestPoses.body(left: TestPoses.up, right: TestPoses.up.otherSide, shoulders: false)))
     }
 
+    func testASideOnBodyAtRestIsNoGesture() throws {
+        // Turned to the side: the shoulders almost overlap, one eye and one ear show, the arms hang down.
+        let points: [BodyJoint: PosePoint] = [
+            .leftShoulder: PosePoint(x: 0.50, y: 0.50), .rightShoulder: PosePoint(x: 0.49, y: 0.48),
+            .nose: PosePoint(x: 0.56, y: 0.66), .leftEye: PosePoint(x: 0.53, y: 0.68), .leftEar: PosePoint(x: 0.47, y: 0.67),
+            .leftElbow: PosePoint(x: 0.50, y: 0.34), .rightElbow: PosePoint(x: 0.49, y: 0.33),
+            .leftWrist: PosePoint(x: 0.51, y: 0.20), .rightWrist: PosePoint(x: 0.50, y: 0.19),
+        ]
+        let side = try descriptor(BodyJoints(points: points))
+        XCTAssertNil(side[.shoulderTilt])          // a foreshortened shoulder line says nothing about tilt
+        XCTAssertLessThan(side.gestureStrength, 0.2)
+        XCTAssertLessThan(try XCTUnwrap(side[.leftLift]), 0.1)
+    }
+
     func testAFaceWithShouldersShowsNoArms() throws {
         let shoulders = try descriptor(TestPoses.body(left: nil, right: nil))
         XCTAssertFalse(shoulders.showsArms)
@@ -352,6 +366,26 @@ final class PoseTrackingTests: XCTestCase {
         XCTAssertNil(tracker.query)
         XCTAssertNil(tracker.candidate)
         XCTAssertNil(tracker.lastSeenTimestamp)
+    }
+
+    func testSwitchingHandSignsIsANewExpression() {
+        let tracker = PeakHoldTracker(baseline: RestingBaseline(sampleCount: 100))
+        let thumbsUp = TestPoses.features(TestPoses.both(TestPoses.rest), hand: HandShape(thumbsUp: 1))
+        let pointing = TestPoses.features(TestPoses.both(TestPoses.rest), hand: HandShape(point: 1))
+        for step in 1...3 {
+            XCTAssertFalse(tracker.ingest(frame(TestFaces.neutral, step, pose: thumbsUp)))
+        }
+        XCTAssertTrue(tracker.ingest(frame(TestFaces.neutral, 4, pose: thumbsUp)))
+
+        // Same arm, another sign: a new expression, held for a second.
+        XCTAssertFalse(tracker.ingest(frame(TestFaces.neutral, 5, pose: pointing)))
+        XCTAssertTrue(tracker.candidateIsNewExpression)
+        for step in 6...14 {
+            XCTAssertFalse(tracker.ingest(frame(TestFaces.neutral, step, pose: pointing)), "step \(step)")
+        }
+        XCTAssertTrue(tracker.ingest(frame(TestFaces.neutral, 15, pose: pointing)))
+        XCTAssertEqual(tracker.query?.pose, pointing)
+        XCTAssertEqual(MoodClassifier.mood(for: TestFaces.neutral, pose: pointing, baseline: tracker.baseline), .pointing)
     }
 
     func testADifferentGestureIsANewExpression() {

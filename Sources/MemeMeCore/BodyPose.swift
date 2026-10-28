@@ -332,20 +332,34 @@ public struct PoseDescriptor: Codable, Hashable, Sendable {
         if let left = leftShoulder, let right = rightShoulder {
             scale = left.distance(to: right)
         }
+        let shoulderGap = scale
         var headScale: Double?
         if let left = joints[.leftEar], let right = joints[.rightEar] {
             headScale = 2.6 * left.distance(to: right)
         } else if let left = joints[.leftEye], let right = joints[.rightEye] {
             headScale = 6 * left.distance(to: right)
+        } else if let nose = joints[.nose], let ear = joints[.leftEar] ?? joints[.rightEar] {
+            // Seen from the side: nose to ear is about a third of a shoulder width.
+            headScale = 3 * nose.distance(to: ear)
         }
         if let headScale {
             scale = max(scale, 0.8 * headScale)
         }
+        // An upper arm is about 0.8–1 shoulder width, however the body is turned.
+        let upperArms = [(leftShoulder, joints[.leftElbow]), (rightShoulder, joints[.rightElbow])].compactMap { pair -> Double? in
+            guard let shoulder = pair.0, let elbow = pair.1 else { return nil }
+            return shoulder.distance(to: elbow)
+        }
+        if let longest = upperArms.max() {
+            scale = max(scale, 0.7 * longest)
+        }
         guard scale.isFinite, scale > 0, scale >= 0.02 * joints.shortSide else { return nil }
+        // A body turned to the side shows its shoulders almost on top of each other: their line says nothing about tilt.
+        let shoulderLineIsReliable = leftShoulder != nil && rightShoulder != nil && shoulderGap >= 0.5 * scale
 
         // The shoulder line's tilt, taken left to right in the image whichever way the person faces.
         var roll = 0.0
-        if let left = leftShoulder, let right = rightShoulder {
+        if shoulderLineIsReliable, let left = leftShoulder, let right = rightShoulder {
             var dx = left.x - right.x
             var dy = left.y - right.y
             if dx < 0 {
@@ -399,7 +413,7 @@ public struct PoseDescriptor: Codable, Hashable, Sendable {
         if let left = joints[.leftWrist], let right = joints[.rightWrist] {
             values[Dimension.wristGap.rawValue] = left.distance(to: right) / scale / 3
         }
-        if leftShoulder != nil && rightShoulder != nil {
+        if shoulderLineIsReliable {
             values[Dimension.shoulderTilt.rawValue] = abs(roll) / (Double.pi / 6)
         }
         if let head {
@@ -459,7 +473,8 @@ public struct PoseDescriptor: Codable, Hashable, Sendable {
     }
 
     /// Mirror-invariant summary for telling one gesture from another (each 0 at rest):
-    /// [higher wrist lift, lower wrist lift, nearer wrist to head, farther wrist to head, wrist gap, higher elbow].
+    /// [higher wrist lift, lower wrist lift, nearer wrist to head, farther wrist to head, wrist gap, higher elbow,
+    ///  thumbs up, pointing, peace] — a hand sign counts from 0.7, so relaxing the hand doesn't read as a new gesture.
     public var gestureDirection: [Double] {
         func pair(_ left: Dimension, _ right: Dimension) -> (high: Double?, low: Double?) {
             let seen = [self[left], self[right]].compactMap { $0 }
@@ -475,7 +490,16 @@ public struct PoseDescriptor: Codable, Hashable, Sendable {
             head.high.map { 1 - $0 } ?? 0,
             self[.wristGap].map { $0 - 0.37 } ?? 0,
             elbow.high.map { $0 - 0.05 } ?? 0,
+            PoseDescriptor.sign(hand?.thumbsUp),
+            PoseDescriptor.sign(hand?.point),
+            PoseDescriptor.sign(hand?.peace),
         ]
+    }
+
+    /// A hand sign's strength when it is clear (≥ 0.7), else 0.
+    private static func sign(_ value: Double?) -> Double {
+        guard let value, value >= 0.7 else { return 0 }
+        return value
     }
 
     // MARK: Similarity

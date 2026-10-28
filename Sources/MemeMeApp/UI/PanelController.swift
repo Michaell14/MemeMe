@@ -478,14 +478,18 @@ final class PanelController: NSObject {
             return nil
 
         case KeyCode.space:
-            guard model.queryText.isEmpty else { return event }
+            // A stray space (pasted, say) mustn't turn Space and ⇧Space into typing for the rest of the session.
+            guard model.queryText.trimmingCharacters(in: .whitespaces).isEmpty else { return event }
             if hasNoModifiers {
                 model.snap()
                 return nil
             }
-            // ⇧Space opens the capture view.
-            guard flags.intersection([.command, .control, .option, .shift]) == .shift, model.canOpenCapture else { return event }
-            model.openCapture()
+            // ⇧Space opens the capture view once the camera reads you; before that it does nothing. Either way it
+            // never types a lone space into the field.
+            guard flags.intersection([.command, .control, .option, .shift]) == .shift else { return event }
+            if !event.isARepeat {
+                model.openCapture()
+            }
             return nil
 
         case KeyCode.tab:

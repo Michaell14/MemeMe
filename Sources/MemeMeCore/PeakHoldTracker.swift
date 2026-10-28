@@ -31,7 +31,7 @@ public final class PeakHoldTracker {
     /// Timestamp of the last sample that had a face or a gesture strong enough to stand in for one.
     public private(set) var lastSeenTimestamp: TimeInterval?
 
-    /// A frame with its effective intensity and unit direction (7 signed face deviations + 6 gesture numbers).
+    /// A frame with its effective intensity and unit direction (7 signed face deviations + 9 gesture numbers).
     private struct Entry {
         let sample: ExpressionSample
         let intensity: Double
@@ -172,7 +172,7 @@ public final class PeakHoldTracker {
     }
 
     /// intensity = max(face intensity, 0.8 × gesture strength); direction = the face's signed deviations (zeros without
-    /// a face) + half the pose's gesture numbers (a pose measured the old way: [activity, 0, 0, 0, 0, 0]).
+    /// a face) + half the pose's gesture numbers (a pose measured the old way: [activity, 0, 0, 0, 0, 0, 0, 0, 0]).
     private func makeEntry(for sample: ExpressionSample) -> Entry {
         let faceIntensity = sample.face.map { baseline.intensity(of: $0) } ?? 0
         let intensity = max(faceIntensity, 0.8 * (sample.pose?.gestureStrength ?? 0))
@@ -180,7 +180,7 @@ public final class PeakHoldTracker {
         if let descriptor = sample.pose?.descriptor {
             direction += descriptor.gestureDirection.map { 0.5 * $0 }
         } else {
-            direction += [sample.pose?.activity ?? 0, 0, 0, 0, 0, 0]
+            direction += [sample.pose?.activity ?? 0, 0, 0, 0, 0, 0, 0, 0, 0]
         }
         return Entry(sample: sample, intensity: intensity, direction: VectorMath.normalized(direction))
     }
