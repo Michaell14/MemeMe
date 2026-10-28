@@ -115,6 +115,16 @@ final class MoodTests: XCTestCase {
             .thumbsUp: "thumbs up",
             .pointing: "pointing",
             .clapping: "clapping",
+            .tPose: "t pose",
+            .flex: "flex",
+            .dab: "dab",
+            .handsOnHips: "hands on hips",
+            .armsCrossed: "arms crossed",
+            .pickMe: "pick me",
+            .hello: "hello",
+            .ohNo: "oh no",
+            .peace: "peace sign",
+            .bow: "bowing",
         ]
         XCTAssertEqual(expected.count, Mood.allCases.count)
         for mood in Mood.allCases {

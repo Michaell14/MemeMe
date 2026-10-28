@@ -2,8 +2,9 @@ import AppKit
 import MemeMeCore
 import SwiftUI
 
-/// The grid of your memes, 5 wide (GIPHY's results have their own row): two rows, one when you have five or fewer,
-/// and a single line when you have none. Empty slots keep their place so the panel doesn't jump as results change.
+/// The grid of your memes: one row of 6 (GIPHY's results and the classic memes share the shelf below it); nothing
+/// when you have none (the mirror's column offers "Find my memes"). Empty slots keep their place so the panel doesn't
+/// jump as results change.
 struct ResultGrid: View {
     @ObservedObject var model: AppModel
 
@@ -16,46 +17,9 @@ struct ResultGrid: View {
     }
 
     var body: some View {
-        if model.ownRows == 0 {
-            emptyStrip
-        } else {
+        if model.ownRows > 0 {
             grid
         }
-    }
-
-    /// No memes saved yet: one quiet line instead of rows of empty tiles.
-    private var emptyStrip: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "photo.on.rectangle.angled")
-                .font(.system(size: 13))
-                .foregroundColor(Theme.mutedText)
-                .accessibilityHidden(true)
-            Text(emptyMessage)
-                .font(.system(size: 12))
-                .foregroundColor(Theme.mutedText)
-                .lineLimit(1)
-                .truncationMode(.tail)
-            Spacer(minLength: 0)
-            if showsDocumentsTile(resultCount: 0, capacity: 1) {
-                Button("Look in Documents…") {
-                    addDocumentsFolder()
-                }
-                .buttonStyle(PanelCapsuleButtonStyle(fontSize: 11, foreground: Theme.softText))
-            } else if model.offersFindMyMemes {
-                // Downloads, Desktop and your screenshots (the menu has it too).
-                Button("Find my memes") {
-                    model.findMyMemes()
-                }
-                .buttonStyle(PanelCapsuleButtonStyle(fontSize: 11, foreground: Theme.softText))
-                .help("Collect the memes in Downloads, Desktop and your screenshots")
-            }
-        }
-        .padding(.horizontal, 12)
-        .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(Theme.keycapBorder, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
-        )
     }
 
     private var grid: some View {
@@ -137,7 +101,7 @@ struct ResultGrid: View {
         if model.mode == .text && !query.isEmpty {
             return "No images match “\(query)”."
         }
-        return "Drop memes here, or find the ones on this Mac"
+        return "No memes match."
     }
 
     private var documentsURL: URL? {

@@ -118,17 +118,24 @@ enum TestPoses {
     static let clap = TestArm(elbow: (x: 0.6, y: -0.5), wrist: (x: 0.03, y: 0.1))
     static let shrug = TestArm(elbow: (x: 0.65, y: -0.8), wrist: (x: 1.0, y: -0.6))
 
-    /// `left`/`right` are the person's own arms (nil = not seen). Placed at `origin` with `scale` image units per
-    /// shoulder width, tilted by `roll` radians; `mirrored` flips the image left to right.
+    /// `left`/`right` are the person's own arms (nil = not seen); `hips` the left hip (the right one mirrored; nil = not
+    /// seen); `head` moves the head. Placed at `origin` with `scale` image units per shoulder width, tilted by `roll`
+    /// radians; `mirrored` flips the image left to right.
     static func body(left: TestArm?, right: TestArm?, origin: (x: Double, y: Double) = (x: 0.5, y: 0.45),
-                     scale: Double = 0.2, roll: Double = 0, mirrored: Bool = false, shoulders: Bool = true) -> BodyJoints {
+                     scale: Double = 0.2, roll: Double = 0, mirrored: Bool = false, shoulders: Bool = true,
+                     hips: (x: Double, y: Double)? = nil, head: (x: Double, y: Double) = (x: 0, y: 0)) -> BodyJoints {
         var local: [BodyJoint: (x: Double, y: Double)] = [
-            .nose: (x: 0, y: 0.7), .leftEye: (x: 0.08, y: 0.8), .rightEye: (x: -0.08, y: 0.8),
-            .leftEar: (x: 0.18, y: 0.75), .rightEar: (x: -0.18, y: 0.75),
+            .nose: (x: head.x, y: 0.7 + head.y), .leftEye: (x: 0.08 + head.x, y: 0.8 + head.y),
+            .rightEye: (x: -0.08 + head.x, y: 0.8 + head.y),
+            .leftEar: (x: 0.18 + head.x, y: 0.75 + head.y), .rightEar: (x: -0.18 + head.x, y: 0.75 + head.y),
         ]
         if shoulders {
             local[.leftShoulder] = (x: 0.5, y: 0)
             local[.rightShoulder] = (x: -0.5, y: 0)
+        }
+        if let hips {
+            local[.leftHip] = hips
+            local[.rightHip] = (x: -hips.x, y: hips.y)
         }
         if let left {
             local[.leftElbow] = left.elbow

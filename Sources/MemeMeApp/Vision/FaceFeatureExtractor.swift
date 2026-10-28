@@ -157,6 +157,7 @@ enum FaceFeatureExtractor {
         (.nose, .nose), (.leftEye, .leftEye), (.rightEye, .rightEye), (.leftEar, .leftEar), (.rightEar, .rightEar),
         (.neck, .neck), (.leftShoulder, .leftShoulder), (.rightShoulder, .rightShoulder),
         (.leftElbow, .leftElbow), (.rightElbow, .rightElbow), (.leftWrist, .leftWrist), (.rightWrist, .rightWrist),
+        (.root, .root), (.leftHip, .leftHip), (.rightHip, .rightHip),
     ]
 
     private static let handJointNames: [(VNHumanHandPoseObservation.JointName, HandJoint)] = [

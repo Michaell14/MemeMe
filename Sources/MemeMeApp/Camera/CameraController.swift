@@ -33,6 +33,9 @@ final class CameraController: NSObject, ObservableObject {
 
     let session = AVCaptureSession()
     var onSample: ((ExpressionSample) -> Void)?   // delivered on the main actor, ≤ 10 per second
+    /// The width of the body last read across the frame (`BodyJoints.widthInImage`), nil without one; set before each
+    /// `onSample`.
+    private(set) var bodyWidth: Double?
     /// The capture view's filtered picture, delivered on the main actor for every camera frame while the view is open.
     var onCapturePreview: ((CGImage) -> Void)?
 
@@ -119,6 +122,7 @@ final class CameraController: NSObject, ObservableObject {
         if isRunning { isRunning = false }
         if faceVisible { faceVisible = false }
         if !regionRects.isEmpty { regionRects = [:] }
+        bodyWidth = nil
 
         let session = self.session
         let processor = self.processor
@@ -199,8 +203,9 @@ final class CameraController: NSObject, ObservableObject {
     }
 
     /// Called by `FrameProcessor` (via the main actor) for every analyzed frame.
-    fileprivate func deliver(_ sample: ExpressionSample, regionRects rects: [FaceRegion: CGRect]) {
+    fileprivate func deliver(_ sample: ExpressionSample, regionRects rects: [FaceRegion: CGRect], bodyWidth width: Double?) {
         guard wantsRunning else { return }
+        bodyWidth = width
         let hasFace = sample.face != nil
         if faceVisible != hasFace {
             faceVisible = hasFace
@@ -415,9 +420,10 @@ private final class FrameProcessor: NSObject, AVCaptureVideoDataOutputSampleBuff
             timestamp: CACurrentMediaTime(),
             sharpness: 1
         )
+        let bodyWidth = readsBody ? lastBody?.widthInImage(aspect: Double(imageWidth) / Double(max(imageHeight, 1))) : nil
         let target = controller
         Task { @MainActor in
-            target?.deliver(sample, regionRects: rects)
+            target?.deliver(sample, regionRects: rects, bodyWidth: bodyWidth)
         }
     }
 }

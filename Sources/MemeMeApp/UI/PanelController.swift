@@ -149,6 +149,7 @@ final class PanelController: NSObject {
     private func hide(restoringPreviousApp: Bool) {
         guard panel.isVisible else { return }
         removeMonitors()
+        if model.isDraggingTile { model.isDraggingTile = false }
         panel.orderOut(nil)
         panel.allowsKey = true
         model.panelDidHide()
@@ -400,6 +401,7 @@ final class PanelController: NSObject {
     /// once it is released outside the panel, i.e. the tile was dropped into the chat.
     private func watchTileDrag() {
         guard panel.isVisible else { return }
+        model.isDraggingTile = true
         dragWatch?.cancel()
         let pollNanoseconds = dragPollNanoseconds
         dragWatch = Task { @MainActor [weak self] in
@@ -412,6 +414,11 @@ final class PanelController: NSObject {
                 self.dragWatch = nil
                 if self.panel.isVisible && !self.panel.frame.contains(NSEvent.mouseLocation) {
                     self.hide(restoringPreviousApp: false)
+                } else {
+                    // Let go over the panel: its drop may be handled just after the button is seen up, so the drag
+                    // stays known a moment longer (unless another one has begun).
+                    try? await Task.sleep(nanoseconds: 300_000_000)
+                    if self.dragWatch == nil { self.model.isDraggingTile = false }
                 }
                 return
             }

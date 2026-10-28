@@ -1,8 +1,9 @@
 import Foundation
 
 /// The panel's tiles for keyboard focus: the user's memes (`ownRows` rows of `columns`), then the GIPHY row, then
-/// the classic memes row. Slots are numbered row by row from 0; the GIPHY row starts at `giphyStart` however many
-/// memes there are, and the classic memes row one row later. Each row's tiles fill it from the left.
+/// the classic memes row (the panel shows one of the two at a time, on its shelf). Slots are numbered row by row from
+/// 0; the GIPHY row starts at `giphyStart` however many memes there are, and the classic memes row one row later.
+/// Each row's tiles fill it from the left.
 public struct TileGrid: Equatable, Sendable {
     public let columns: Int
     public let ownRows: Int
@@ -31,6 +32,23 @@ public struct TileGrid: Equatable, Sendable {
         if giphyCount > 0 { return giphyStart }
         if templateCount > 0 { return templateStart }
         return nil
+    }
+
+    /// The part of the panel a slot is in.
+    public enum Section: Equatable, Sendable {
+        case own, giphy, template
+    }
+
+    public func section(of slot: Int) -> Section {
+        if slot < giphyStart { return .own }
+        return slot < templateStart ? .giphy : .template
+    }
+
+    /// Where focus starts when only one of the web rows is on screen (they share one shelf): the first meme, else the
+    /// first slot of the row on show, filled or not, so ↵ never copies a tile that can't be seen.
+    public func startSlot(showing web: Section) -> Int {
+        if ownCount > 0 { return 0 }
+        return web == .template ? templateStart : giphyStart
     }
 
     public func isFilled(_ slot: Int) -> Bool {

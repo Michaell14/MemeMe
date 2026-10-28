@@ -56,13 +56,21 @@ public enum MemeTemplateCatalog {
     /// starting with a term, a word it is searched by, or a mood the words name ("sad", "lol", "mad"). Only templates
     /// that match at least one term; ties keep Imgflip's order.
     public static func pick(forTerms terms: [String], from templates: [TemplateRef], limit: Int) -> [Int] {
-        let cleaned = terms
+        let allWords = terms
             .flatMap { $0.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }) }
             .map(String.init)
-            .filter { $0.count >= 2 }
-        guard limit > 0, !cleaned.isEmpty else { return [] }
-        let phrase = cleaned.joined(separator: " ")
-        let moods = Set(cleaned.compactMap { moodWords[$0] } + multiWordMoods.filter { phrase.contains($0.key) }.map(\.value))
+        guard limit > 0, allWords.contains(where: { $0.count >= 2 }) else { return [] }
+        let phrase = allWords.filter { $0.count >= 2 }.joined(separator: " ")
+        // Over all the words, one-letter ones too ("t-pose" is "t pose"), from the start of a word: "side eyeing" is
+        // "side eye"; a few end on a whole word ("oh nothing" isn't "oh no").
+        let spaced = " " + allWords.joined(separator: " ") + " "
+        let namedMoods = multiWordMoods.filter { key, _ in
+            spaced.contains(" \(key)" + (MemeTemplateCatalog.wholeWordMoods.contains(key) ? " " : ""))
+        }
+        // A mood's phrase finds the mood, not every name starting with its "no", "on" or "me".
+        let phraseWords = Set(namedMoods.keys.flatMap { $0.split(separator: " ").map(String.init) }.filter { $0.count <= 2 })
+        let cleaned = allWords.filter { $0.count >= 2 && !phraseWords.contains($0) }
+        let moods = Set(allWords.compactMap { moodWords[$0] } + namedMoods.map(\.value))
         let indexes = entryIndexes(for: templates)
         var entryFor: [Int: Entry] = [:]
         for (entryIndex, templateIndex) in indexes {
@@ -184,11 +192,17 @@ public enum MemeTemplateCatalog {
         "shrug": .shrug, "idk": .shrug, "dunno": .shrug,
         "pointing": .pointing, "point": .pointing,
         "clapping": .clapping, "clap": .clapping, "applause": .clapping, "bravo": .clapping,
+        "flex": .flex, "flexing": .flex, "dab": .dab, "dabbing": .dab, "tpose": .tPose, "bow": .bow, "bowing": .bow,
+        "hello": .hello, "peace": .peace,
     ]
 
     private static let multiWordMoods: [String: Mood] = [
-        "side eye": .sideEye, "mind blown": .mindBlown, "thumbs up": .thumbsUp,
+        "side eye": .sideEye, "mind blown": .mindBlown, "thumbs up": .thumbsUp, "t pose": .tPose,
+        "arms crossed": .armsCrossed, "hands on hips": .handsOnHips, "oh no": .ohNo, "pick me": .pickMe,
     ]
+
+    /// Phrases whose last word starts many others ("oh nothing", "pick memes"): matched as whole words only.
+    private static let wholeWordMoods: Set<String> = ["oh no", "pick me"]
 
     /// Famous templates, most famous first. Ids are Imgflip's where known; names cover what Imgflip has called them.
     public static let entries: [Entry] = [
@@ -204,7 +218,7 @@ public enum MemeTemplateCatalog {
               words: ["pikachu", "surprised", "shocked", "pokemon", "shock"]),
         Entry(names: ["Hide the Pain Harold"], id: "27813981", moods: [.nervous, .sad],
               words: ["harold", "pain", "awkward", "fake smile", "old man", "coping"]),
-        Entry(names: ["This Is Fine"], id: "55311130", moods: [.nervous, .shrug],
+        Entry(names: ["This Is Fine"], id: "55311130", moods: [.nervous, .shrug, .ohNo],
               words: ["fine", "fire", "dog", "burning", "chaos", "everything is fine"]),
         Entry(names: ["Disaster Girl"], id: "97984", moods: [.smug],
               words: ["disaster", "fire", "girl", "evil", "smirk", "arson"]),
@@ -238,7 +252,7 @@ public enum MemeTemplateCatalog {
               words: ["uno", "draw 25", "cards", "refuse", "rather not"]),
         Entry(names: ["Bernie I Am Once Again Asking For Your Support"], id: "222403160", moods: [.unimpressed, .sad],
               words: ["bernie", "asking", "once again", "support", "please"]),
-        Entry(names: ["Buff Doge vs. Cheems"], id: "247375501", moods: [.excited],
+        Entry(names: ["Buff Doge vs. Cheems"], id: "247375501", moods: [.excited, .flex],
               words: ["doge", "cheems", "buff", "strong", "weak", "then vs now"]),
         Entry(names: ["Always Has Been"], id: "252600902", moods: [.shrug, .pointing],
               words: ["always has been", "astronaut", "space", "wait its all"]),
@@ -248,7 +262,7 @@ public enum MemeTemplateCatalog {
               words: ["anakin", "padme", "right", "for the better"]),
         Entry(names: ["Tuxedo Winnie The Pooh"], id: "178591752", moods: [.smug, .happy],
               words: ["winnie", "pooh", "tuxedo", "fancy", "classy", "sophisticated"]),
-        Entry(names: ["Panik Kalm Panik"], id: "226297822", moods: [.nervous, .screaming],
+        Entry(names: ["Panik Kalm Panik"], id: "226297822", moods: [.nervous, .screaming, .ohNo],
               words: ["panik", "kalm", "panic", "calm", "meme man"]),
         Entry(names: ["Leonardo Dicaprio Cheers"], id: "5496396", moods: [.celebrate, .happy, .excited, .clapping, .thumbsUp],
               words: ["cheers", "toast", "dicaprio", "gatsby", "congrats", "congratulations"]),

@@ -80,6 +80,31 @@ final class TileGridTests: XCTestCase {
         XCTAssertEqual(TileGrid(columns: 5, ownRows: 2, ownCount: 0, giphyCount: 0, templateCount: 9).templateCount, 5)
     }
 
+    func testTheShelfShowsTheRowTheFocusIsIn() {
+        // The panel's shape: one row of 6 memes, then the GIPHY row and the classic memes, one of them on the shelf.
+        let panel = TileGrid(columns: 6, ownRows: 1, ownCount: 6, giphyCount: 6, templateCount: 6)
+        XCTAssertEqual(panel.section(of: 0), .own)
+        XCTAssertEqual(panel.section(of: 5), .own)
+        XCTAssertEqual(panel.section(of: 6), .giphy)
+        XCTAssertEqual(panel.section(of: 11), .giphy)
+        XCTAssertEqual(panel.section(of: 12), .template)
+        // ↓ from a meme reaches the GIF under it, ↓ again the classic meme under that, ↑ walks back.
+        XCTAssertEqual(panel.move(from: 3, dx: 0, dy: 1), 9)
+        XCTAssertEqual(panel.move(from: 9, dx: 0, dy: 1), 15)
+        XCTAssertEqual(panel.move(from: 15, dx: 0, dy: -1), 9)
+        XCTAssertEqual(panel.move(from: 9, dx: 0, dy: -1), 3)
+    }
+
+    func testFocusStartsOnTheShelfsRowEvenBeforeItFills() {
+        let loading = TileGrid(columns: 6, ownRows: 0, ownCount: 0, giphyCount: 0, templateCount: 6)
+        // GIFs on the shelf, still loading: not the classic meme out of sight, so ↵ copies nothing yet.
+        XCTAssertEqual(loading.startSlot(showing: .giphy), 0)
+        XCTAssertFalse(loading.isFilled(loading.startSlot(showing: .giphy)))
+        XCTAssertEqual(loading.startSlot(showing: .template), 6)
+        XCTAssertTrue(loading.isFilled(6))
+        XCTAssertEqual(TileGrid(columns: 6, ownRows: 1, ownCount: 2, giphyCount: 6, templateCount: 6).startSlot(showing: .template), 0)
+    }
+
     func testCountsAreClampedToTheGrid() {
         let clamped = TileGrid(columns: 5, ownRows: 2, ownCount: 40, giphyCount: 9)
         XCTAssertEqual(clamped.ownCount, 10)

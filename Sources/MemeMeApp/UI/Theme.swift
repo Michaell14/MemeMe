@@ -2,7 +2,8 @@ import SwiftUI
 
 /// Colors and metrics of the dark panel (DESIGN.md › The panel).
 enum Theme {
-    static let panelWidth: CGFloat = 640
+    /// 16 + the 120 pt mirror + 16 + 6 tiles of 88 pt 8 pt apart + 16.
+    static let panelWidth: CGFloat = 736
 
     static let background: Color = rgb(0x1E1F24)
     static let surface: Color = rgb(0x26282E)
@@ -13,8 +14,9 @@ enum Theme {
     static let amber: Color = rgb(0xF5C451)
     static let green: Color = rgb(0x5FD38D)
 
-    static let columns: Int = 5
-    static let rows: Int = 2
+    /// Every row of tiles is 6 wide: your memes (one row), and the shelf of GIFs or classic memes.
+    static let columns: Int = 6
+    static let rows: Int = 1
     static var resultLimit: Int { columns * rows }
 
     // Secondary tones used by the panel, popover and HUD.

@@ -68,7 +68,8 @@ final class PoseDescriptorTests: XCTestCase {
         let straight = try descriptor(TestPoses.both(TestPoses.up))
         let tilted = try descriptor(TestPoses.both(TestPoses.up, roll: 20 * Double.pi / 180))
         XCTAssertEqual(try XCTUnwrap(tilted[.shoulderTilt]), 2.0 / 3.0, accuracy: 0.002)
-        for dimension in PoseDescriptor.Dimension.allCases where dimension != .shoulderTilt {
+        XCTAssertNil(straight[.torsoLength], "no hips")
+        for dimension in PoseDescriptor.Dimension.allCases where dimension != .shoulderTilt && dimension != .torsoLength {
             XCTAssertEqual(try XCTUnwrap(tilted[dimension]), try XCTUnwrap(straight[dimension]), accuracy: 0.002, "\(dimension)")
         }
     }
@@ -94,7 +95,8 @@ final class PoseDescriptorTests: XCTestCase {
         XCTAssertNil(oneArm[.wristGap])
         let match = PoseDescriptor.compare(both, oneArm)
         XCTAssertEqual(match.similarity, 1, accuracy: 0.01)
-        XCTAssertEqual(match.coverage, 8 / 16.5, accuracy: 1e-9)    // left arm 7 + tilt 0.5 + head rise 0.5 of 16.5
+        // Left arm 7 + tilt 0.5 + head rise 0.5 + left cross 1, elbow out 0.5 and forearm 0.5, of 16.5 + both arms' 4.
+        XCTAssertEqual(match.coverage, 10 / 20.5, accuracy: 1e-9)
     }
 
     func testATinyBodyOrNoShouldersHasNoDescriptor() {

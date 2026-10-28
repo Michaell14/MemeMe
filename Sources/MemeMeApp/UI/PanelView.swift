@@ -3,8 +3,9 @@ import MemeMeCore
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The compact strip: mirror + hint on the left; search field, your memes (5 × 2), the GIPHY row and the classic
-/// memes row on the right; a footer below only while there is something to act on.
+/// The compact strip: the mirror on the left, with the word it read (else the hint) under it; on the right the search
+/// field, one row of your memes, and the shelf with one row of GIFs or classic memes; a footer below only while there
+/// is something to act on.
 struct PanelView: View {
     @ObservedObject var model: AppModel
 
@@ -34,7 +35,7 @@ struct PanelView: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .strokeBorder(isDropTargeted ? Theme.accent : Theme.border, lineWidth: isDropTargeted ? 2 : 1)
+                .strokeBorder(showsDrop ? Theme.accent : Theme.border, lineWidth: showsDrop ? 2 : 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .onDrop(of: [.fileURL, .image], isTargeted: $isDropTargeted) { providers in
@@ -75,7 +76,7 @@ struct PanelView: View {
 
     // MARK: Search field
 
-    /// Mirror + hint, your memes and the GIPHY row, footer.
+    /// Mirror + readout or hint, your memes and the shelf, footer.
     @ViewBuilder
     private var strip: some View {
         if model.showSetupCard {
@@ -94,22 +95,45 @@ struct PanelView: View {
                         }
                     }
                 }
-                ResultGrid(model: model)
+                results
                     .opacity(model.showSetupCard ? 0.55 : 1)
-                if model.showsGiphyRow {
-                    GiphyRow(model: model)
-                        .opacity(model.showSetupCard ? 0.55 : 1)
-                }
-                if model.showsTemplateRow {
-                    TemplateRow(model: model)
-                        .opacity(model.showSetupCard ? 0.55 : 1)
-                }
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         if model.footer != .hidden {
             FooterView(model: model)
         }
+    }
+
+    /// One row of your memes (none until you have some), then the shelf; a dashed "Drop to search" card over them
+    /// while an image is dragged over the panel (the whole panel takes the drop).
+    private var results: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if model.ownRows > 0 {
+                ResultGrid(model: model)
+            }
+            WebShelf(model: model)
+            if model.ownRows == 0 && !model.showsGiphyRow && !model.showsTemplateRow {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Theme.surface.opacity(0.45))
+                    .frame(height: 88)
+                    .overlay {
+                        Text("Your memes will show here")
+                            .font(.system(size: 12))
+                            .foregroundColor(Theme.mutedText)
+                    }
+            }
+        }
+        .overlay {
+            if showsDrop {
+                DropCard()
+            }
+        }
+    }
+
+    /// An image dragged over the panel, not one of its own tiles on its way out.
+    private var showsDrop: Bool {
+        isDropTargeted && !model.isDraggingTile
     }
 
     private var searchField: some View {
@@ -160,7 +184,8 @@ struct PanelView: View {
 
     /// Files and images dropped on the panel become an image query (never saved silently).
     private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
-        guard !model.isCaptureOpen else { return false }
+        // A tile dragged out and let go over the panel isn't a search for itself.
+        guard !model.isCaptureOpen, !model.isDraggingTile else { return false }
         let model = self.model
         let fileType = UTType.fileURL.identifier
         let imageType = UTType.image.identifier
@@ -202,6 +227,33 @@ private func copyDroppedImageToTemporaryFile(_ url: URL) -> URL? {
         return destination
     } catch {
         return nil
+    }
+}
+
+/// Shown over the results while an image is dragged over the panel.
+private struct DropCard: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .fill(Theme.background.opacity(0.92))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Theme.accent, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+            )
+            .overlay {
+                VStack(spacing: 4) {
+                    Image(systemName: "tray.and.arrow.down")
+                        .font(.system(size: 20))
+                        .foregroundColor(Theme.accent)
+                    Text("Drop to search with it")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(Theme.text)
+                    Text("It isn’t saved unless you keep it.")
+                        .font(.system(size: 11))
+                        .foregroundColor(Theme.mutedText)
+                }
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }
 

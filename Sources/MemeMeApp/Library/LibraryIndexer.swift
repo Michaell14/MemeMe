@@ -602,7 +602,7 @@ struct IndexBatch: Identifiable, Equatable {
 
     // MARK: - Pose pass
 
-    /// Items analyzed before poses were described in detail (`LibraryItem.currentPoseRevision`) that can be read again.
+    /// Items whose pose was read by an older analysis (`LibraryItem.currentPoseRevision`) that can be read again.
     static func needsPoseRefresh(_ item: LibraryItem) -> Bool {
         item.kind == .mine && item.tier != .skipped && item.poseRevision < LibraryItem.currentPoseRevision
     }

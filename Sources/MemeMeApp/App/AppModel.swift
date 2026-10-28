@@ -46,6 +46,8 @@ private enum HintCopy {
     static let warmingTitle = "Starting camera…"
     static let warmingSubtitle = "Your recent picks are ready below."
     static let liveTitle = "Make a face or a pose. Results follow it."
+    static let standingBackTitle = "Reading your pose"
+    static let standingBackSubtitle = "Hold each pose for a second. Come closer for faces."
     static let noFaceTitle = "Can’t see your face"
     static let noFaceSubtitle = "Try more light, or just type."
     static let clearAction = "Clear"
@@ -114,6 +116,21 @@ enum Pick: Equatable {
     }
 }
 
+/// Which web row the shelf under your memes (`WebShelf`) shows: GIPHY's GIFs or the classic memes.
+enum ShelfRow: Equatable {
+    case gifs, classic
+}
+
+/// The word under the mirror: what the camera read and searched for, and what it read it from.
+struct MoodReadout: Equatable {
+    enum Source: Equatable {
+        case face, pose, faceAndPose
+    }
+
+    let word: String
+    let source: Source
+}
+
 /// Orchestrates the panel: camera → peak-hold → mood → your memes ranked and the GIPHY row, typed and image queries,
 /// committing to the clipboard, the self-filling library and menu-bar drops.
 @MainActor final class AppModel: ObservableObject {
@@ -125,11 +142,19 @@ enum Pick: Equatable {
     }
     @Published private(set) var mode: PanelMode = .prompt
     @Published private(set) var results: [RankedResult] = []         // ≤ Theme.resultLimit
-    /// Rows of the grid of your memes: 2, 1 when you have five or fewer, 0 (one line) when you have none.
+    /// Rows of the grid of your memes: 1, or 0 (nothing drawn) when you have none.
     @Published private(set) var ownRows: Int = Theme.rows
     @Published private(set) var newResultIDs: Set<UUID> = []          // amber ring for 600 ms
-    /// A slot of the tile grid (`TileGrid`): your memes (`ownRows` × 5), then the GIPHY row, then classic memes.
-    @Published var focusedIndex: Int = 0
+    /// A slot of the tile grid (`TileGrid`): your memes (`ownRows` × 6), then the GIPHY row, then classic memes.
+    /// The shelf follows it into the GIPHY or the classic memes row.
+    @Published var focusedIndex: Int = 0 {
+        didSet {
+            guard focusedIndex != oldValue else { return }
+            syncShelfToFocus()
+        }
+    }
+    /// The web row on the shelf under your memes (the other one is a ↓ or a click away); see `visibleShelf`.
+    @Published private(set) var shelf: ShelfRow = .gifs
     /// The GIPHY row: GIPHY's results for `giphyQuery` (the face's mood, or typed words) in GIPHY's order, never
     /// ranked or mixed with your memes.
     @Published private(set) var giphyResults: [WebGIF] = []          // ≤ Theme.columns
@@ -147,6 +172,9 @@ enum Pick: Equatable {
     @Published private(set) var templatesUnavailable: Bool = false
     /// Web Discover is on (checked each time the panel opens); no key needed.
     @Published private(set) var showsTemplateRow: Bool = false
+    /// The word the camera's search went by, under the mirror instead of the hint while live; nil when the hint
+    /// should show (nothing read yet, pins set, or the face a word came from lost).
+    @Published private(set) var readout: MoodReadout?
     @Published private(set) var pins: Set<FaceRegion> = []
     @Published private(set) var hint = PanelHint(title: HintCopy.promptTitle, subtitle: HintCopy.promptSubtitle, actionTitle: nil, action: nil)
     @Published private(set) var footer: FooterState = .hidden
@@ -157,8 +185,17 @@ enum Pick: Equatable {
     @Published private(set) var showsFaceToken: Bool = false
     @Published private(set) var naming: NamingPrompt?
     @Published private(set) var holdProgress: Double = 0
+    /// The pose behind the face search: its word, or "your pose"; nil when the face alone made it. It picks the
+    /// readout's source and sets off the mirror's green flash (`poseCatches`).
+    @Published private(set) var heldPose: PoseBadge?
+    /// Counts each pose caught (a new pose word, or a pose after the face alone, behind the search): the mirror
+    /// flashes green when it changes.
+    @Published private(set) var poseCatches = 0
     @Published private(set) var hotKeyAvailable: Bool = true
     @Published private(set) var isPanelVisible: Bool = false
+    /// A tile of the panel is being dragged out: the panel takes no drop of its own tile (set and cleared by the
+    /// panel controller, which watches the drag).
+    @Published var isDraggingTile: Bool = false
     /// The capture view replaces the panel's contents: a big filtered mirror and a shutter.
     @Published private(set) var isCaptureOpen: Bool = false
 
@@ -221,6 +258,10 @@ enum Pick: Equatable {
     private var lastTextEditAt: TimeInterval = 0
     /// Starts an expression's web search while it is still being held.
     private var earlyMood = EarlyMoodTrigger()
+    /// Standing back to show the whole body: the hint talks about poses.
+    private var standingBack = StandingBackDetector()
+    /// The readout for the face search on show; `readout` is it when the hint has nothing more pressing to say.
+    private var searchReadout: MoodReadout?
     private var textBeganAt: TimeInterval?
     private var searchGeneration = 0
     private var imageGeneration = 0
@@ -409,6 +450,27 @@ enum Pick: Equatable {
         tileGrid.templateStart + offset
     }
 
+    /// The web row on the shelf: the one picked or focused last, or the only one there is.
+    var visibleShelf: ShelfRow {
+        if !showsGiphyRow { return .classic }
+        if !showsTemplateRow { return .gifs }
+        return shelf
+    }
+
+    /// A click on the shelf's "GIFs" or "Classic memes": that row, its first tile focused. A row still loading (or
+    /// with nothing for the words) takes the focus from the other web row all the same, so ↵ never copies a tile out
+    /// of sight; a focused meme of yours keeps it.
+    func showShelf(_ target: ShelfRow) {
+        guard target == .gifs ? showsGiphyRow : showsTemplateRow else { return }
+        userInteracted = true
+        if shelf != target { shelf = target }
+        let grid = tileGrid
+        let first = target == .gifs ? grid.giphyStart : grid.templateStart
+        guard focusedIndex != first, grid.isFilled(first) || grid.section(of: focusedIndex) != .own else { return }
+        focusedIndex = first
+        prefetchFocused()
+    }
+
     func commit(index: Int) {
         guard let pick = pick(atSlot: index), committingSession != sessionID else { return }
         commitToken += 1
@@ -496,7 +558,9 @@ enum Pick: Equatable {
     func snap() {
         guard mode == .live, !showSetupCard, tracker.snap() else { return }
         if holdProgress != 0 { holdProgress = 0 }
+        let previousPose = heldPose
         runExpressionSearch(animate: true)
+        notePoseCaught(after: previousPose)
         refreshHint()
     }
 
@@ -891,9 +955,11 @@ enum Pick: Equatable {
         // only feeds the capture picture.
         guard mode == .live, !isCaptureOpen else {
             earlyMood.reset()
+            standingBack.reset()
             return
         }
 
+        standingBack.observe(bodyWidth: camera.bodyWidth, at: sample.timestamp)
         let queryChanged = tracker.ingest(sample)
         // Search the web for the expression being held, so its results are in by the time the hold completes.
         let candidateMood = tracker.candidate.map { MoodClassifier.mood(for: $0.face, pose: $0.pose, baseline: tracker.baseline) }
@@ -906,9 +972,18 @@ enum Pick: Equatable {
         updateFaceMissing(with: sample)
 
         if queryChanged {
+            let previousPose = heldPose
             runExpressionSearch(animate: true)
+            notePoseCaught(after: previousPose)
         }
         refreshHint()
+    }
+
+    /// A pose newly behind the search (another word, or a pose after the face alone) flashes the mirror; the same
+    /// pose held while only the face changes doesn't.
+    private func notePoseCaught(after previous: PoseBadge?) {
+        guard let heldPose, heldPose != previous else { return }
+        poseCatches &+= 1
     }
 
     /// "Can't see your face" after 1.5 s without a face; it clears once the face has been back for 1 s. A clear
@@ -1015,6 +1090,8 @@ enum Pick: Equatable {
     /// moving the focus.
     private func showRecentResults(animateNew: Bool = false, resetFocus: Bool = true) {
         resultSource = .recent
+        if heldPose != nil { heldPose = nil }
+        searchReadout = nil
         searchGeneration += 1
         let ranker = Ranker(baseline: tracker.baseline)
         let recentIDs = store.recents.recent(appBundleID: previousBundleID)
@@ -1046,6 +1123,17 @@ enum Pick: Equatable {
         }
         resultSource = .expression
         let mood = MoodClassifier.mood(for: sample.face, pose: sample.pose, baseline: tracker.baseline)
+        let badge = PoseBadge.of(sample, baseline: tracker.baseline)
+        if heldPose != badge { heldPose = badge }
+        switch badge {
+        case .word?:
+            searchReadout = MoodReadout(word: mood.label, source: .pose)
+        case .pose?:
+            searchReadout = MoodReadout(word: mood.label, source: sample.face == nil ? .pose : .faceAndPose)
+        case nil:
+            // No face and no pose word reads "reaction": nothing worth showing.
+            searchReadout = mood == .reaction ? nil : MoodReadout(word: mood.label, source: .face)
+        }
         let deviation = sample.face.map { tracker.baseline.deviation(of: $0) } ?? [:]
         let weights = FeatureWeights.automatic(deviation: deviation, poseStrength: sample.pose?.gestureStrength ?? 0).pinning(pins)
         currentWeights = weights
@@ -1226,14 +1314,34 @@ enum Pick: Equatable {
         }
     }
 
-    /// Where the focus starts: the first meme, or the first GIPHY GIF when the row answers what is shown (the face,
-    /// or Recent). A typed, image or more-like search starts on nothing when it finds no meme, so ↵ copies nothing.
+    /// Where the focus starts: the first meme, or the first tile of the shelf's row when it answers what is shown (the
+    /// face, or Recent), even while it loads (the other row is out of sight). A typed, image or more-like search starts
+    /// on nothing when it finds no meme, so ↵ copies nothing; with no row of memes drawn, on the first tile of the
+    /// shelf's row (never the other web row, which would flip the shelf).
     private var startSlot: Int {
         switch resultSource {
         case .recent, .expression:
-            return tileGrid.firstSlot ?? 0
+            return tileGrid.startSlot(showing: visibleShelf == .gifs ? .giphy : .template)
         case .text, .image, .moreLike:
-            return 0
+            return ownRows > 0 ? 0 : shelfStart(in: tileGrid)
+        }
+    }
+
+    /// The first slot of the shelf's row, filled or not.
+    private func shelfStart(in grid: TileGrid) -> Int {
+        visibleShelf == .gifs ? grid.giphyStart : grid.templateStart
+    }
+
+    /// Shows the web row the focus is in on the shelf. A focus left in a row that can't be shown (its source is off)
+    /// is `normalizeFocus`'s to move.
+    private func syncShelfToFocus() {
+        switch tileGrid.section(of: focusedIndex) {
+        case .giphy where showsGiphyRow:
+            if shelf != .gifs { shelf = .gifs }
+        case .template where showsTemplateRow:
+            if shelf != .classic { shelf = .classic }
+        default:
+            break
         }
     }
 
@@ -1249,8 +1357,8 @@ enum Pick: Equatable {
         return .template(templateResults[slot - grid.templateStart])
     }
 
-    /// Keeps the focus on a tile: before the user moves it, on the first one (a GIPHY GIF when you have no memes
-    /// yet); after, on the nearest one in the same row.
+    /// Keeps the focus on a tile: before the user moves it, on the start slot (`startSlot`); after, on the nearest one
+    /// in the same row, never in the web row off the shelf.
     private func normalizeFocus() {
         let grid = tileGrid
         // Until the user points somewhere, the focus follows the start slot as rows fill in: with no memes, GIPHY's
@@ -1262,16 +1370,22 @@ enum Pick: Equatable {
             }
             return
         }
-        guard !grid.isFilled(focusedIndex) else { return }
+        let section = grid.section(of: focusedIndex)
+        let shelfSection: TileGrid.Section = visibleShelf == .gifs ? .giphy : .template
+        let start = shelfStart(in: grid)
+        let shelfCount = shelfSection == .giphy ? grid.giphyCount : grid.templateCount
         let target: Int
-        if focusedIndex >= grid.templateStart, grid.templateCount > 0 {
-            target = grid.templateStart + grid.templateCount - 1
-        } else if focusedIndex >= grid.giphyStart, focusedIndex < grid.templateStart, grid.giphyCount > 0 {
-            target = grid.giphyStart + grid.giphyCount - 1
-        } else if focusedIndex < grid.giphyStart, grid.ownCount > 0 {
-            target = grid.ownCount - 1
+        if section == .own {
+            guard !grid.isFilled(focusedIndex) else { return }
+            // Your memes went: the last one left, else the shelf's first tile (nothing while its row is empty).
+            target = grid.ownCount > 0 ? grid.ownCount - 1 : (shelfCount > 0 ? start : focusedIndex)
+        } else if section == shelfSection {
+            guard !grid.isFilled(focusedIndex) else { return }
+            // Its last tile; its start while it loads (or found nothing): it shows what is coming.
+            target = start + max(0, shelfCount - 1)
         } else {
-            target = grid.firstSlot ?? 0
+            // The web row off the shelf (its source just went off): the shelf's row.
+            target = start
         }
         if focusedIndex != target {
             focusedIndex = target
@@ -1361,7 +1475,9 @@ enum Pick: Equatable {
             if focusedIndex >= oldGiphyStart {
                 focusedIndex = newGiphyStart + (focusedIndex - oldGiphyStart)
             } else if focusedIndex >= newGiphyStart {
-                focusedIndex = max(0, newGiphyStart - 1)
+                // A meme of yours whose row went: the last meme left, else the start of the shelf's row (never the
+                // web row off the shelf, which would flip it).
+                focusedIndex = newGiphyStart > 0 ? newGiphyStart - 1 : shelfStart(in: tileGrid)
             }
         }
         if animateNew && !results.isEmpty {
@@ -1385,6 +1501,8 @@ enum Pick: Equatable {
         } else {
             normalizeFocus()
         }
+        // The rows above may have moved under a focus that stayed put.
+        syncShelfToFocus()
     }
 
     /// Amber ring on tiles that just arrived, for 600 ms.
@@ -1777,6 +1895,20 @@ enum Pick: Equatable {
         if hint != newHint {
             hint = newHint
         }
+        let newReadout = computeReadout()
+        if readout != newReadout {
+            readout = newReadout
+        }
+    }
+
+    /// The search's word while live, unless pins (with their Clear) are set, or the face it came from (alone or with a
+    /// pose) is lost: then the hint says so.
+    private func computeReadout() -> MoodReadout? {
+        guard mode == .live, pins.isEmpty, let searchReadout else { return nil }
+        if searchReadout.source != .pose && faceMissing {
+            return nil
+        }
+        return searchReadout
     }
 
     private func computeHint() -> PanelHint {
@@ -1787,6 +1919,10 @@ enum Pick: Equatable {
             return PanelHint(title: HintCopy.warmingTitle, subtitle: HintCopy.warmingSubtitle, actionTitle: nil, action: nil)
         case .live:
             if faceMissing {
+                // Standing back, the face is too small to read: that's fine, the pose is read.
+                if standingBack.isStandingBack {
+                    return PanelHint(title: HintCopy.standingBackTitle, subtitle: HintCopy.standingBackSubtitle, actionTitle: nil, action: nil)
+                }
                 return PanelHint(title: HintCopy.noFaceTitle, subtitle: HintCopy.noFaceSubtitle, actionTitle: nil, action: nil)
             }
             if !pins.isEmpty {
@@ -1835,10 +1971,14 @@ enum Pick: Equatable {
         resetQueryImage()
         tracker = PeakHoldTracker(baseline: tracker.baseline)
         earlyMood.reset()
+        standingBack.reset()
+        if heldPose != nil { heldPose = nil }
+        searchReadout = nil
         clearGiphyRow()
         showsGiphyRow = store.settings.webDiscoverEnabled && web.hasAPIKey
         clearTemplateRow()
         showsTemplateRow = store.settings.webDiscoverEnabled
+        if shelf != .gifs { shelf = .gifs }
         if !pins.isEmpty { pins = [] }
         if holdProgress != 0 { holdProgress = 0 }
         if !newResultIDs.isEmpty { newResultIDs = [] }

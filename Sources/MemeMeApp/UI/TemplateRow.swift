@@ -2,8 +2,8 @@ import AppKit
 import MemeMeCore
 import SwiftUI
 
-/// The classic memes row: five famous static meme templates (Distracted Boyfriend, Surprised Pikachu…) from Imgflip's
-/// list, picked on the Mac for your face's mood or the words you type.
+/// The classic memes row: six famous static meme templates (Distracted Boyfriend, Surprised Pikachu…) from Imgflip's
+/// list, picked on the Mac for your face's mood or the words you type; on the shelf (`WebShelf`) when it shows them.
 struct TemplateRow: View {
     @ObservedObject var model: AppModel
 
@@ -14,62 +14,54 @@ struct TemplateRow: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .center, spacing: 8) {
-                (Text("Classic memes").foregroundColor(Theme.softText)
-                    + Text(" · Imgflip").foregroundColor(Theme.mutedText))
-                    .font(.system(size: 11, weight: .semibold))
-                    .lineLimit(1)
-                    .accessibilityLabel("Classic memes from Imgflip")
-                Spacer(minLength: 0)
-                if let query = model.templateQuery, query != .mood(.reaction) {
-                    Text(verbatim: query.label)
-                        .font(.system(size: 11))
-                        .foregroundColor(Theme.mutedText)
-                        .lineLimit(1)
-                        .accessibilityLabel(Text(verbatim: "Classic memes for \(query.label)"))
-                }
+        LazyVGrid(columns: columns, alignment: .leading, spacing: spacing) {
+            ForEach(Array(model.templateResults.prefix(Theme.columns).enumerated()), id: \.element.id) { offset, template in
+                let slot = model.templateSlot(offset)
+                TemplateTile(template: template, isFocused: model.focusedIndex == slot, model: model)
+                    .onHover { inside in
+                        if inside {
+                            model.hover(index: slot)
+                        }
+                    }
+                    .onTapGesture {
+                        model.commit(index: slot)
+                    }
+                    .onDrag {
+                        // The panel controller closes the panel when the drag is released outside it.
+                        TileDragEvents.dragDidBegin?()
+                        return model.dragItemProvider(index: slot) ?? NSItemProvider()
+                    }
+                    .accessibilityAction {
+                        model.commit(index: slot)
+                    }
             }
-            LazyVGrid(columns: columns, alignment: .leading, spacing: spacing) {
-                ForEach(Array(model.templateResults.prefix(Theme.columns).enumerated()), id: \.element.id) { offset, template in
-                    let slot = model.templateSlot(offset)
-                    TemplateTile(template: template, isFocused: model.focusedIndex == slot, model: model)
-                        .onHover { inside in
-                            if inside {
-                                model.hover(index: slot)
-                            }
-                        }
-                        .onTapGesture {
-                            model.commit(index: slot)
-                        }
-                        .onDrag {
-                            // The panel controller closes the panel when the drag is released outside it.
-                            TileDragEvents.dragDidBegin?()
-                            return model.dragItemProvider(index: slot) ?? NSItemProvider()
-                        }
-                        .accessibilityAction {
-                            model.commit(index: slot)
-                        }
-                }
-                ForEach(0..<max(0, Theme.columns - model.templateResults.count), id: \.self) { _ in
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Theme.surface.opacity(model.isTemplatesLoading ? 0.8 : 0.45))
-                        .aspectRatio(1, contentMode: .fit)
-                        .accessibilityHidden(true)
-                }
-            }
-            .overlay {
-                if model.templateResults.isEmpty, let message = emptyMessage {
-                    Text(message)
-                        .font(.system(size: 11))
-                        .foregroundColor(Theme.mutedText)
-                        .multilineTextAlignment(.center)
-                        .lineLimit(2)
-                        .padding(.horizontal, 12)
-                        .allowsHitTesting(false)
-                }
+            ForEach(0..<max(0, Theme.columns - model.templateResults.count), id: \.self) { _ in
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Theme.surface.opacity(model.isTemplatesLoading ? 0.8 : 0.45))
+                    .aspectRatio(1, contentMode: .fit)
+                    .accessibilityHidden(true)
             }
         }
+        .overlay {
+            if model.templateResults.isEmpty, let message = emptyMessage {
+                Text(message)
+                    .font(.system(size: 11))
+                    .foregroundColor(Theme.mutedText)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .padding(.horizontal, 12)
+                    .allowsHitTesting(false)
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text(verbatim: accessibilityTitle))
+    }
+
+    private var accessibilityTitle: String {
+        if let query = model.templateQuery, query != .mood(.reaction) {
+            return "Classic memes from Imgflip for \(query.label)"
+        }
+        return "Classic memes from Imgflip"
     }
 
     private var columns: [GridItem] {

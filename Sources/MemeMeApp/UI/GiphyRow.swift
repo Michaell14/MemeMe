@@ -2,8 +2,8 @@ import AppKit
 import MemeMeCore
 import SwiftUI
 
-/// GIPHY's results for the face's mood, below the user's memes and apart from them: one row, in GIPHY's
-/// own order, under "Powered by" and GIPHY's logo.
+/// GIPHY's results for the face's mood or the typed words, below the user's memes and apart from them: one row, in
+/// GIPHY's own order, on the shelf (`WebShelf`, whose header carries "Powered by" and GIPHY's logo).
 struct GiphyRow: View {
     @ObservedObject var model: AppModel
 
@@ -14,59 +14,47 @@ struct GiphyRow: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .center, spacing: 8) {
-                PoweredByGiphyMark()
-                Spacer(minLength: 0)
-                if let query = model.giphyQuery {
-                    Text(verbatim: query.label)
-                        .font(.system(size: 11))
-                        .foregroundColor(Theme.mutedText)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .accessibilityLabel(Text(verbatim: "GIPHY results for \(query.label)"))
-                }
+        LazyVGrid(columns: columns, alignment: .leading, spacing: spacing) {
+            ForEach(Array(model.giphyResults.prefix(Theme.columns).enumerated()), id: \.element.id) { offset, gif in
+                let slot = model.giphySlot(offset)
+                GiphyTile(gif: gif, isFocused: model.focusedIndex == slot, model: model)
+                    .onHover { inside in
+                        if inside {
+                            model.hover(index: slot)
+                        }
+                    }
+                    .onTapGesture {
+                        model.commit(index: slot)
+                    }
+                    .onDrag {
+                        // The panel controller closes the panel when the drag is released outside it.
+                        TileDragEvents.dragDidBegin?()
+                        return model.dragItemProvider(index: slot) ?? NSItemProvider()
+                    }
+                    .accessibilityAction {
+                        model.commit(index: slot)
+                    }
             }
-            LazyVGrid(columns: columns, alignment: .leading, spacing: spacing) {
-                ForEach(Array(model.giphyResults.prefix(Theme.columns).enumerated()), id: \.element.id) { offset, gif in
-                    let slot = model.giphySlot(offset)
-                    GiphyTile(gif: gif, isFocused: model.focusedIndex == slot, model: model)
-                        .onHover { inside in
-                            if inside {
-                                model.hover(index: slot)
-                            }
-                        }
-                        .onTapGesture {
-                            model.commit(index: slot)
-                        }
-                        .onDrag {
-                            // The panel controller closes the panel when the drag is released outside it.
-                            TileDragEvents.dragDidBegin?()
-                            return model.dragItemProvider(index: slot) ?? NSItemProvider()
-                        }
-                        .accessibilityAction {
-                            model.commit(index: slot)
-                        }
-                }
-                ForEach(0..<max(0, Theme.columns - model.giphyResults.count), id: \.self) { _ in
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Theme.surface.opacity(model.isGiphyLoading ? 0.8 : 0.45))
-                        .aspectRatio(1, contentMode: .fit)
-                        .accessibilityHidden(true)
-                }
-            }
-            .overlay {
-                if model.giphyResults.isEmpty, let message = emptyMessage {
-                    Text(message)
-                        .font(.system(size: 11))
-                        .foregroundColor(Theme.mutedText)
-                        .multilineTextAlignment(.center)
-                        .lineLimit(2)
-                        .padding(.horizontal, 12)
-                        .allowsHitTesting(false)
-                }
+            ForEach(0..<max(0, Theme.columns - model.giphyResults.count), id: \.self) { _ in
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Theme.surface.opacity(model.isGiphyLoading ? 0.8 : 0.45))
+                    .aspectRatio(1, contentMode: .fit)
+                    .accessibilityHidden(true)
             }
         }
+        .overlay {
+            if model.giphyResults.isEmpty, let message = emptyMessage {
+                Text(message)
+                    .font(.system(size: 11))
+                    .foregroundColor(Theme.mutedText)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .padding(.horizontal, 12)
+                    .allowsHitTesting(false)
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text(verbatim: model.giphyQuery.map { "GIPHY results for \($0.label)" } ?? "GIPHY results"))
     }
 
     private var columns: [GridItem] {
@@ -76,12 +64,12 @@ struct GiphyRow: View {
     private var emptyMessage: String? {
         if model.isGiphyLoading { return nil }
         if model.giphyUnavailable { return "GIPHY isn’t answering right now." }
-        return model.giphyQuery == nil ? "Make a face for GIFs from GIPHY." : "Nothing on GIPHY for this one."
+        return model.giphyQuery == nil ? "Make a face or a pose for GIFs from GIPHY." : "Nothing on GIPHY for this one."
     }
 }
 
 /// GIPHY's attribution: "Powered by" and GIPHY's logo from the app's resources (the word "GIPHY" if it's missing).
-private struct PoweredByGiphyMark: View {
+struct PoweredByGiphyMark: View {
     var body: some View {
         HStack(alignment: .center, spacing: 5) {
             Text("Powered by")
