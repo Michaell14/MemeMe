@@ -1290,9 +1290,13 @@ enum Pick: Equatable {
         setResults(ranked, animateNew: false, resetFocus: true)
         updateNamingPrompt(raw: raw, hasResults: !ranked.isEmpty)
         // GIPHY and the classic memes follow the words too (without filter words or your people's names). A name
-        // being set up ("Is one of these Sam?") is not a person's name yet, so nothing goes to GIPHY while it asks.
-        let words = WebQuery.words(from: TextQuery.parse(raw, people: store.people).terms)
-        scheduleGiphyWords(naming == nil ? words : nil)
+        // being set up ("Is one of these Sam?") is not a person's name yet: while the panel asks, a word that isn't
+        // ordinary meme vocabulary ("sad", "facepalm", "cat") stays off GIPHY.
+        let parsed = TextQuery.parse(raw, people: store.people)
+        let words = WebQuery.words(from: parsed.terms)
+        let pendingName = naming != nil ? parsed.possibleName : nil
+        let holdsBackName = pendingName.map { !MemeTemplateCatalog.isMemeWord($0) } ?? false
+        scheduleGiphyWords(holdsBackName ? nil : words)
         if let words {
             showTemplates(for: words)
         }

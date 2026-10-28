@@ -53,6 +53,15 @@ final class MemeTemplateCatalogTests: XCTestCase {
         XCTAssertEqual(MemeTemplateCatalog.pick(forTerms: [], from: popular, limit: 5), [])
     }
 
+    func testMemeWordsAreToldFromPossibleNames() {
+        for word in ["sad", "LOL", "facepalm", "shrug", "cat", "boyfriend", "pikachu", "mind", "blown"] {
+            XCTAssertTrue(MemeTemplateCatalog.isMemeWord(word), word)
+        }
+        for word in ["sam", "maya", "zorblax"] {
+            XCTAssertFalse(MemeTemplateCatalog.isMemeWord(word), word)
+        }
+    }
+
     func testTheTableIsWellFormed() {
         var ids = Set<String>()
         var names = Set<String>()

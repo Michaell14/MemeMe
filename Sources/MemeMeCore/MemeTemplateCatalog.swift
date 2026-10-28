@@ -102,6 +102,25 @@ public enum MemeTemplateCatalog {
         return sorted.prefix(limit).map { $0.element.index }
     }
 
+    /// A word people search memes by: a mood word ("sad", "lol"), a mood's label or one of the table's search words.
+    /// Tells an ordinary search word from a possible name ("Is one of these Sam?") that should stay on the Mac.
+    public static func isMemeWord(_ word: String) -> Bool {
+        memeVocabulary.contains(word.lowercased())
+    }
+
+    private static let memeVocabulary: Set<String> = {
+        var vocabulary = Set(MemeTemplateCatalog.moodWords.keys)
+        for mood in Mood.allCases {
+            vocabulary.formUnion(MemeTemplateCatalog.words(in: mood.label))
+        }
+        for entry in MemeTemplateCatalog.entries {
+            for phrase in entry.words {
+                vocabulary.formUnion(MemeTemplateCatalog.words(in: phrase))
+            }
+        }
+        return vocabulary
+    }()
+
     /// For each entry, the template in `templates` it describes (by Imgflip id, else by name), if Imgflip lists it.
     static func entryIndexes(for templates: [TemplateRef]) -> [Int: Int] {
         var byID: [String: Int] = [:]
