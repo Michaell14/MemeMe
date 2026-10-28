@@ -91,6 +91,8 @@ final class GiphyProviderTests: XCTestCase {
 
         let shocked = try XCTUnwrap(gifs.first)
         XCTAssertEqual(shocked.title, "Shocked Oh My God")
+        XCTAssertEqual(shocked.creator, "Some Channel", "the maker comes from user.display_name")
+        XCTAssertNil(gifs.last?.creator, "results without a user have no creator")
         XCTAssertEqual(shocked.stillURL, URL(string: "https://media2.giphy.com/media/FiGiRei2ICzzG/100w_s.gif?cid=e1bb72ff&rid=100w_s.gif&ct=g"),
                        "stillURL comes from images.fixed_width_small_still")
         XCTAssertEqual(shocked.previewURL, URL(string: "https://media2.giphy.com/media/FiGiRei2ICzzG/100w.gif?cid=e1bb72ff&rid=100w.gif&ct=g"),

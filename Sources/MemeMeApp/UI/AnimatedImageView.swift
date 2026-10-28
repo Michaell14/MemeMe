@@ -1,10 +1,23 @@
 import AppKit
 import SwiftUI
 
-/// Plays an animated GIF (or shows a still) from a local file. Display-only: clicks, hover and drags
-/// go to the SwiftUI tile underneath.
+/// Plays an animated GIF (or shows a still) from a local file or an image already loaded. Display-only:
+/// clicks, hover and drags go to the SwiftUI tile underneath.
 struct AnimatedImageView: NSViewRepresentable {
-    let url: URL
+    enum Source: Equatable {
+        case file(URL)
+        case image(NSImage)
+    }
+
+    let source: Source
+
+    init(url: URL) {
+        source = .file(url)
+    }
+
+    init(image: NSImage) {
+        source = .image(image)
+    }
 
     /// An image view that never takes mouse events. An enabled NSImageView would otherwise track the click
     /// itself, and the tile's tap-to-copy and drag-into-chat gestures would never fire.
@@ -15,7 +28,7 @@ struct AnimatedImageView: NSViewRepresentable {
     }
 
     final class Coordinator {
-        var loadedURL: URL?
+        var loaded: Source?
     }
 
     func makeCoordinator() -> Coordinator {
@@ -38,7 +51,7 @@ struct AnimatedImageView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: PassthroughImageView, context: Context) {
-        guard context.coordinator.loadedURL != url else { return }
+        guard context.coordinator.loaded != source else { return }
         load(into: nsView, coordinator: context.coordinator)
     }
 
@@ -48,8 +61,13 @@ struct AnimatedImageView: NSViewRepresentable {
     }
 
     private func load(into view: NSImageView, coordinator: Coordinator) {
-        coordinator.loadedURL = url
-        view.image = NSImage(contentsOf: url)
+        coordinator.loaded = source
+        switch source {
+        case let .file(url):
+            view.image = NSImage(contentsOf: url)
+        case let .image(image):
+            view.image = image
+        }
         view.animates = true
     }
 }

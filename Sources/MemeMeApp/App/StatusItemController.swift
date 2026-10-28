@@ -402,9 +402,6 @@ import SwiftUI
         settings.webDiscoverEnabled.toggle()
         model.store.settings = settings
         model.saveSoon()
-        if settings.webDiscoverEnabled {
-            model.web.prefetch(Mood.prefetchOrder)
-        }
     }
 
     @objc private func setGiphyAPIKey(_ sender: Any?) {
@@ -430,9 +427,6 @@ import SwiftUI
         settings.giphyAPIKey = key.isEmpty ? nil : key
         model.store.settings = settings
         model.saveSoon()
-        if settings.webDiscoverEnabled {
-            model.web.prefetch(Mood.prefetchOrder)
-        }
     }
 
     @objc private func setStickerPolicy(_ sender: NSMenuItem) {

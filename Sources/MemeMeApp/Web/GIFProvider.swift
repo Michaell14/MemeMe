@@ -11,6 +11,8 @@ struct WebGIF: Codable, Hashable {
     let height: Int
     let pageURL: URL?
     let provider: String     // "GIPHY"
+    /// Who made or uploaded it (GIPHY's user display name, else username); nil when GIPHY doesn't say.
+    var creator: String? = nil
 }
 
 /// A GIF search backend. Only the mood word is ever sent.

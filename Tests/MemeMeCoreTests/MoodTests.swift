@@ -126,8 +126,7 @@ final class MoodTests: XCTestCase {
         }
     }
 
-    func testPrefetchOrder() {
-        XCTAssertEqual(Mood.prefetchOrder, [.shocked, .laughing, .sideEye, .unimpressed, .crying, .smug, .happy, .screaming, .confused, .angry])
+    func testRawValuesAreStable() {
         XCTAssertEqual(Mood.sideEye.rawValue, "sideEye")
     }
 }

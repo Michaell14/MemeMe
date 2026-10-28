@@ -16,6 +16,8 @@ private enum ClipboardError: Error {
 enum Clipboard {
     /// changeCount right after MemeMe's last write; -1 before the first write.
     @MainActor private static var writtenChangeCount: Int = -1
+    /// The folder of the copy MemeMe last put on the pasteboard.
+    @MainActor private static var writtenDirectory: URL?
 
     private static let gifType = NSPasteboard.PasteboardType("com.compuserve.gif")
     private static let jpegType = NSPasteboard.PasteboardType("public.jpeg")
@@ -78,11 +80,17 @@ enum Clipboard {
             throw ClipboardError.writeFailed
         }
         writtenChangeCount = pasteboard.changeCount
+        writtenDirectory = directory
         return writtenChangeCount
     }
 
     @MainActor static var lastWriteChangeCount: Int {
         writtenChangeCount
+    }
+
+    /// The folder of MemeMe's copy while it is still what the pasteboard holds; nil once something else was copied.
+    @MainActor static var directoryOnPasteboard: URL? {
+        NSPasteboard.general.changeCount == writtenChangeCount ? writtenDirectory : nil
     }
 
     /// When the pasteboard holds an image (or image file) that MemeMe didn't write, returns a local file URL (temp copy for raw image data).
@@ -154,7 +162,8 @@ enum Clipboard {
         item.isOwn && !item.isSticker
     }
 
-    private static func clipboardDirectory() -> URL {
+    /// Where copies for the pasteboard and for dragging live; ~/Library/Caches/MemeMe/Clipboard.
+    static func clipboardDirectory() -> URL {
         let fileManager = FileManager.default
         let caches = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first ?? fileManager.temporaryDirectory
         return caches.appendingPathComponent("MemeMe/Clipboard", isDirectory: true)
@@ -166,7 +175,8 @@ enum Clipboard {
         return directory
     }
 
-    private static func removeStaleCopies() {
+    /// Deletes copies older than an hour, except `kept` (the copy still on the pasteboard, whose file URL it holds).
+    static func removeStaleCopies(keeping kept: URL? = nil) {
         let fileManager = FileManager.default
         let keys: [URLResourceKey] = [.creationDateKey, .contentModificationDateKey]
         guard let entries = try? fileManager.contentsOfDirectory(
@@ -180,7 +190,7 @@ enum Clipboard {
         for entry in entries {
             let values = try? entry.resourceValues(forKeys: Set(keys))
             let date = values?.creationDate ?? values?.contentModificationDate ?? Date.distantPast
-            if date < cutoff {
+            if date < cutoff && entry.lastPathComponent != kept?.lastPathComponent {
                 try? fileManager.removeItem(at: entry)
             }
         }

@@ -39,7 +39,7 @@ struct FooterView: View {
             HStack(spacing: 8) {
                 focusLine
                     .frame(maxWidth: .infinity, alignment: .leading)
-                if focusedItem != nil && !model.showSetupCard {
+                if model.canMoreLikeFocused && !model.showSetupCard {
                     Button("More like this") {
                         model.moreLikeFocused()
                     }
@@ -55,17 +55,23 @@ struct FooterView: View {
         }
     }
 
-    private var focusedItem: LibraryItem? {
-        let results = model.results
-        guard model.focusedIndex >= 0, model.focusedIndex < results.count else { return nil }
-        return results[model.focusedIndex].item
+    /// The focused tile's name and where it comes from ("by <creator> on GIPHY" for GIPHY's GIFs).
+    private var focusedLabel: (title: String, source: String)? {
+        switch model.focusedPick {
+        case let .meme(item)?:
+            return (item.displayName, item.provenance)
+        case let .gif(gif)?:
+            return (gif.title, gif.creator.map { "by \($0) on GIPHY" } ?? "on GIPHY")
+        case nil:
+            return nil
+        }
     }
 
     @ViewBuilder
     private var focusLine: some View {
-        if let item = focusedItem {
-            (Text(verbatim: "↵ copies “\(item.displayName)”").foregroundColor(Theme.text)
-                + Text(verbatim: " · \(item.provenance)").foregroundColor(Theme.mutedText))
+        if let label = focusedLabel {
+            (Text(verbatim: "↵ copies “\(label.title)”").foregroundColor(Theme.text)
+                + Text(verbatim: " · \(label.source)").foregroundColor(Theme.mutedText))
                 .font(.system(size: 12))
                 .lineLimit(1)
                 .truncationMode(.tail)

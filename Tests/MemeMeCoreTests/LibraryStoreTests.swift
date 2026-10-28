@@ -167,6 +167,50 @@ final class LibraryStoreTests: XCTestCase {
         XCTAssertEqual(store.recents.recent(appBundleID: "app"), [other.id])
     }
 
+    func testRemoveSavedWebItemsForgetsSentGIPHYPicksAndTheSentFolder() throws {
+        let store = try LibraryStore(rootURL: root)
+        let sent = store.legacySentDirectory
+        try FileManager.default.createDirectory(at: sent, withIntermediateDirectories: true, attributes: nil)
+        let sentStill = sent.appendingPathComponent("abc-still.gif")
+        try Data([1, 2, 3]).write(to: sentStill)
+        let pick = makeItem(name: "giphy pick", kind: .web, source: "GIPHY", hash: "giphy:abc", fileURL: sentStill)
+        let mislabeled = makeItem(name: "old pick", hash: "giphy:def")
+        let own = makeItem(name: "own")
+        store.add(pick)
+        store.add(mislabeled)
+        store.add(own)
+        store.recents.record(pick.id, appBundleID: "app")
+        store.recents.record(own.id, appBundleID: "app")
+        try store.save()
+
+        XCTAssertEqual(store.removeSavedWebItems(), 2)
+        XCTAssertTrue(store.isDirty)
+        XCTAssertEqual(store.items.map { $0.id }, [own.id])
+        XCTAssertFalse(store.contains(hash: "giphy:abc"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: sentStill.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: sent.path))
+        XCTAssertEqual(store.recents.recent(appBundleID: "app"), [own.id])
+
+        try store.save()
+        let reloaded = try LibraryStore(rootURL: root)
+        XCTAssertEqual(reloaded.items.map { $0.id }, [own.id])
+        XCTAssertEqual(reloaded.removeSavedWebItems(), 0, "nothing left to remove")
+    }
+
+    func testRemoveSavedWebItemsKeepsASentFolderStillInUse() throws {
+        let store = try LibraryStore(rootURL: root)
+        let sent = store.legacySentDirectory
+        try FileManager.default.createDirectory(at: sent, withIntermediateDirectories: true, attributes: nil)
+        let ownFile = sent.appendingPathComponent("mine.png")
+        try Data([1]).write(to: ownFile)
+        store.add(makeItem(name: "mine", fileURL: ownFile))
+        store.add(makeItem(name: "pick", kind: .web, hash: "giphy:x"))
+
+        XCTAssertEqual(store.removeSavedWebItems(), 1)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: ownFile.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sent.path), "a library file still lives there")
+    }
+
     func testRemovingUnknownIDsChangesNothing() throws {
         let store = try LibraryStore(rootURL: root)
         store.add(makeItem(name: "a"))

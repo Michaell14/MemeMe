@@ -33,9 +33,6 @@ public enum Mood: String, CaseIterable, Codable, Hashable, Sendable {
         case .reaction: return "reaction"
         }
     }
-
-    /// Moods prefetched in the background, most common first.
-    public static let prefetchOrder: [Mood] = [.shocked, .laughing, .sideEye, .unimpressed, .crying, .smug, .happy, .screaming, .confused, .angry]
 }
 
 public enum MoodClassifier {

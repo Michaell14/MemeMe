@@ -83,11 +83,11 @@ private func analyzeQueryImage(at url: URL) -> ImageQueryValues? {
     return ImageQueryValues(featurePrint: analysis.featurePrint, face: analysis.face, intensity: analysis.intensity)
 }
 
-/// Copies a file into a fresh temporary folder under a neutral name, for dragging into other apps.
+/// Copies a file into a fresh temporary folder under a neutral name, for dragging into other apps. It sits with
+/// the clipboard's copies, so it is deleted within the hour like them.
 private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
     let fileManager = FileManager.default
-    let directory = fileManager.temporaryDirectory
-        .appendingPathComponent("MemeMeDrag", isDirectory: true)
+    let directory = Clipboard.clipboardDirectory()
         .appendingPathComponent(UUID().uuidString, isDirectory: true)
     do {
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
@@ -101,7 +101,20 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
 
 // MARK: - AppModel
 
-/// Orchestrates the panel: camera → peak-hold → mood → local + web ranking, typed and image queries,
+/// What a tile holds: one of your memes, or a GIF in the GIPHY row.
+enum Pick: Equatable {
+    case meme(LibraryItem)
+    case gif(WebGIF)
+
+    var title: String {
+        switch self {
+        case let .meme(item): return item.displayName
+        case let .gif(gif): return gif.title
+        }
+    }
+}
+
+/// Orchestrates the panel: camera → peak-hold → mood → your memes ranked and the GIPHY row, typed and image queries,
 /// committing to the clipboard, the self-filling library and menu-bar drops.
 @MainActor final class AppModel: ObservableObject {
     @Published var queryText: String = "" {
@@ -113,7 +126,16 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
     @Published private(set) var mode: PanelMode = .prompt
     @Published private(set) var results: [RankedResult] = []         // ≤ Theme.resultLimit
     @Published private(set) var newResultIDs: Set<UUID> = []          // amber ring for 600 ms
+    /// A slot of the tile grid (`TileGrid`): 0..<10 your memes, then the GIPHY row.
     @Published var focusedIndex: Int = 0
+    /// The GIPHY row: GIPHY's results for `giphyMood` in GIPHY's order, never ranked or mixed with your memes.
+    @Published private(set) var giphyResults: [WebGIF] = []          // ≤ Theme.columns
+    @Published private(set) var giphyMood: Mood?
+    @Published private(set) var isGiphyLoading: Bool = false
+    /// The row's search failed or GIPHY refused it.
+    @Published private(set) var giphyUnavailable: Bool = false
+    /// Web Discover is on and has a key (checked each time the panel opens).
+    @Published private(set) var showsGiphyRow: Bool = false
     @Published private(set) var pins: Set<FaceRegion> = []
     @Published private(set) var hint = PanelHint(title: HintCopy.promptTitle, subtitle: HintCopy.promptSubtitle, actionTitle: nil, action: nil)
     @Published private(set) var footer: FooterState = .legend
@@ -145,8 +167,6 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
 
     /// ↵ is ignored this soon after the last edit of the search field.
     private static let enterGuard: TimeInterval = 0.3
-    /// A number key is ignored this soon after a late merge put a different tile in its slot.
-    private static let reshuffleGuard: TimeInterval = 0.8
     private static let textDebounceNanoseconds: UInt64 = 80_000_000
     private static let newRingNanoseconds: UInt64 = 600_000_000
     private static let saveDelayNanoseconds: UInt64 = 2_000_000_000
@@ -156,10 +176,6 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
     private static let typingStopsCameraWindow: TimeInterval = 1.0
     /// A HUD says "Copying…" when fetching a web GIF takes longer than this.
     private static let slowCopyNanoseconds: UInt64 = 150_000_000
-    /// Web results stop filling the grid this long after its search; later ones are cached for next time.
-    private static let webFetchTimeout: TimeInterval = 8
-    /// Streamed web results are merged at most this often, so the grid settles instead of jittering.
-    private static let webBatchNanoseconds: UInt64 = 250_000_000
     private static let poseActiveThreshold = 0.3
     private static let keptSource = "Kept"
 
@@ -181,8 +197,6 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
     private var isKeepingImage = false
     private var isSettingQueryTextInternally = false
     private var lastTextEditAt: TimeInterval = 0
-    /// When a late merge last put a different tile in each position.
-    private var slotChangedAt: [Int: TimeInterval] = [:]
     /// Starts an expression's web search while it is still being held.
     private var earlyMood = EarlyMoodTrigger()
     private var textBeganAt: TimeInterval?
@@ -199,7 +213,9 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
     private var shownSummaryID: UUID?
 
     private var textDebounceTask: Task<Void, Never>?
-    private var webTask: Task<Void, Never>?
+    private var giphyTask: Task<Void, Never>?
+    private var giphyGeneration = 0
+    private var cleanupTask: Task<Void, Never>?
     private var imageTask: Task<Void, Never>?
     private var cameraAccessTask: Task<Void, Never>?
     private var saveTask: Task<Void, Never>?
@@ -221,6 +237,14 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
         self.friends = FriendService(store: store)
         self.updates = UpdateChecker(bundle: .main)
         self.tracker = PeakHoldTracker(baseline: store.settings.baseline)
+        // Earlier versions kept sent GIPHY picks in the library; GIPHY's media is no longer kept.
+        if store.removeSavedWebItems() > 0 {
+            do {
+                try store.save()
+            } catch {
+                modelLog.error("Saving the library after removing saved GIPHY picks failed")
+            }
+        }
 
         camera.onSample = { [weak self] sample in
             self?.handleSample(sample)
@@ -254,10 +278,30 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
         SystemConditions.startMonitoring()
         syncLoginItem()
         indexer.startWatching()
-        web.prefetch(Mood.prefetchOrder)
-        web.pruneCache()
+        startCleanup()
         updates.start()
         refreshFooter()
+    }
+
+    /// Every 10 minutes while the app runs: GIPHY copies, drag copies and clipboard copies older than an hour go,
+    /// except the copy still on the pasteboard.
+    private func startCleanup() {
+        guard cleanupTask == nil else { return }
+        Task.detached(priority: .utility) {
+            // Earlier versions put drag copies here and never deleted them.
+            try? FileManager.default.removeItem(at: FileManager.default.temporaryDirectory.appendingPathComponent("MemeMeDrag", isDirectory: true))
+        }
+        cleanupTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                self.web.pruneCache()
+                let onPasteboard = Clipboard.directoryOnPasteboard
+                Task.detached(priority: .utility) {
+                    Clipboard.removeStaleCopies(keeping: onPasteboard)
+                }
+                try? await Task.sleep(nanoseconds: 600 * 1_000_000_000)
+            }
+        }
     }
 
     func setHotKeyAvailable(_ available: Bool) {
@@ -304,16 +348,31 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
 
     // MARK: - Input
 
+    /// What the focused tile holds; nil when it is empty.
+    var focusedPick: Pick? {
+        pick(atSlot: focusedIndex)
+    }
+
+    /// Tab and "More like this" look for memes like the focused one (not like a GIPHY GIF).
+    var canMoreLikeFocused: Bool {
+        if case .meme? = focusedPick { return true }
+        return false
+    }
+
+    /// The slot of the GIPHY row's `offset`-th tile.
+    func giphySlot(_ offset: Int) -> Int {
+        tileGrid.giphyStart + offset
+    }
+
     func commit(index: Int) {
-        guard index >= 0, index < results.count, committingSession != sessionID else { return }
-        let item = results[index].item
+        guard let pick = pick(atSlot: index), committingSession != sessionID else { return }
         commitToken += 1
         let token = commitToken
         let session = sessionID
         let appBundleID = previousBundleID
         committingSession = session
         Task { [weak self] in
-            await self?.performCommit(item, token: token, session: session, appBundleID: appBundleID)
+            await self?.performCommit(pick, token: token, session: session, appBundleID: appBundleID)
         }
     }
 
@@ -323,32 +382,21 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
         commit(index: focusedIndex)
     }
 
-    /// Number keys pick by position, so one pressed just as a late merge swapped that tile would copy
-    /// something the user never saw.
+    /// Number keys pick your memes, 1–9.
     func commitNumbered(index: Int) {
-        if let changedAt = slotChangedAt[index], CACurrentMediaTime() - changedAt < AppModel.reshuffleGuard {
-            return
-        }
+        guard index < limit else { return }
         commit(index: index)
     }
 
     func moveFocus(dx: Int, dy: Int) {
-        guard !results.isEmpty else { return }
-        let columns = max(1, Theme.columns)
-        let rows = max(1, Theme.rows)
-        let current = min(max(focusedIndex, 0), results.count - 1)
-        let column = min(max(current % columns + dx, 0), columns - 1)
-        let row = min(max(current / columns + dy, 0), rows - 1)
-        let target = min(row * columns + column, results.count - 1)
         userInteracted = true
-        if target != focusedIndex {
-            focusedIndex = target
-            prefetchFocused()
-        }
+        guard let target = tileGrid.move(from: focusedIndex, dx: dx, dy: dy) else { return }
+        focusedIndex = target
+        prefetchFocused()
     }
 
     func hover(index: Int) {
-        guard index >= 0, index < results.count else { return }
+        guard tileGrid.isFilled(index) else { return }
         userInteracted = true
         if focusedIndex != index {
             focusedIndex = index
@@ -399,8 +447,7 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
     }
 
     func moreLikeFocused() {
-        guard focusedIndex >= 0, focusedIndex < results.count else { return }
-        let item = results[focusedIndex].item
+        guard case let .meme(item)? = focusedPick else { return }
         clearTextState()
         resetQueryImage()
         moreLikeItem = item
@@ -424,7 +471,6 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
         mode = .image
         resultSource = .image
         searchGeneration += 1
-        webTask?.cancel()
         let generation = imageGeneration
         refreshHint()
 
@@ -487,12 +533,14 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
     }
 
     func dragItemProvider(index: Int) -> NSItemProvider? {
-        guard index >= 0, index < results.count else { return nil }
-        let item = results[index].item
-        if item.kind == .web {
-            return webDragProvider(for: item)
+        switch pick(atSlot: index) {
+        case let .meme(item)?:
+            return Clipboard.dragItemProvider(for: item, fileURL: item.fileURL)
+        case let .gif(gif)?:
+            return giphyDragProvider(for: gif)
+        case nil:
+            return nil
         }
-        return Clipboard.dragItemProvider(for: item, fileURL: item.fileURL)
     }
 
     /// "Is one of these Sam?" → names the picked face.
@@ -786,62 +834,32 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
 
     // MARK: - Searches
 
-    /// Recent in this app; else the newest own memes; else GIPHY "reaction" results so the grid is never empty.
-    /// Library changes refresh it with `animateNew` (amber ring on arrivals) and without moving the focus.
+    /// Recent in this app; else the newest own memes. With none at all (first run), the GIPHY row shows GIPHY's
+    /// "reaction" GIFs so the panel is never empty. Library changes refresh it with `animateNew` (amber ring on
+    /// arrivals) and without moving the focus.
     private func showRecentResults(animateNew: Bool = false, resetFocus: Bool = true) {
         resultSource = .recent
         searchGeneration += 1
-        webTask?.cancel()
         let ranker = Ranker(baseline: tracker.baseline)
         let recentIDs = store.recents.recent(appBundleID: previousBundleID)
-        var ranked = ranker.rank(
-            searchPool(),
+        let ranked = ranker.rank(
+            ownItems,
             query: .recent(appBundleID: previousBundleID),
             people: store.people,
             recents: recentIDs,
             limit: limit
         )
-        if ranked.isEmpty {
-            ranked = reactionResults(web.cachedItems(for: .reaction))
-        }
         setResults(ranked, animateNew: animateNew, resetFocus: resetFocus)
-        if ranked.isEmpty {
-            fetchReactionResults()
+        // GIPHY's "reaction" GIFs when you have no memes yet, or when no face can be read (no camera, denied, in use,
+        // not yet allowed) to ask GIPHY about.
+        let readsFaces = mode != .cameraOff && mode != .cameraBusy && mode != .prompt
+        if (ranked.isEmpty || !readsFaces) && giphyMood == nil {
+            showGiphy(for: .reaction)
         }
     }
 
-    private func reactionResults(_ items: [LibraryItem]) -> [RankedResult] {
-        items.prefix(limit).map { RankedResult(item: $0, score: 1) }
-    }
-
-    /// Nothing local yet (first run): GIPHY "reaction" results fill the grid as they arrive.
-    private func fetchReactionResults() {
-        let generation = searchGeneration
-        let stream = web.results(for: .reaction)
-        let started = CACurrentMediaTime()
-        webTask = Task { [weak self] in
-            for await snapshot in stream {
-                guard let self, !Task.isCancelled, generation == self.searchGeneration, self.resultSource == .recent else { return }
-                guard CACurrentMediaTime() - started < AppModel.webFetchTimeout else { break }
-                if !snapshot.isEmpty {
-                    await self.warmThumbnails(of: snapshot)
-                    guard !Task.isCancelled, generation == self.searchGeneration, self.resultSource == .recent else { return }
-                    let tiles = self.reactionResults(snapshot)
-                    if self.results.isEmpty {
-                        self.setResults(tiles, animateNew: false, resetFocus: true)
-                    } else {
-                        // These don't match a face, so the grid keeps still: tiles already shown stay, new ones fill the gaps.
-                        self.applyLateResults(tiles, lockedCount: self.results.count)
-                    }
-                }
-                try? await Task.sleep(nanoseconds: AppModel.webBatchNanoseconds)
-            }
-            guard let self, !Task.isCancelled, generation == self.searchGeneration else { return }
-            self.prefetchTopWebItems()
-        }
-    }
-
-    /// Face query: mood → weights → local rank (with cached web items for the mood) now, fresh web results merged later.
+    /// Face query: mood → weights → your memes ranked at once; the GIPHY row shows GIPHY's results for the mood
+    /// (often already searched while the face was being held).
     private func runExpressionSearch(animate: Bool) {
         guard let sample = tracker.query else {
             showRecentResults()
@@ -853,84 +871,111 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
         let weights = FeatureWeights.automatic(deviation: deviation, poseActivity: sample.pose?.activity ?? 0).pinning(pins)
         currentWeights = weights
         searchGeneration += 1
-        let generation = searchGeneration
-        webTask?.cancel()
 
         let ranker = Ranker(baseline: tracker.baseline)
-        let cached = web.cachedItems(for: mood)
-        // A search that is still running (often started while the face was being held) already has some results.
-        let webItems = cached.isEmpty ? web.partialItems(for: mood) : cached
-        let ranked = ranker.rank(libraryPool(adding: webItems), query: .expression(sample, weights: weights), people: store.people, limit: limit)
-        // Nothing local or cached matches this face yet: keep the recent / "reaction" tiles rather than blank the grid.
-        if !ranked.isEmpty || results.isEmpty {
-            setResults(ranked, animateNew: animate, resetFocus: true)
-        }
+        let ranked = ranker.rank(ownItems, query: .expression(sample, weights: weights), people: store.people, limit: limit)
+        setResults(ranked, animateNew: animate, resetFocus: true)
+        showGiphy(for: mood)
+    }
 
-        guard cached.isEmpty else { return }
-        // Web results stream in as GIPHY's stills are analyzed and fill in behind what the user may be about to click.
-        let stream = web.results(for: mood)
-        let showsNoMatch = ranked.isEmpty
-        let started = CACurrentMediaTime()
-        webTask = Task { [weak self] in
-            // Only the first batch may replace tiles that don't match this face.
-            var replacingPlaceholders = showsNoMatch
-            for await snapshot in stream {
-                guard let self, !Task.isCancelled, generation == self.searchGeneration else { return }
-                // Later results stay out of this grid; the search still caches them for next time.
-                guard CACurrentMediaTime() - started < AppModel.webFetchTimeout else { break }
-                if !snapshot.isEmpty {
-                    await self.warmThumbnails(of: snapshot)
-                    guard !Task.isCancelled, generation == self.searchGeneration else { return }
-                    self.mergeWebResults(snapshot, ranker: ranker, sample: sample, weights: weights, replacingPlaceholders: replacingPlaceholders)
-                    replacingPlaceholders = false
-                }
-                // The stream keeps only its newest batch while this waits.
-                try? await Task.sleep(nanoseconds: AppModel.webBatchNanoseconds)
+    // MARK: - GIPHY row
+
+    /// Shows GIPHY's results for `mood` in the GIPHY row: at once when searched in the last 10 minutes, else when
+    /// the search answers. The same mood already showing (or loading) is left alone.
+    private func showGiphy(for mood: Mood) {
+        guard showsGiphyRow else { return }
+        if mood == giphyMood && (isGiphyLoading || !giphyResults.isEmpty) { return }
+        giphyGeneration += 1
+        let generation = giphyGeneration
+        giphyTask?.cancel()
+        giphyTask = nil
+        giphyMood = mood
+        if giphyUnavailable { giphyUnavailable = false }
+        if let cached = web.cachedGIFs(for: mood) {
+            if isGiphyLoading { isGiphyLoading = false }
+            setGiphyResults(cached)
+            return
+        }
+        // Another mood's GIFs never sit under this one.
+        setGiphyResults([])
+        isGiphyLoading = true
+        giphyTask = Task { [weak self] in
+            guard let self else { return }
+            let found = await self.web.gifs(for: mood)
+            guard !Task.isCancelled, generation == self.giphyGeneration else { return }
+            self.isGiphyLoading = false
+            self.giphyTask = nil
+            if let found {
+                self.setGiphyResults(found)
+            } else {
+                self.giphyUnavailable = true
             }
-            guard let self, !Task.isCancelled, generation == self.searchGeneration else { return }
-            self.prefetchTopWebItems()
         }
     }
 
-    /// Late web results fill in behind: the user's strong own matches and the focused tile never move.
-    /// `replacingPlaceholders`: the grid still shows recent / "reaction" tiles that don't match this face, so only
-    /// a tile the user pointed at stays put. `ranker` is the search's own, so batches score alike.
-    private func mergeWebResults(_ webItems: [LibraryItem], ranker: Ranker, sample: ExpressionSample, weights: FeatureWeights, replacingPlaceholders: Bool) {
-        guard isPanelVisible, resultSource == .expression else { return }
-        let incoming = ranker.rank(libraryPool(adding: webItems), query: .expression(sample, weights: weights), people: store.people, limit: limit)
-        // The focused tile is what ↵ copies (and what the focus line names) even before the user moved the
-        // focus, so everything up to and including it stays put.
-        let lockedCount = replacingPlaceholders
-            ? (userInteracted ? focusedIndex + 1 : 0)
-            : max(ResultMerger.strongOwnPrefix(results), focusedIndex + 1)
-        applyLateResults(incoming, lockedCount: lockedCount)
-    }
-
-    /// Merges late results behind the first `lockedCount` tiles. A number key skips a slot for a moment after it changes.
-    private func applyLateResults(_ incoming: [RankedResult], lockedCount: Int) {
-        let merged = ResultMerger.merge(current: results, incoming: incoming, lockedCount: lockedCount, limit: limit)
-        let changed = ResultMerger.changedSlots(from: results, to: merged)
-        let now = CACurrentMediaTime()
-        for slot in changed {
-            slotChangedAt[slot] = now
+    private func setGiphyResults(_ gifs: [WebGIF]) {
+        let row = Array(gifs.prefix(Theme.columns))
+        if giphyResults != row {
+            giphyResults = row
         }
-        setResults(merged, animateNew: true, resetFocus: false, prefetchingWeb: false)
-        // The full GIFs ↵ and the top tiles copy start downloading as soon as those tiles change, not once per batch.
-        if changed.contains(focusedIndex) || changed.contains(where: { $0 < 3 }) {
-            prefetchTopWebItems()
+        normalizeFocus()
+        // The first GIF copies instantly; others start downloading when focused.
+        if let first = row.first {
+            web.prefetchForCopy([first])
         }
     }
 
-    /// Decodes the grid thumbnails of web results before they are shown, so new tiles don't flash empty.
-    private func warmThumbnails(of items: [LibraryItem]) async {
-        let pending = items.filter { ThumbnailCache.shared.cached($0.fileURL) == nil }.map(\.fileURL)
-        guard !pending.isEmpty else { return }
-        await withTaskGroup(of: Void.self) { group in
-            for url in pending {
-                group.addTask { @MainActor in
-                    _ = await ThumbnailCache.shared.thumbnail(for: url, maxPixel: 256)   // the size ResultTile asks for
-                }
-            }
+    private func clearGiphyRow() {
+        giphyGeneration += 1
+        giphyTask?.cancel()
+        giphyTask = nil
+        if !giphyResults.isEmpty { giphyResults = [] }
+        if giphyMood != nil { giphyMood = nil }
+        if isGiphyLoading { isGiphyLoading = false }
+        if giphyUnavailable { giphyUnavailable = false }
+    }
+
+    private var tileGrid: TileGrid {
+        TileGrid(columns: Theme.columns, ownRows: Theme.rows, ownCount: results.count, giphyCount: giphyResults.count)
+    }
+
+    /// Where the focus starts: the first meme, or the first GIPHY GIF when the row answers what is shown (the face,
+    /// or Recent). A typed, image or more-like search starts on nothing when it finds no meme, so ↵ copies nothing.
+    private var startSlot: Int {
+        switch resultSource {
+        case .recent, .expression:
+            return tileGrid.firstSlot ?? 0
+        case .text, .image, .moreLike:
+            return 0
+        }
+    }
+
+    private func pick(atSlot slot: Int) -> Pick? {
+        let grid = tileGrid
+        guard grid.isFilled(slot) else { return nil }
+        if slot < grid.giphyStart {
+            return .meme(results[slot].item)
+        }
+        return .gif(giphyResults[slot - grid.giphyStart])
+    }
+
+    /// Keeps the focus on a tile: before the user moves it, on the first one (a GIPHY GIF when you have no memes
+    /// yet); after, on the nearest one in the same row.
+    private func normalizeFocus() {
+        let grid = tileGrid
+        guard !grid.isFilled(focusedIndex) else { return }
+        let target: Int
+        if !userInteracted {
+            target = startSlot
+        } else if focusedIndex >= grid.giphyStart, grid.giphyCount > 0 {
+            target = grid.giphyStart + grid.giphyCount - 1
+        } else if focusedIndex < grid.giphyStart, grid.ownCount > 0 {
+            target = grid.ownCount - 1
+        } else {
+            target = grid.firstSlot ?? 0
+        }
+        if focusedIndex != target {
+            focusedIndex = target
         }
     }
 
@@ -939,11 +984,10 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
         guard !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         resultSource = .text
         searchGeneration += 1
-        webTask?.cancel()
         let ranker = Ranker(baseline: tracker.baseline)
         let face = showsFaceToken ? faceTokenSample : nil
         let weights = showsFaceToken ? faceTokenWeights : FeatureWeights.uniform
-        let ranked = ranker.rank(searchPool(), query: .text(raw, face: face, weights: weights), people: store.people, limit: limit)
+        let ranked = ranker.rank(ownItems, query: .text(raw, face: face, weights: weights), people: store.people, limit: limit)
         setResults(ranked, animateNew: false, resetFocus: true)
         updateNamingPrompt(raw: raw, hasResults: !ranked.isEmpty)
     }
@@ -952,11 +996,10 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
         guard let query = imageQuery else { return }
         resultSource = .image
         searchGeneration += 1
-        webTask?.cancel()
         // The query image itself (once kept) is not a result.
         let excludedIDs = Set(keptImageBatch?.addedIDs ?? [])
         let queryURL = queryImageURL?.standardizedFileURL
-        let pool = searchPool().filter { item in
+        let pool = ownItems.filter { item in
             !excludedIDs.contains(item.id) && item.fileURL.standardizedFileURL != queryURL
         }
         let ranker = Ranker(baseline: tracker.baseline)
@@ -973,9 +1016,8 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
         guard let item = moreLikeItem else { return }
         resultSource = .moreLike
         searchGeneration += 1
-        webTask?.cancel()
         let ranker = Ranker(baseline: tracker.baseline)
-        let ranked = ranker.rank(searchPool(), query: .moreLike(item), people: store.people, limit: limit)
+        let ranked = ranker.rank(ownItems, query: .moreLike(item), people: store.people, limit: limit)
         setResults(ranked, animateNew: false, resetFocus: true)
     }
 
@@ -994,27 +1036,12 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
         }
     }
 
-    /// Library items plus every cached web item (so recently sent GIPHY picks and typed matches can show).
-    private func searchPool() -> [LibraryItem] {
-        var pool = store.items
-        var seen = Set(pool.map { $0.id })
-        for mood in Mood.allCases {
-            for item in web.cachedItems(for: mood) where !seen.contains(item.id) {
-                seen.insert(item.id)
-                pool.append(item)
-            }
-        }
-        return pool
+    /// Your memes: the library without GIPHY's GIFs (they have their own row and are never kept in it).
+    private var ownItems: [LibraryItem] {
+        store.items.filter { $0.kind != .web }
     }
 
-    /// Library items plus the web items the library doesn't already hold (sent GIPHY picks are kept in it).
-    private func libraryPool(adding webItems: [LibraryItem]) -> [LibraryItem] {
-        let known = Set(store.items.map { $0.id })
-        return store.items + webItems.filter { !known.contains($0.id) }
-    }
-
-    /// `prefetchingWeb`: start downloading the full GIFs of the top web tiles (off while results are still streaming in).
-    private func setResults(_ newResults: [RankedResult], animateNew: Bool, resetFocus: Bool, prefetchingWeb: Bool = true) {
+    private func setResults(_ newResults: [RankedResult], animateNew: Bool, resetFocus: Bool) {
         let limited = Array(newResults.prefix(limit))
         if animateNew && !results.isEmpty {
             let previous = Set(results.map { $0.id })
@@ -1032,13 +1059,10 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
         }
         if resetFocus {
             userInteracted = false
-            slotChangedAt.removeAll()
-            if focusedIndex != 0 { focusedIndex = 0 }
-        } else if focusedIndex >= limited.count {
-            focusedIndex = max(0, limited.count - 1)
-        }
-        if prefetchingWeb {
-            prefetchTopWebItems()
+            let first = startSlot
+            if focusedIndex != first { focusedIndex = first }
+        } else {
+            normalizeFocus()
         }
     }
 
@@ -1055,26 +1079,10 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
         }
     }
 
-    /// Full GIFs for the focused web result and the top ones, so copying is instant.
-    /// `prefetchForCopy` takes the first three it is given, so the focused tile goes first.
-    private func prefetchTopWebItems() {
-        var items: [LibraryItem] = []
-        if focusedIndex >= 0, focusedIndex < results.count, results[focusedIndex].item.kind == .web {
-            items.append(results[focusedIndex].item)
-        }
-        for (index, result) in results.enumerated() where index < 3 && index != focusedIndex && result.item.kind == .web {
-            items.append(result.item)
-        }
-        if !items.isEmpty {
-            web.prefetchForCopy(items)
-        }
-    }
-
+    /// A focused GIPHY GIF starts downloading, so copying it is instant.
     private func prefetchFocused() {
-        guard focusedIndex >= 0, focusedIndex < results.count else { return }
-        let item = results[focusedIndex].item
-        if item.kind == .web {
-            web.prefetchForCopy([item])
+        if case let .gif(gif)? = focusedPick {
+            web.prefetchForCopy([gif])
         }
     }
 
@@ -1240,27 +1248,30 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
 
     // MARK: - Commit
 
-    private func performCommit(_ item: LibraryItem, token: Int, session: Int, appBundleID: String?) async {
+    private func performCommit(_ pick: Pick, token: Int, session: Int, appBundleID: String?) async {
         defer {
             if committingSession == session { committingSession = nil }
         }
-        let resolved = await resolveFileForCopy(item)
+        let resolved = await resolveFileForCopy(pick)
         // A newer pick (made after reopening the panel) owns the clipboard.
         guard token == commitToken else { return }
-        // The panel this pick came from may have closed (and another opened) while a web GIF downloaded.
+        // The panel this pick came from may have closed (and another opened) while a GIPHY GIF downloaded.
         let isSameOpen = session == sessionID && isPanelVisible
         guard let fileURL = resolved else {
             HUDController.shared.show("Couldn’t copy that one. Try another.")
             return
         }
         do {
-            try Clipboard.copy(fileURL: fileURL, item: item)
+            try Clipboard.copy(fileURL: fileURL, item: clipboardItem(for: pick, fileURL: fileURL))
         } catch {
             modelLog.error("Copying to the pasteboard failed")
             HUDController.shared.show("Couldn’t copy that one. Try another.")
             return
         }
-        recordSent(item, appBundleID: appBundleID)
+        // Only your memes are remembered as sent; GIPHY's GIFs are never kept.
+        if case let .meme(item) = pick {
+            recordSent(item, appBundleID: appBundleID)
+        }
 
         if !store.settings.hasCompletedFirstRun, isSameOpen {
             // First pick: the panel stays open with the You're-set card (the camera has nothing to show meanwhile).
@@ -1279,22 +1290,34 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
         if isSameOpen {
             onRequestClose?()
         }
-        HUDController.shared.show("Copied “\(item.displayName)” · ⌘V — not sent", thumbnail: item.fileURL)
+        HUDController.shared.show("Copied “\(pick.title)” · ⌘V — not sent", thumbnail: fileURL)
     }
 
-    /// The local file to put on the pasteboard; web GIFs are downloaded first ("Copying…" if that is slow).
-    private func resolveFileForCopy(_ item: LibraryItem) async -> URL? {
-        guard item.kind == .web else {
+    /// The local file to put on the pasteboard; GIPHY GIFs are downloaded first ("Copying…" if that is slow).
+    private func resolveFileForCopy(_ pick: Pick) async -> URL? {
+        switch pick {
+        case let .meme(item):
             return FileManager.default.fileExists(atPath: item.fileURL.path) ? item.fileURL : nil
+        case let .gif(gif):
+            let slowNotice = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: AppModel.slowCopyNanoseconds)
+                guard !Task.isCancelled else { return }
+                HUDController.shared.show("Copying…")
+            }
+            let url = await web.prepareForCopy(gif)
+            slowNotice.cancel()
+            return url
         }
-        let slowNotice = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: AppModel.slowCopyNanoseconds)
-            guard !Task.isCancelled else { return }
-            HUDController.shared.show("Copying…")
+    }
+
+    /// What the clipboard names the copy after: your meme itself, or a GIPHY GIF as "reaction.gif".
+    private func clipboardItem(for pick: Pick, fileURL: URL) -> LibraryItem {
+        switch pick {
+        case let .meme(item):
+            return item
+        case let .gif(gif):
+            return LibraryItem(fileURL: fileURL, displayName: gif.title, kind: .web, source: "GIPHY", contentHash: "giphy:" + gif.id, isAnimated: true, remoteURL: gif.fullURL)
         }
-        let url = await web.prepareForCopy(item)
-        slowNotice.cancel()
-        return url
     }
 
     private func recordSent(_ item: LibraryItem, appBundleID: String?) {
@@ -1302,37 +1325,23 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
             stored.timesSent += 1
             stored.lastSentAt = Date()
             store.update(stored)
-        } else if item.kind == .web {
-            // A sent GIPHY pick outlives the 24 h web cache, so "⌃⌘M then ↵" can repeat it. Its still is
-            // copied out of the cache; the full GIF is downloaded again from remoteURL when it is copied.
-            var sent = item
-            sent.timesSent = 1
-            sent.lastSentAt = Date()
-            let fileManager = FileManager.default
-            let directory = store.rootURL.appendingPathComponent("Sent", isDirectory: true)
-            let copy = directory.appendingPathComponent(item.fileURL.lastPathComponent, isDirectory: false)
-            try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
-            if fileManager.fileExists(atPath: copy.path) || (try? fileManager.copyItem(at: item.fileURL, to: copy)) != nil {
-                sent.fileURL = copy
-            }
-            store.add(sent)   // keeps the stable id and contentHash "giphy:<id>"
         }
         var recents = store.recents
         recents.record(item.id, appBundleID: appBundleID)
         store.recents = recents
     }
 
-    /// Web tiles drag the full GIF, fetched when the receiving app asks for it, under a neutral name.
-    private func webDragProvider(for item: LibraryItem) -> NSItemProvider {
+    /// GIPHY tiles drag the full GIF, fetched when the receiving app asks for it, as "reaction.gif".
+    private func giphyDragProvider(for gif: WebGIF) -> NSItemProvider {
         let provider = NSItemProvider()
         let web = self.web
-        let fileName = Clipboard.neutralFileName(for: item)
-        provider.suggestedName = (fileName as NSString).deletingPathExtension
+        let fileName = "reaction.gif"
+        provider.suggestedName = "reaction"
         // The load handler runs on a background queue when the receiving app asks for the file, so it is
         // explicitly @Sendable (not main-actor isolated) and hops to the main actor for the download.
         provider.registerFileRepresentation(forTypeIdentifier: UTType.gif.identifier, fileOptions: [], visibility: .all) { @Sendable completion in
             Task { @MainActor in
-                let prepared = await web.prepareForCopy(item)
+                let prepared = await web.prepareForCopy(gif)
                 let shared = prepared.flatMap { makeDragCopy(of: $0, named: fileName) }
                 completion(shared, false, nil)
             }
@@ -1346,7 +1355,7 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
     private func libraryDidChange() {
         refreshFooter()
         guard isPanelVisible else { return }
-        let showsRemovedItem = results.contains { $0.item.kind != .web && store.item(id: $0.item.id) == nil }
+        let showsRemovedItem = results.contains { store.item(id: $0.item.id) == nil }
         if resultSource == .recent {
             // Fill the recent grid as memes arrive (amber ring, focus kept), but never reshuffle tiles
             // the user is pointing at.
@@ -1467,6 +1476,8 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
         resetQueryImage()
         tracker = PeakHoldTracker(baseline: tracker.baseline)
         earlyMood.reset()
+        clearGiphyRow()
+        showsGiphyRow = store.settings.webDiscoverEnabled && web.hasAPIKey
         if !pins.isEmpty { pins = [] }
         if holdProgress != 0 { holdProgress = 0 }
         if !newResultIDs.isEmpty { newResultIDs = [] }
@@ -1486,8 +1497,9 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
     private func cancelSessionTasks() {
         textDebounceTask?.cancel()
         textDebounceTask = nil
-        webTask?.cancel()
-        webTask = nil
+        giphyTask?.cancel()
+        giphyTask = nil
+        giphyGeneration += 1
         imageTask?.cancel()
         imageTask = nil
         cameraAccessTask?.cancel()

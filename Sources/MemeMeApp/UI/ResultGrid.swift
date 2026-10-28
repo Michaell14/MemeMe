@@ -2,7 +2,8 @@ import AppKit
 import MemeMeCore
 import SwiftUI
 
-/// The 5 × 2 grid of results. Empty slots keep their place so the panel never jumps.
+/// The 5 × 2 grid of your memes (GIPHY's results have their own row). Empty slots keep their place so the
+/// panel never jumps.
 struct ResultGrid: View {
     @ObservedObject var model: AppModel
 
@@ -161,7 +162,6 @@ struct ResultTile: View {
             .overlay(alignment: .topLeading) { numberBadge }
             .overlay(alignment: .topTrailing) { sourceMarker }
             .overlay(alignment: .bottomLeading) { gifBadge }
-            .overlay(alignment: .bottomTrailing) { webLabel }
             .overlay { ring }
             .animation(.easeOut(duration: 0.2), value: isNew)
             .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
@@ -225,14 +225,6 @@ struct ResultTile: View {
         }
     }
 
-    @ViewBuilder
-    private var webLabel: some View {
-        if item.kind == .web {
-            MicroBadge(text: item.attribution ?? "via GIPHY", weight: .medium)
-                .padding(5)
-        }
-    }
-
     /// Focus: 2 px accent ring with a 2 px gap. Just arrived: the same ring in amber.
     @ViewBuilder
     private var ring: some View {
@@ -284,20 +276,13 @@ struct ResultTile: View {
         }
         try? await Task.sleep(nanoseconds: 120_000_000)
         guard !Task.isCancelled else { return }
-        if item.kind == .web {
-            let preview = await model.web.localPreview(for: item)
-            if !Task.isCancelled {
-                animatedURL = preview
-            }
-        } else {
-            animatedURL = item.fileURL
-        }
+        animatedURL = item.fileURL
     }
 }
 
 // MARK: - Supporting tiles
 
-/// Tiny dark chip used for "GIF" and "via GIPHY".
+/// Tiny dark chip used for "GIF".
 private struct MicroBadge: View {
     let text: String
     let weight: Font.Weight

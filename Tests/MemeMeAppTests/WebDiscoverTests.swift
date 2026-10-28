@@ -1,46 +1,29 @@
+import AppKit
 import CoreFoundation
 import Foundation
 @testable import MemeMeApp
 import MemeMeCore
 import XCTest
 
-/// A tiny GIPHY for a URLSession built with this protocol class: the search answers with one result per id, each
-/// with its still on media0…4.giphy.com, and the stills are served after a short delay so the ones a search starts
-/// together overlap. Stills can be held back until released, to watch results stream in.
+/// A tiny GIPHY for a URLSession built with this protocol class: the search answers with one result per id (stills
+/// and full GIFs on media0…4.giphy.com), and every media URL serves the same GIF bytes.
 final class WebStubURLProtocol: URLProtocol {
     private static let lock = NSLock()
     private static var searchStatus = 200
     private static var searchBody = Data()
-    private static var stillBody = Data()
-    private static var heldIDs: Set<String> = []
-    private static var waiting: [String: WebStubURLProtocol] = [:]
+    private static var mediaBody = Data()
     private static var searches = 0
-    private static var stillsInFlight = 0
-    private static var maximumStillsInFlight = 0
-    /// Stills reply after this, so a search's stills are in flight together.
-    private static let stillDelay: TimeInterval = 0.15
+    private static var mediaRequests = 0
 
-    /// Forgets earlier requests and serves `ids` (search status `searchStatus`), holding back the stills of `holding`.
-    static func serve(ids: [String], still: Data, searchStatus status: Int = 200, holding: Set<String> = []) {
+    /// Forgets earlier requests and serves `ids` (the search answering `searchStatus`) with `media` for every image.
+    static func serve(ids: [String], media: Data, searchStatus status: Int = 200) {
         lock.lock()
         defer { lock.unlock() }
         searchStatus = status
         searchBody = Data(searchJSON(ids: ids).utf8)
-        stillBody = still
-        heldIDs = holding
-        waiting = [:]
+        mediaBody = media
         searches = 0
-        stillsInFlight = 0
-        maximumStillsInFlight = 0
-    }
-
-    /// Lets a held still answer.
-    static func release(_ id: String) {
-        lock.lock()
-        heldIDs.remove(id)
-        let held = waiting.removeValue(forKey: id)
-        lock.unlock()
-        held?.reply(status: 200, body: stillBody, isStill: true, after: 0)
+        mediaRequests = 0
     }
 
     static var searchCount: Int {
@@ -49,10 +32,10 @@ final class WebStubURLProtocol: URLProtocol {
         return searches
     }
 
-    static var mostStillsAtOnce: Int {
+    static var mediaRequestCount: Int {
         lock.lock()
         defer { lock.unlock() }
-        return maximumStillsInFlight
+        return mediaRequests
     }
 
     static func searchJSON(ids: [String]) -> String {
@@ -62,7 +45,8 @@ final class WebStubURLProtocol: URLProtocol {
             {"type": "gif", "id": "\(id)", "title": "GIF \(id)", "images": {
               "downsized": {"height": "200", "width": "200", "url": "\(media)/giphy-downsized.gif"},
               "fixed_width_small": {"height": "100", "width": "100", "url": "\(media)/100w.gif"},
-              "fixed_width_small_still": {"height": "100", "width": "100", "url": "\(media)/100w_s.gif"}}}
+              "fixed_width_small_still": {"height": "100", "width": "100", "url": "\(media)/100w_s.gif"}},
+             "user": {"username": "maker\(index)", "display_name": ""}}
             """
         }
         return #"{"data": ["# + entries.joined(separator: ",") + #"], "meta": {"status": 200}}"#
@@ -85,82 +69,49 @@ final class WebStubURLProtocol: URLProtocol {
             client?.urlProtocol(self, didFailWithError: URLError(.badURL))
             return
         }
-        if url.host == "api.giphy.com" {
-            WebStubURLProtocol.lock.lock()
-            WebStubURLProtocol.searches += 1
-            let status = WebStubURLProtocol.searchStatus
-            let body = WebStubURLProtocol.searchBody
-            WebStubURLProtocol.lock.unlock()
-            reply(status: status, body: body, isStill: false, after: 0)
-            return
-        }
-        // https://mediaN.giphy.com/media/<id>/100w_s.gif
-        let components = url.pathComponents
-        let id = components.count > 2 ? components[2] : ""
         WebStubURLProtocol.lock.lock()
-        WebStubURLProtocol.stillsInFlight += 1
-        WebStubURLProtocol.maximumStillsInFlight = max(WebStubURLProtocol.maximumStillsInFlight, WebStubURLProtocol.stillsInFlight)
-        let isHeld = WebStubURLProtocol.heldIDs.contains(id)
-        if isHeld {
-            WebStubURLProtocol.waiting[id] = self
+        let status: Int
+        let body: Data
+        if url.host == "api.giphy.com" {
+            WebStubURLProtocol.searches += 1
+            status = WebStubURLProtocol.searchStatus
+            body = WebStubURLProtocol.searchBody
+        } else {
+            WebStubURLProtocol.mediaRequests += 1
+            status = 200
+            body = WebStubURLProtocol.mediaBody
         }
-        let body = WebStubURLProtocol.stillBody
         WebStubURLProtocol.lock.unlock()
-        if !isHeld {
-            reply(status: 200, body: body, isStill: true, after: WebStubURLProtocol.stillDelay)
-        }
+        reply(status: status, body: body)
     }
 
     override func stopLoading() {
         stopped = true
     }
 
-    /// Answers later on the thread URLSession started this request on, as URLProtocol expects.
-    private func reply(status: Int, body: Data, isStill: Bool, after delay: TimeInterval) {
-        DispatchQueue.global().asyncAfter(deadline: .now() + delay) {
+    /// Answers on the thread URLSession started this request on, as URLProtocol expects.
+    private func reply(status: Int, body: Data) {
+        DispatchQueue.global().async {
             guard let runLoop = self.clientRunLoop else { return }
             CFRunLoopPerformBlock(runLoop, CFRunLoopMode.defaultMode.rawValue) {
-                self.deliver(status: status, body: body, isStill: isStill)
+                self.deliver(status: status, body: body)
             }
             CFRunLoopWakeUp(runLoop)
         }
     }
 
-    private func deliver(status: Int, body: Data, isStill: Bool) {
-        if isStill {
-            WebStubURLProtocol.lock.lock()
-            WebStubURLProtocol.stillsInFlight -= 1
-            WebStubURLProtocol.lock.unlock()
-        }
+    private func deliver(status: Int, body: Data) {
         guard !stopped, let url = request.url,
-              let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: nil) else { return }
-        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+              let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: ["Cache-Control": "max-age=3600"]) else { return }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .allowed)
         client?.urlProtocol(self, didLoad: body)
         client?.urlProtocolDidFinishLoading(self)
     }
 }
 
-/// What a test has read from a results stream so far (main actor only).
-@MainActor
-private final class StreamLog {
-    var counts: [Int] = []
-    var finished = false
-    var latest: Int { counts.last ?? 0 }
-
-    func read(_ stream: AsyncStream<[LibraryItem]>) -> Task<Void, Never> {
-        Task { @MainActor in
-            for await snapshot in stream {
-                self.counts.append(snapshot.count)
-            }
-            self.finished = true
-        }
-    }
-}
-
-/// WebDiscover against the stub: no real network, the cache in the test's temporary folder. Stills are analyzed with
-/// Vision like real ones, so these tests need Vision on the test machine.
+/// WebDiscover against the stub: no real network, its files in the test's temporary folder.
 final class WebDiscoverTests: XCTestCase {
-    private static let budget: TimeInterval = 20
+    private static let budget: TimeInterval = 10
 
     @MainActor
     private func makeWeb(in sandbox: TestSandbox, enabled: Bool = true, key: String? = "test-key") throws -> (WebDiscover, LibraryStore) {
@@ -171,11 +122,15 @@ final class WebDiscoverTests: XCTestCase {
         store.settings = settings
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [WebStubURLProtocol.self]
-        let web = WebDiscover(store: store, cacheRoot: sandbox.url.appendingPathComponent("Web", isDirectory: true), configuration: configuration)
+        let web = WebDiscover(store: store, cacheRoot: webRoot(in: sandbox), configuration: configuration)
         return (web, store)
     }
 
-    private func stillData(in sandbox: TestSandbox) throws -> Data {
+    private func webRoot(in sandbox: TestSandbox) -> URL {
+        sandbox.url.appendingPathComponent("Web", isDirectory: true)
+    }
+
+    private func gifData(in sandbox: TestSandbox) throws -> Data {
         let url = sandbox.file("still.gif")
         try TestImages.writeGIF([TestImages.shapes(width: 100, height: 100)], to: url)
         return try Data(contentsOf: url)
@@ -185,116 +140,104 @@ final class WebDiscoverTests: XCTestCase {
         (0..<count).map { "gif\($0)" }
     }
 
-    /// Lets a search's last writes land before the sandbox goes.
     @MainActor
-    private func settle(_ web: WebDiscover) async {
-        _ = await waitUntil(timeout: WebDiscoverTests.budget) { !web.isFetching }
-    }
-
-    @MainActor
-    func testStillsDownloadTogetherAndResultsArriveBeforeTheSlowestOne() async throws {
+    func testResultsKeepGIPHYsOrderAndAreReusedFromMemory() async throws {
         let sandbox = try TestSandbox()
         defer { sandbox.remove() }
         let (web, _) = try makeWeb(in: sandbox)
-        let still = try stillData(in: sandbox)
-        WebStubURLProtocol.serve(ids: ids(6), still: still, holding: Set(ids(6)))
+        WebStubURLProtocol.serve(ids: ids(7), media: try gifData(in: sandbox))
 
-        let log = StreamLog()
-        let reading = log.read(web.results(for: .shocked))
-        // Every still is held, so six are in flight only if all six were requested together, however slow the machine.
-        let allStarted = await waitUntil(timeout: WebDiscoverTests.budget) { WebStubURLProtocol.mostStillsAtOnce == 6 }
-        XCTAssertTrue(allStarted, "every still should download at once; at most \(WebStubURLProtocol.mostStillsAtOnce) did")
-        for id in ids(5) {
-            WebStubURLProtocol.release(id)
+        let gifs = await web.gifs(for: .shocked)
+        XCTAssertEqual(gifs?.map(\.id), ids(7), "GIPHY's results, in GIPHY's order")
+        XCTAssertEqual(gifs?.first?.creator, "maker0", "an empty display name falls back to the username")
+        XCTAssertEqual(web.cachedGIFs(for: .shocked)?.map(\.id), ids(7))
+        XCTAssertNil(web.cachedGIFs(for: .happy))
+        XCTAssertEqual(WebStubURLProtocol.searchCount, 1)
+
+        let again = await web.gifs(for: .shocked)
+        XCTAssertEqual(again?.map(\.id), ids(7))
+        XCTAssertEqual(WebStubURLProtocol.searchCount, 1, "results from the last 10 minutes are reused")
+        XCTAssertEqual(WebDiscover.resultLifetime, 600)
+    }
+
+    @MainActor
+    func testNoResultsOrImagesAreWrittenToDisk() async throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.remove() }
+        let (web, _) = try makeWeb(in: sandbox)
+        WebStubURLProtocol.serve(ids: ids(3), media: try gifData(in: sandbox))
+
+        let found = await web.gifs(for: .laughing)
+        let gifs = try XCTUnwrap(found)
+        for gif in gifs {
+            let still = await web.still(for: gif)
+            XCTAssertNotNil(still)
+            XCTAssertNotNil(web.cachedStill(for: gif))
+            let preview = await web.preview(for: gif)
+            XCTAssertNotNil(preview)
         }
-        let fiveIn = await waitUntil(timeout: WebDiscoverTests.budget) { log.latest == 5 }
-        XCTAssertTrue(fiveIn, "results should stream in while one still is held back; got \(log.counts)")
-        XCTAssertFalse(log.finished)
-        XCTAssertEqual(web.partialItems(for: .shocked).count, 5)
-        XCTAssertEqual(web.partialItems(for: .shocked).map(\.contentHash), ["giphy:gif0", "giphy:gif1", "giphy:gif2", "giphy:gif3", "giphy:gif4"])
-        XCTAssertTrue(web.cachedItems(for: .shocked).isEmpty, "a search is cached only once it is complete")
-
-        WebStubURLProtocol.release("gif5")
-        await reading.value
-        XCTAssertEqual(log.latest, 6)
-        XCTAssertEqual(web.cachedItems(for: .shocked).count, 6)
-        XCTAssertTrue(web.partialItems(for: .shocked).isEmpty)
-        XCTAssertEqual(WebStubURLProtocol.searchCount, 1)
-
-        // Cached now: answered at once, without searching again.
-        let again = StreamLog()
-        await again.read(web.results(for: .shocked)).value
-        XCTAssertEqual(again.counts, [6])
-        XCTAssertEqual(WebStubURLProtocol.searchCount, 1)
-        await settle(web)
+        // Only the search times and the (empty) folder for copies; HTTP/ is URLSession's own cache.
+        let rateFile = webRoot(in: sandbox).appendingPathComponent("rate.json")
+        _ = await waitUntil(timeout: WebDiscoverTests.budget) { FileManager.default.fileExists(atPath: rateFile.path) }
+        let names = visibleFileNames(in: webRoot(in: sandbox)).filter { $0 != "HTTP" }
+        XCTAssertEqual(names, ["files", "rate.json"])
+        XCTAssertEqual(visibleFileNames(in: webRoot(in: sandbox).appendingPathComponent("files")), [])
     }
 
     @MainActor
-    func testASecondListenerJoinsTheRunningSearch() async throws {
+    func testCopyingDownloadsTheFullGIFToAShortLivedFile() async throws {
         let sandbox = try TestSandbox()
         defer { sandbox.remove() }
         let (web, _) = try makeWeb(in: sandbox)
-        let still = try stillData(in: sandbox)
-        WebStubURLProtocol.serve(ids: ids(3), still: still, holding: ["gif2"])
+        let media = try gifData(in: sandbox)
+        WebStubURLProtocol.serve(ids: ids(1), media: media)
 
-        let first = StreamLog()
-        let firstReading = first.read(web.results(for: .happy))
-        _ = await waitUntil(timeout: WebDiscoverTests.budget) { first.latest == 2 }
-
-        let second = StreamLog()
-        let secondReading = second.read(web.results(for: .happy))
-        let caughtUp = await waitUntil(timeout: WebDiscoverTests.budget) { second.latest == 2 }
-        XCTAssertTrue(caughtUp, "a new listener gets what is already in; got \(second.counts)")
-        XCTAssertEqual(WebStubURLProtocol.searchCount, 1)
-
-        WebStubURLProtocol.release("gif2")
-        await firstReading.value
-        await secondReading.value
-        XCTAssertEqual(first.latest, 3)
-        XCTAssertEqual(second.latest, 3)
-        await settle(web)
+        let found = await web.gifs(for: .smug)
+        let gif = try XCTUnwrap(found?.first)
+        let prepared = await web.prepareForCopy(gif)
+        let file = try XCTUnwrap(prepared)
+        XCTAssertEqual(try Data(contentsOf: file), media)
+        XCTAssertEqual(file.deletingLastPathComponent().lastPathComponent, "files")
+        let again = await web.prepareForCopy(gif)
+        XCTAssertEqual(again, file)
     }
 
     @MainActor
-    func testWarmStartsOneSearchThatResultsJoin() async throws {
+    func testWarmStartsOneSearchThatOthersJoin() async throws {
         let sandbox = try TestSandbox()
         defer { sandbox.remove() }
         let (web, _) = try makeWeb(in: sandbox)
-        let still = try stillData(in: sandbox)
-        WebStubURLProtocol.serve(ids: ids(2), still: still)
+        WebStubURLProtocol.serve(ids: ids(2), media: try gifData(in: sandbox))
 
-        web.warm(.laughing)
-        web.warm(.laughing)
-        let log = StreamLog()
-        await log.read(web.results(for: .laughing)).value
-        XCTAssertEqual(log.latest, 2)
+        web.warm(.crying)
+        web.warm(.crying)
+        XCTAssertTrue(web.isSearching(.crying))
+        let gifs = await web.gifs(for: .crying)
+        XCTAssertEqual(gifs?.count, 2)
+        XCTAssertFalse(web.isSearching(.crying))
         XCTAssertEqual(WebStubURLProtocol.searchCount, 1)
 
-        web.warm(.laughing)
-        XCTAssertFalse(web.isFetching, "a cached mood is not searched again")
+        web.warm(.crying)
+        XCTAssertFalse(web.isSearching(.crying), "fresh results are not searched again")
         XCTAssertEqual(WebStubURLProtocol.searchCount, 1)
-        await settle(web)
     }
 
     @MainActor
     func testNothingIsSearchedWhenOffOrWithoutAKey() async throws {
         let sandbox = try TestSandbox()
         defer { sandbox.remove() }
-        let still = try stillData(in: sandbox)
-        WebStubURLProtocol.serve(ids: ids(2), still: still)
+        WebStubURLProtocol.serve(ids: ids(2), media: try gifData(in: sandbox))
 
         let (off, _) = try makeWeb(in: sandbox, enabled: false)
         XCTAssertEqual(off.status, .off)
         off.warm(.sad)
-        let offLog = StreamLog()
-        await offLog.read(off.results(for: .sad)).value
-        XCTAssertEqual(offLog.counts, [])
+        let offResult = await off.gifs(for: .sad)
+        XCTAssertNil(offResult)
 
         let (keyless, _) = try makeWeb(in: sandbox, key: nil)
         XCTAssertEqual(keyless.status, .noKey)
-        let keylessLog = StreamLog()
-        await keylessLog.read(keyless.results(for: .sad)).value
-        XCTAssertEqual(keylessLog.counts, [])
+        let keylessResult = await keyless.gifs(for: .sad)
+        XCTAssertNil(keylessResult)
         XCTAssertEqual(WebStubURLProtocol.searchCount, 0)
     }
 
@@ -303,18 +246,15 @@ final class WebDiscoverTests: XCTestCase {
         let sandbox = try TestSandbox()
         defer { sandbox.remove() }
         let (web, _) = try makeWeb(in: sandbox)
-        WebStubURLProtocol.serve(ids: [], still: Data(), searchStatus: 429)
+        WebStubURLProtocol.serve(ids: [], media: Data(), searchStatus: 429)
 
-        let log = StreamLog()
-        await log.read(web.results(for: .angry)).value
-        await settle(web)
-        XCTAssertEqual(log.counts, [])
+        let refused = await web.gifs(for: .angry)
+        XCTAssertNil(refused)
         XCTAssertEqual(web.status, .limitReached)
         XCTAssertEqual(WebStubURLProtocol.searchCount, 1, "GIPHY refusing a search is not retried")
 
-        let other = StreamLog()
-        await other.read(web.results(for: .confused)).value
-        XCTAssertEqual(other.counts, [])
+        let other = await web.gifs(for: .confused)
+        XCTAssertNil(other)
         XCTAssertEqual(WebStubURLProtocol.searchCount, 1, "no searches while paused")
     }
 
@@ -323,25 +263,21 @@ final class WebDiscoverTests: XCTestCase {
         let sandbox = try TestSandbox()
         defer { sandbox.remove() }
         let (web, store) = try makeWeb(in: sandbox)
-        WebStubURLProtocol.serve(ids: [], still: Data(), searchStatus: 403)
+        WebStubURLProtocol.serve(ids: [], media: Data(), searchStatus: 403)
 
-        await StreamLog().read(web.results(for: .smug)).value
-        await settle(web)
+        _ = await web.gifs(for: .smug)
         XCTAssertEqual(web.status, .keyRejected)
-        await StreamLog().read(web.results(for: .nervous)).value
+        _ = await web.gifs(for: .nervous)
         XCTAssertEqual(WebStubURLProtocol.searchCount, 1, "the refused key waits")
 
         var settings = store.settings
         settings.giphyAPIKey = "new-key"
         store.settings = settings
         XCTAssertEqual(web.status, .ready)
-        let still = try stillData(in: sandbox)
-        WebStubURLProtocol.serve(ids: ids(1), still: still)
-        let log = StreamLog()
-        await log.read(web.results(for: .nervous)).value
-        XCTAssertEqual(log.latest, 1)
+        WebStubURLProtocol.serve(ids: ids(1), media: try gifData(in: sandbox))
+        let gifs = await web.gifs(for: .nervous)
+        XCTAssertEqual(gifs?.count, 1)
         XCTAssertEqual(WebStubURLProtocol.searchCount, 1)
-        await settle(web)
     }
 
     @MainActor
@@ -349,11 +285,38 @@ final class WebDiscoverTests: XCTestCase {
         let sandbox = try TestSandbox()
         defer { sandbox.remove() }
         let (web, _) = try makeWeb(in: sandbox)
-        WebStubURLProtocol.serve(ids: [], still: Data(), searchStatus: 503)
+        WebStubURLProtocol.serve(ids: [], media: Data(), searchStatus: 503)
 
-        await StreamLog().read(web.results(for: .crying)).value
-        await settle(web)
+        let failed = await web.gifs(for: .excited)
+        XCTAssertNil(failed)
         XCTAssertEqual(WebStubURLProtocol.searchCount, 2)
         XCTAssertEqual(web.status, .ready, "a server error doesn't pause other moods")
+    }
+
+    @MainActor
+    func testPruningDeletesOldCopiesAndEarlierVersionsResultFiles() async throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.remove() }
+        let root = webRoot(in: sandbox)
+        let files = root.appendingPathComponent("files", isDirectory: true)
+        try FileManager.default.createDirectory(at: files, withIntermediateDirectories: true)
+        let oldManifest = root.appendingPathComponent("shocked.json")
+        let oldStill = files.appendingPathComponent("abc-still.gif")
+        let recentCopy = files.appendingPathComponent("def-full.gif")
+        for url in [oldManifest, oldStill, recentCopy] {
+            try Data("x".utf8).write(to: url)
+        }
+        try Data("[]".utf8).write(to: root.appendingPathComponent("rate.json"))
+        let twoHoursAgo = Date().addingTimeInterval(-7200)
+        try FileManager.default.setAttributes([.modificationDate: twoHoursAgo], ofItemAtPath: oldStill.path)
+
+        let (web, _) = try makeWeb(in: sandbox)
+        web.pruneCache()
+        let pruned = await waitUntil(timeout: WebDiscoverTests.budget) {
+            !FileManager.default.fileExists(atPath: oldManifest.path) && !FileManager.default.fileExists(atPath: oldStill.path)
+        }
+        XCTAssertTrue(pruned)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: recentCopy.path), "a copy made within the hour stays")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("rate.json").path))
     }
 }

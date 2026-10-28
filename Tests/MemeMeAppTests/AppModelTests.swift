@@ -75,6 +75,33 @@ final class AppModelTests: XCTestCase {
     }
 
     @MainActor
+    func testLaunchForgetsGIPHYPicksEarlierVersionsSaved() throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.remove() }
+        let items = fixtures(in: sandbox)
+        let pick = LibraryItem(
+            fileURL: sandbox.url.appendingPathComponent("Library/Sent/abc-still.gif"),
+            displayName: "Shocked",
+            kind: .web,
+            source: "GIPHY",
+            contentHash: "giphy:abc",
+            isAnimated: true
+        )
+        let model = try makeModel(in: sandbox, items: [items.march, pick])
+
+        XCTAssertEqual(model.store.items.map { $0.id }, [items.march.id], "saved GIPHY picks are removed when the app starts")
+        model.panelWillShow(previousApp: nil)
+        defer {
+            model.panelDidHide()
+            model.saveNow()
+        }
+        XCTAssertEqual(model.results.map { $0.item.id }, [items.march.id])
+        XCTAssertFalse(model.showsGiphyRow, "Web Discover is off in these tests")
+        XCTAssertTrue(model.giphyResults.isEmpty)
+        XCTAssertEqual(model.focusedPick, .meme(items.march))
+    }
+
+    @MainActor
     func testTypingSearchesByWordsGroupedByMonth() async throws {
         let sandbox = try TestSandbox()
         defer { sandbox.remove() }

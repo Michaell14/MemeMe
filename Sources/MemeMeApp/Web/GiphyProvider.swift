@@ -102,7 +102,8 @@ struct GiphyProvider: GIFProvider {
             width: max(0, width),
             height: max(0, height),
             pageURL: GiphyProvider.httpsURL(entry.pageURL),
-            provider: name
+            provider: name,
+            creator: entry.creator
         )
     }
 
@@ -174,9 +175,10 @@ private struct GiphyEntry: Decodable {
     let title: String
     let pageURL: String?
     let images: [String: GiphyRendition]
+    let creator: String?
 
     private enum CodingKeys: String, CodingKey {
-        case id, title, url, images
+        case id, title, url, images, user
     }
 
     init(from decoder: Decoder) throws {
@@ -197,6 +199,26 @@ private struct GiphyEntry: Decodable {
             }
         }
         self.images = images
+        let user = try? container.decodeIfPresent(GiphyUser.self, forKey: .user)
+        creator = user?.name
+    }
+}
+
+/// The GIF's maker, for attribution.
+private struct GiphyUser: Decodable {
+    let name: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case displayName = "display_name"
+        case username
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let names = [CodingKeys.displayName, .username].compactMap { key in
+            (try? container.decodeIfPresent(String.self, forKey: key))?.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        name = names.first { !$0.isEmpty }
     }
 }
 

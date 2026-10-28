@@ -3,7 +3,8 @@ import MemeMeCore
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The compact strip: mirror + hint on the left, search field + 5 × 2 grid on the right, footer below.
+/// The compact strip: mirror + hint on the left; search field, your memes (5 × 2) and the GIPHY row on the right;
+/// footer below.
 struct PanelView: View {
     @ObservedObject var model: AppModel
 
@@ -36,6 +37,10 @@ struct PanelView: View {
                     }
                     ResultGrid(model: model)
                         .opacity(model.showSetupCard ? 0.55 : 1)
+                    if model.showsGiphyRow {
+                        GiphyRow(model: model)
+                            .opacity(model.showSetupCard ? 0.55 : 1)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .topLeading)
             }

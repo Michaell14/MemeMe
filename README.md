@@ -2,7 +2,7 @@
 
 A tiny macOS menu-bar app for reaction images. In any chat, press **⌃⌘M**, make a face, and pick a reaction. It is copied to the clipboard and you are back in the chat. Paste it with ⌘V. MemeMe never pastes or sends anything for you.
 
-- **Your face is the search box.** Hold an expression for a moment and results follow it: memes you already have on your Mac, friend stickers you made, and (optionally) GIPHY reactions for the mood your face shows.
+- **Your face is the search box.** Hold an expression for a moment and results follow it: memes you already have on your Mac and friend stickers you made, plus (optionally) a row of GIPHY reactions for the mood your face shows.
 - **One commit.** ↵, a number key 1–9, or a click copies the result and closes the panel.
 - **Small.** Swift and Apple frameworks only, no third-party packages, no bundled ML models. The camera runs only while the panel is open.
 
@@ -84,8 +84,8 @@ Every change to the app on the default branch is released automatically. When `S
 | ⌃⌘M | Open or close the panel (in any app, no permission needed) |
 | Make a face | Hold it for about 0.3 s; a different face needs about 1 s (the ring fills) |
 | Space | Use the current face now, even a neutral one (only while the search field is empty) |
-| ↵, 1–9, click | Copy the focused, numbered or clicked result and close |
-| Arrow keys | Move the focus |
+| ↵, 1–9, click | Copy the focused, numbered or clicked result and close (1–9 are your memes) |
+| Arrow keys | Move the focus; ↓ from your memes goes to the GIPHY row |
 | Typing | Search by words: text in images, labels, file names, sources, friends' names. Filter words: `mine`, `gif`, `sticker`, a friend's name |
 | ⌘V or drop an image on the panel | Search with that image. It is not saved unless you click **Keep it** |
 | Tab / Shift-Tab | More like the focused result / back to your face |
@@ -102,7 +102,7 @@ Every change to the app on the default branch is released automatically. When `S
 - **Camera.** On only while the panel is open, and it stops when the panel closes. Frames are analyzed on your Mac with Apple's Vision framework and then discarded. Nothing is recorded or uploaded. The only thing MemeMe keeps is your "resting face": a handful of numbers (no image) that it learns from calm frames, so it can tell how much your face moved. **Forget My Resting Face** in the menu resets it.
 - **Folders.** After **Find my memes** (or from the menu), MemeMe indexes images in Downloads, Desktop and your screenshot folder. macOS asks once per folder. Files are never copied or moved: the index stores features, a compact image fingerprint and the text found in each image (about 4 KB per meme). Personal photos and chat screenshots are sorted out and keep no face data or text. Only images you hand in yourself (dropped on the icon, or **Keep it**) are copied, into `~/Library/Application Support/MemeMe/Kept`.
 - **No Accessibility access, ever.** MemeMe only writes to the clipboard. You paste.
-- **Network.** Only with Web Discover on and a GIPHY key set: the one mood word for your face (for example "shocked reaction") goes to GIPHY. Small stills come back, are analyzed on your Mac and cached for 24 hours in `~/Library/Caches/MemeMe/Web` (capped at 50 MB). Popular moods are prefetched only on unmetered networks and not in Low Power Mode.
+- **Network.** Only with Web Discover on and a GIPHY key set: the one mood word for your face (for example "shocked reaction") goes to GIPHY, sometimes a moment before you finish making the face. GIPHY's results show in their own row, in GIPHY's order, and are kept in memory for 10 minutes. Their images load from GIPHY with ordinary web caching; a GIF you copy or drag is downloaded to a temporary file that is deleted within the hour. Nothing from GIPHY goes into your library.
 - **Update checks.** Release builds fetch `latest.json` from GitHub Releases every 6 hours. The request carries nothing about you or your library. The new DMG is downloaded only after you click **Update**.
 - **Friend stickers.** Grouping stickers by person is opt-in. Face matching compares a sticker's face only with stickers you made, and the data never leaves your Mac.
 - **Where data lives.** `~/Library/Application Support/MemeMe` (index, settings, kept images, stickers) and `~/Library/Caches/MemeMe`. Delete both to start over.
@@ -110,13 +110,16 @@ Every change to the app on the default branch is released automatically. When `S
 
 ## GIPHY API key
 
-Web Discover finds reaction GIFs on GIPHY for the face you make, next to the memes you already have. It is on by default, but it does nothing without an API key; the menu then shows **Web Discover (GIPHY): No API Key**.
+Web Discover shows a row of GIPHY reaction GIFs for the face you make, under the memes you already have, with GIPHY's "Powered by GIPHY" mark. It is on by default, but it does nothing without an API key; the menu then shows **Web Discover (GIPHY): No API Key**.
 
-1. Create an app at [developers.giphy.com](https://developers.giphy.com) (choose **API**) and copy its API key. A new key is a beta key: 100 calls per hour. MemeMe stays under 90 per rolling hour on each Mac and caches results for 24 hours, but GIPHY counts calls per key, so every copy of a release shares the built-in key's limit. That's fine for you and a few friends; before sharing MemeMe widely, use **Upgrade to Production** on the key in GIPHY's dashboard.
+1. Create an app at [developers.giphy.com](https://developers.giphy.com) (choose **API**) and copy its API key. A new key is a beta key: 100 calls per hour. MemeMe stays under 90 per rolling hour on each Mac and reuses a mood's results for 10 minutes, but GIPHY counts calls per key, so every copy of a release shares the built-in key's limit. That's fine for you and a few friends; before sharing MemeMe widely, use **Upgrade to Production** on the key in GIPHY's dashboard.
 2. Choose one way to provide it:
    - **Build time:** `GIPHY_API_KEY=your-key ./scripts/build-app.sh` writes it into the bundle's Info.plist (`GiphyAPIKey`).
    - **CI:** add a repository secret named `GIPHY_API_KEY` (Settings → Secrets and variables → Actions). The workflow passes it to the build script. Release runs fail without it; other builds without the secret, such as pull requests from forks, get an empty key.
    - **At run time:** menu-bar icon → **Set GIPHY API Key…**. This overrides the built-in key; leave it empty to go back to the built-in one.
+3. Add GIPHY's attribution mark: download the official **Powered by GIPHY** image for dark backgrounds from GIPHY's developer site and save it as `Resources/GIPHY/PoweredByGIPHY.png` (and `PoweredByGIPHY@2x.png`). `scripts/build-app.sh` copies it into the app; without it the GIPHY row shows the words "Powered by GIPHY".
+
+MemeMe follows GIPHY's integration rules: results in their own row, in GIPHY's order, unfiltered, never mixed with your memes and never stored.
 
 Turn Web Discover off from the menu to keep MemeMe offline, apart from the update check.
 
@@ -128,7 +131,7 @@ Sources/MemeMeCore/           Foundation-only logic, also builds on Linux
   FaceFeatures, Baseline        face features and the learned resting face
   PeakHoldTracker               turns camera frames into a stable query ("no shutter")
   FeatureWeights, Ranker        scoring for face, text, image, more-like and recent searches
-  ResultMerger                  merges late web results without moving the focused tile
+  EarlyMoodTrigger, TileGrid     when a held face's mood is clear (early GIPHY search); keyboard focus across rows
   Mood                          face → mood word for GIPHY
   Classifier, LibraryItem,      library model, meme/maybe/skipped sorting, JSON store
   LibraryStore, RecentStore,
@@ -140,10 +143,10 @@ Sources/MemeMeApp/            the macOS app (AppKit + SwiftUI)
   Camera/                       AVFoundation capture and the mirrored preview
   Vision/                       face landmarks → features, image analysis, thumbnails
   Library/                      folder watching and indexing
-  Web/                          GIPHY provider and the mood cache
+  Web/                          GIPHY search and media for the GIPHY row
   Stickers/                     subject lifting into die-cut stickers, friend grouping
   System/                       clipboard, Low Power / network conditions
-  UI/                           panel, mirror, result grid, footer, setup card, HUD, sticker popover
+  UI/                           panel, mirror, result grid, GIPHY row, footer, setup card, HUD, sticker popover
   Update/                       update checks, download and verification, one-click install
 Tests/MemeMeCoreTests/        XCTest suite for the core
 VERSION                       the marketing version; the build number is the commit count

@@ -207,6 +207,27 @@ public final class LibraryStore {
         }
     }
 
+    /// rootURL/Sent, where earlier versions kept the stills of GIPHY picks that were sent. Never created.
+    public var legacySentDirectory: URL {
+        rootURL.appendingPathComponent("Sent", isDirectory: true)
+    }
+
+    /// Forgets the GIPHY picks earlier versions saved when they were sent (GIPHY's media is no longer kept),
+    /// with their files and recents, then the Sent folder unless something else still uses it.
+    /// Returns how many items were removed.
+    @discardableResult
+    public func removeSavedWebItems() -> Int {
+        let ids = Set(items.filter { $0.kind == .web || $0.contentHash.hasPrefix("giphy:") }.map(\.id))
+        remove(ids: ids)
+        let sentPath = LibraryStore.pathKey(for: legacySentDirectory)
+        let stillUsed = items.contains { LibraryStore.isFile($0.fileURL, insideDirectoryAtPath: sentPath) }
+            || storedSettings.watchedFolders.contains { LibraryStore.pathKey(forPath: $0) == sentPath }
+        if !stillUsed, FileManager.default.fileExists(atPath: sentPath) {
+            try? FileManager.default.removeItem(at: legacySentDirectory)
+        }
+        return ids.count
+    }
+
     /// Inserts or replaces the person with the same id.
     public func upsert(_ person: Person) {
         if let index = people.firstIndex(where: { $0.id == person.id }) {
