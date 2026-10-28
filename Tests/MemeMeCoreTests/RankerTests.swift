@@ -29,7 +29,7 @@ final class RankerTests: XCTestCase {
         let results = ranker.rank([faceless, neutral, smile, mild, surprise],
                                   query: .expression(sample(TestFaces.surprise), weights: .uniform))
         XCTAssertEqual(names(results), ["surprise", "mild", "smile", "neutral", "faceless"])
-        XCTAssertEqual(results[0].score, 1.0095, accuracy: 1e-9)     // 0.9895 + 0.02 own
+        XCTAssertEqual(results[0].score, 1.02, accuracy: 1e-9)       // 1 + 0.02 own
         XCTAssertEqual(results[0].id, surprise.id)
         XCTAssertNil(results[0].section)
         for index in 1..<results.count {
@@ -40,8 +40,8 @@ final class RankerTests: XCTestCase {
     func testExpressionScoreFormula() {
         let target = intensity(TestFaces.surprise)
         let pack = makeItem(name: "pack", kind: .pack, face: TestFaces.surprise, intensity: target)
-        // featureSim 1; poseSim = 1 - |0.1 - 0| = 0.9; faceScore = 0.85 + 0.15 × 0.9 = 0.985; fit 1 → 0.7 × 0.985 + 0.3
-        XCTAssertEqual(ranker.expressionScore(item: pack, sample: sample(TestFaces.surprise), weights: .uniform), 0.9895, accuracy: 1e-9)
+        // featureSim 1; no body on either side → poseSim 1 (unknown, and no gesture to miss); fit 1 → 0.7 × 1 + 0.3
+        XCTAssertEqual(ranker.expressionScore(item: pack, sample: sample(TestFaces.surprise), weights: .uniform), 1.0, accuracy: 1e-9)
 
         let handsUp = PoseFeatures(handsRaised: 1, armsSpread: 0, bodyVisible: 1)
         let posed = makeItem(name: "posed", kind: .pack, face: TestFaces.surprise, pose: handsUp, intensity: target)
@@ -82,14 +82,14 @@ final class RankerTests: XCTestCase {
         let items = [mouthMatch, restMatch]
 
         let uniform = ranker.rank(items, query: .expression(sample(query), weights: .uniform))
-        XCTAssertEqual(names(uniform), ["rest", "mouth"])          // 0.930 vs 0.801
+        XCTAssertEqual(names(uniform), ["rest", "mouth"])
 
         let pinned = ranker.rank(items, query: .expression(sample(query), weights: FeatureWeights.uniform.pinning([.mouth])))
-        XCTAssertEqual(names(pinned), ["mouth", "rest"])           // 0.931 vs 0.831
+        XCTAssertEqual(names(pinned), ["mouth", "rest"])
 
-        let inferred = FeatureWeights.automatic(deviation: RestingBaseline().deviation(of: query), poseActivity: 0)
+        let inferred = FeatureWeights.automatic(deviation: RestingBaseline().deviation(of: query), poseStrength: 0)
         let automatic = ranker.rank(items, query: .expression(sample(query), weights: inferred))
-        XCTAssertEqual(names(automatic), ["mouth", "rest"])        // 0.885 vs 0.867
+        XCTAssertEqual(names(automatic), ["mouth", "rest"])
     }
 
     func testAtMostTwoFriendStickersInFaceResults() {
@@ -146,7 +146,7 @@ final class RankerTests: XCTestCase {
         XCTAssertEqual(custom.baseline.neutral, wideEyed)
         let item = makeItem(name: "x", kind: .pack, face: TestFaces.neutral, intensity: 0)
         // Query = the user's resting face → deviation 0 and target 0, matching a neutral item perfectly.
-        XCTAssertEqual(custom.expressionScore(item: item, sample: sample(wideEyed), weights: .uniform), 0.9895, accuracy: 1e-9)
+        XCTAssertEqual(custom.expressionScore(item: item, sample: sample(wideEyed), weights: .uniform), 1.0, accuracy: 1e-9)
     }
 
     // MARK: Text
@@ -203,7 +203,7 @@ final class RankerTests: XCTestCase {
         let results = textSearch("cat", in: library, face: TestFaces.surprise)
         // Inside March the surprised cat now wins over the newer one; the groups keep their order.
         XCTAssertEqual(names(results), ["cat yawn", "dancing cat", "sleepy cat", "facts", "cat pack", "cat jump"])
-        XCTAssertEqual(results[0].score, 1.0095, accuracy: 1e-9)
+        XCTAssertEqual(results[0].score, 1.02, accuracy: 1e-9)
         XCTAssertEqual(results[0].section, "March 2026")
     }
 

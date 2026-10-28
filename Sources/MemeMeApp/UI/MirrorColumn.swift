@@ -26,6 +26,11 @@ struct MirrorColumn: View {
         }
         .frame(width: mirrorSize, height: mirrorSize)
         .clipShape(RoundedRectangle(cornerRadius: mirrorRadius, style: .continuous))
+        .overlay(alignment: .bottomTrailing) {
+            if model.canOpenCapture {
+                captureButton
+            }
+        }
         .overlay(
             // 3 px ring just outside the mirror.
             RoundedRectangle(cornerRadius: mirrorRadius + 1.5, style: .continuous)
@@ -42,6 +47,24 @@ struct MirrorColumn: View {
                     .allowsHitTesting(false)
             }
         }
+    }
+
+    /// Opens the capture view (also ⇧Space). Above the mirror, so its clicks never reach the eye and mouth targets.
+    private var captureButton: some View {
+        Button {
+            model.openCapture()
+        } label: {
+            Image(systemName: "camera.fill")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(.white)
+                .frame(width: 26, height: 26)
+                .background(Circle().fill(Color.black.opacity(0.55)))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .padding(7)
+        .help("Send yourself: a photo or GIF of you to paste (⇧Space)")
+        .accessibilityLabel("Send yourself")
     }
 
     @ViewBuilder

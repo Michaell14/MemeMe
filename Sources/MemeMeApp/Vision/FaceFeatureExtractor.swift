@@ -8,8 +8,6 @@ import Vision
 /// Landmark `normalizedPoints` are relative to the face bounding box (origin bottom-left);
 /// body joint locations are Vision-normalized image coordinates (origin bottom-left).
 enum FaceFeatureExtractor {
-    /// Joints below this confidence are treated as missing.
-    private static let minimumJointConfidence: Float = 0.3
     /// Padding added on each side of the eyes and mouth rects, as a fraction of the rect's size.
     private static let regionPadding: CGFloat = 0.25
 
@@ -99,64 +97,73 @@ enum FaceFeatureExtractor {
         )
     }
 
-    static func pose(from body: VNHumanBodyPoseObservation?) -> PoseFeatures {
-        guard let body else { return PoseFeatures.none }
-        let minimumConfidence = minimumJointConfidence
-
-        func joint(_ name: VNHumanBodyPoseObservation.JointName) -> VNRecognizedPoint? {
-            guard let point = try? body.recognizedPoint(name), point.confidence >= minimumConfidence else {
-                return nil
-            }
-            return point
+    /// The body pose of the person whose face is `faceBox` (Vision-normalized), with the strongest sign of their
+    /// hands; nil when no body was found.
+    static func pose(bodies: [VNHumanBodyPoseObservation], hands: [VNHumanHandPoseObservation] = [],
+                     faceBox: CGRect?, imageWidth: Int, imageHeight: Int) -> PoseFeatures? {
+        guard let body = primaryBody(bodies, faceBox: faceBox, imageWidth: imageWidth, imageHeight: imageHeight) else {
+            return nil
         }
+        let shapes = body.ownHands(handJoints(hands, imageWidth: imageWidth, imageHeight: imageHeight)).compactMap { HandShape($0) }
+        return PoseFeatures(joints: body, hand: HandShape.strongest(shapes))
+    }
 
-        let leftShoulder = joint(.leftShoulder)
-        let rightShoulder = joint(.rightShoulder)
-        let leftWrist = joint(.leftWrist)
-        let rightWrist = joint(.rightWrist)
-        let nose = joint(.nose)
-
-        let leftShoulderConfidence = Double(leftShoulder?.confidence ?? 0)
-        let rightShoulderConfidence = Double(rightShoulder?.confidence ?? 0)
-        let bodyVisible = clamp((leftShoulderConfidence + rightShoulderConfidence) / 2)
-
-        let shoulderYs: [Double] = [leftShoulder, rightShoulder].compactMap { point in
-            point.map { Double($0.location.y) }
+    /// The body that goes with the face (see `BodyJoints.primary`).
+    static func primaryBody(_ bodies: [VNHumanBodyPoseObservation], faceBox: CGRect?, imageWidth: Int, imageHeight: Int) -> BodyJoints? {
+        let width = Double(imageWidth)
+        let height = Double(imageHeight)
+        let joints = bodies.map { bodyJoints(from: $0, imageWidth: width, imageHeight: height) }
+        let box = faceBox.map {
+            PoseBox(normalizedX: Double($0.minX), y: Double($0.minY), width: Double($0.width), height: Double($0.height),
+                    imageWidth: width, imageHeight: height)
         }
-        let shoulderLine = mean(shoulderYs)
+        return BodyJoints.primary(of: joints, faceBox: box)
+    }
 
-        let shoulderWidth: Double? = {
-            guard let left = leftShoulder, let right = rightShoulder else { return nil }
-            let width = abs(Double(left.location.x - right.location.x))
-            return width > 0.01 ? width : nil
-        }()
-
-        func raisedScore(_ wrist: VNRecognizedPoint?) -> Double {
-            guard let wrist else { return 0 }
-            let location = wrist.location
-            if let line = shoulderLine, Double(location.y) >= line {
-                return 1
-            }
-            if let nose, let width = shoulderWidth {
-                let dx = Double(location.x - nose.location.x)
-                let dy = Double(location.y - nose.location.y)
-                if (dx * dx + dy * dy).squareRoot() <= 0.6 * width {
-                    return 0.8
+    static func handJoints(_ hands: [VNHumanHandPoseObservation], imageWidth: Int, imageHeight: Int) -> [HandJoints] {
+        hands.map { hand in
+            var readings: [HandJoint: JointReading] = [:]
+            if let points = try? hand.recognizedPoints(.all) {
+                for (name, joint) in handJointNames {
+                    if let point = points[name] {
+                        readings[joint] = reading(point)
+                    }
                 }
             }
-            return 0
+            return HandJoints(readings: readings, imageWidth: Double(imageWidth), imageHeight: Double(imageHeight))
         }
-
-        let handsRaised = max(raisedScore(leftWrist), raisedScore(rightWrist))
-
-        var armsSpread = 0.0
-        if let left = leftWrist, let right = rightWrist, let width = shoulderWidth {
-            let span = abs(Double(left.location.x - right.location.x))
-            armsSpread = clamp((span / width - 1) / 1.5)
-        }
-
-        return PoseFeatures(handsRaised: handsRaised, armsSpread: armsSpread, bodyVisible: bodyVisible)
     }
+
+    private static func bodyJoints(from body: VNHumanBodyPoseObservation, imageWidth: Double, imageHeight: Double) -> BodyJoints {
+        var readings: [BodyJoint: JointReading] = [:]
+        if let points = try? body.recognizedPoints(.all) {
+            for (name, joint) in bodyJointNames {
+                if let point = points[name] {
+                    readings[joint] = reading(point)
+                }
+            }
+        }
+        return BodyJoints(readings: readings, imageWidth: imageWidth, imageHeight: imageHeight)
+    }
+
+    private static func reading(_ point: VNRecognizedPoint) -> JointReading {
+        JointReading(x: Double(point.location.x), y: Double(point.location.y), confidence: Double(point.confidence))
+    }
+
+    private static let bodyJointNames: [(VNHumanBodyPoseObservation.JointName, BodyJoint)] = [
+        (.nose, .nose), (.leftEye, .leftEye), (.rightEye, .rightEye), (.leftEar, .leftEar), (.rightEar, .rightEar),
+        (.neck, .neck), (.leftShoulder, .leftShoulder), (.rightShoulder, .rightShoulder),
+        (.leftElbow, .leftElbow), (.rightElbow, .rightElbow), (.leftWrist, .leftWrist), (.rightWrist, .rightWrist),
+    ]
+
+    private static let handJointNames: [(VNHumanHandPoseObservation.JointName, HandJoint)] = [
+        (.wrist, .wrist),
+        (.thumbCMC, .thumbCMC), (.thumbMP, .thumbMP), (.thumbIP, .thumbIP), (.thumbTip, .thumbTip),
+        (.indexMCP, .indexMCP), (.indexPIP, .indexPIP), (.indexDIP, .indexDIP), (.indexTip, .indexTip),
+        (.middleMCP, .middleMCP), (.middlePIP, .middlePIP), (.middleDIP, .middleDIP), (.middleTip, .middleTip),
+        (.ringMCP, .ringMCP), (.ringPIP, .ringPIP), (.ringDIP, .ringDIP), (.ringTip, .ringTip),
+        (.littleMCP, .littleMCP), (.littlePIP, .littlePIP), (.littleDIP, .littleDIP), (.littleTip, .littleTip),
+    ]
 
     /// Vision-normalized image rects (origin bottom-left) for .eyes (union of both eyes) and .mouth (outer lips), padded 25 %; .brows (union of brows).
     static func regionRects(from face: VNFaceObservation) -> [FaceRegion: CGRect] {

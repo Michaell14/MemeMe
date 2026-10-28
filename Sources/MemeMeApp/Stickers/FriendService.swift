@@ -28,6 +28,12 @@ private struct StickerWorkResult: @unchecked Sendable {
     let cuts: [StickerCut]
 }
 
+/// The cut of a camera capture, handed back to the main actor.
+private struct OwnStickerWork: @unchecked Sendable {
+    let cut: StickerCut
+    let pose: PoseFeatures?
+}
+
 /// A sticker removed with ×, kept in memory so + can restore it.
 private struct RemovedSticker {
     let item: LibraryItem
@@ -144,6 +150,45 @@ private struct BatchRecord {
             batchRecords.removeFirst(batchRecords.count - FriendService.maximumBatchRecords)
         }
         return batch
+    }
+
+    /// "Save as sticker" on a camera capture: your face (the largest one) cut out as a die-cut sticker, kept as one
+    /// of your own memes (source "Camera"). No sticker policy, size rule or grouping: it's you, saved on purpose.
+    /// nil when no face or person could be cut out. A capture saved before returns that sticker.
+    func makeOwnSticker(fromCapture url: URL) async throws -> LibraryItem? {
+        let directory = store.stickersDirectory
+        let work = try await Task.detached(priority: .userInitiated) { () async throws -> OwnStickerWork? in
+            let analysis = try ImageAnalyzer.analyze(url: url, includeText: false)
+            guard let face = analysis.faceBoxes.max(by: { $0.width * $0.height < $1.width * $1.height }) else { return nil }
+            guard let cut = try StickerMaker.makeStickers(from: url, into: directory, faces: [face]).first else { return nil }
+            return OwnStickerWork(cut: cut, pose: analysis.pose)
+        }.value
+        guard let work else { return nil }
+        let cut = work.cut
+        let mood = MoodClassifier.mood(for: cut.face, pose: work.pose, baseline: RestingBaseline())
+        let item = LibraryItem(
+            fileURL: cut.pngURL,
+            displayName: "You — " + mood.label,
+            kind: .mine,
+            tier: .meme,
+            source: "Camera",
+            fileSize: FriendService.fileSize(of: cut.pngURL),
+            contentHash: cut.contentHash,
+            isSticker: true,
+            isAnimated: false,
+            face: cut.face,
+            pose: work.pose,
+            poseRevision: LibraryItem.currentPoseRevision,
+            intensity: cut.intensity,
+            featurePrint: cut.featurePrint,
+            featurePrintRevision: cut.featurePrint == nil ? 0 : ImageAnalyzer.featurePrintRevision
+        )
+        guard store.add(item) else {
+            try? FileManager.default.removeItem(at: cut.pngURL)
+            return store.items.first(where: { $0.contentHash == cut.contentHash })
+        }
+        saveStore()
+        return item
     }
 
     /// Persists consent. When enabled, matches the batch's stickers (and earlier unmatched stickers) and returns the updated batch.

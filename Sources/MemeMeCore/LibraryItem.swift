@@ -25,6 +25,9 @@ public struct LibraryItem: Codable, Identifiable, Hashable, Sendable {
     public var isAnimated: Bool
     public var face: FaceFeatures?
     public var pose: PoseFeatures?
+    /// The pose analysis this item's `pose` comes from: 0 before poses were described in detail. Items behind
+    /// `currentPoseRevision` are measured again in the background.
+    public var poseRevision: Int
     public var intensity: Double          // 0...1 against FaceFeatures.populationNeutral
     public var featurePrint: [Float]?     // JSON: base64 of little-endian Float32 (FloatCoding)
     public var featurePrintRevision: Int
@@ -38,7 +41,10 @@ public struct LibraryItem: Codable, Identifiable, Hashable, Sendable {
     public var timesSent: Int
     public var lastSentAt: Date?
 
-    public init(id: UUID = UUID(), fileURL: URL, displayName: String, kind: ItemKind, tier: ItemTier = .meme, source: String, sourceDetail: String? = nil, addedAt: Date = Date(), fileModifiedAt: Date? = nil, fileSize: Int64 = 0, contentHash: String, isSticker: Bool = false, isAnimated: Bool = false, face: FaceFeatures? = nil, pose: PoseFeatures? = nil, intensity: Double = 0, featurePrint: [Float]? = nil, featurePrintRevision: Int = 0, text: String = "", labels: [String] = [], personID: UUID? = nil, faceEmbedding: [Float]? = nil, remoteURL: URL? = nil, previewURL: URL? = nil, attribution: String? = nil, timesSent: Int = 0, lastSentAt: Date? = nil) {
+    /// Pose analysis with `PoseDescriptor` (arms, elbows, hand sign).
+    public static let currentPoseRevision = 1
+
+    public init(id: UUID = UUID(), fileURL: URL, displayName: String, kind: ItemKind, tier: ItemTier = .meme, source: String, sourceDetail: String? = nil, addedAt: Date = Date(), fileModifiedAt: Date? = nil, fileSize: Int64 = 0, contentHash: String, isSticker: Bool = false, isAnimated: Bool = false, face: FaceFeatures? = nil, pose: PoseFeatures? = nil, poseRevision: Int = 0, intensity: Double = 0, featurePrint: [Float]? = nil, featurePrintRevision: Int = 0, text: String = "", labels: [String] = [], personID: UUID? = nil, faceEmbedding: [Float]? = nil, remoteURL: URL? = nil, previewURL: URL? = nil, attribution: String? = nil, timesSent: Int = 0, lastSentAt: Date? = nil) {
         self.id = id
         self.fileURL = fileURL
         self.displayName = displayName
@@ -54,6 +60,7 @@ public struct LibraryItem: Codable, Identifiable, Hashable, Sendable {
         self.isAnimated = isAnimated
         self.face = face
         self.pose = pose
+        self.poseRevision = poseRevision
         self.intensity = intensity
         self.featurePrint = featurePrint
         self.featurePrintRevision = featurePrintRevision
@@ -106,7 +113,7 @@ public struct LibraryItem: Codable, Identifiable, Hashable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case id, fileURL, displayName, kind, tier, source, sourceDetail, addedAt, fileModifiedAt, fileSize, contentHash
-        case isSticker, isAnimated, face, pose, intensity, featurePrint, featurePrintRevision, text, labels, personID
+        case isSticker, isAnimated, face, pose, poseRevision, intensity, featurePrint, featurePrintRevision, text, labels, personID
         case faceEmbedding, remoteURL, previewURL, attribution, timesSent, lastSentAt
     }
 
@@ -134,6 +141,7 @@ public struct LibraryItem: Codable, Identifiable, Hashable, Sendable {
         isAnimated = container.decodeLenient(Bool.self, forKey: .isAnimated, default: false)
         face = container.decodeLenientIfPresent(FaceFeatures.self, forKey: .face)
         pose = container.decodeLenientIfPresent(PoseFeatures.self, forKey: .pose)
+        poseRevision = container.decodeLenient(Int.self, forKey: .poseRevision, default: 0)
         intensity = container.decodeLenient(Double.self, forKey: .intensity, default: 0)
         featurePrint = container.decodeFloatVector(forKey: .featurePrint)
         featurePrintRevision = container.decodeLenient(Int.self, forKey: .featurePrintRevision, default: 0)
@@ -165,6 +173,7 @@ public struct LibraryItem: Codable, Identifiable, Hashable, Sendable {
         try container.encode(isAnimated, forKey: .isAnimated)
         try container.encodeIfPresent(face, forKey: .face)
         try container.encodeIfPresent(pose, forKey: .pose)
+        try container.encode(poseRevision, forKey: .poseRevision)
         try container.encode(intensity, forKey: .intensity)
         try container.encodeIfPresent(featurePrint.map { FloatCoding.encode($0) }, forKey: .featurePrint)
         try container.encode(featurePrintRevision, forKey: .featurePrintRevision)

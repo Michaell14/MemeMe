@@ -76,6 +76,8 @@ public struct Ranker: Sendable {
     private static let maximumFriendsInFaceResults = 2
     /// Text searches with fewer hits than this fall back to skipped items ("From your photos").
     private static let fewTextHits = 3
+    /// A query without a face is still matched by its pose from this gesture strength on.
+    public static let gestureWithoutFace = 0.4
 
     public init(baseline: RestingBaseline = RestingBaseline()) {
         self.baseline = baseline
@@ -97,16 +99,24 @@ public struct Ranker: Sendable {
         }
     }
 
+    /// Both faces: 0.7 × ((1 − w) × face similarity + w × pose similarity) + 0.3 × intensity fit, w = weights.pose.
+    /// A face hidden behind a clear gesture (or a meme without a readable face) when the item's arms were seen: the
+    /// face part counts 0.5 and the pose carries the match. Otherwise 0.25 + 0.3 × fit.
     public func expressionScore(item: LibraryItem, sample: ExpressionSample, weights: FeatureWeights) -> Double {
         let target = sample.face.map { baseline.intensity(of: $0) } ?? 0.3
         let fit = 1 - abs(item.intensity - target)
+        let poseWeight = VectorMath.clampUnit(weights.pose)
         var score: Double
         if let itemFace = item.face, let queryFace = sample.face {
             let queryDeviation = baseline.signedDeviation(of: queryFace)
             let itemDeviation = Ranker.populationDeviation(of: itemFace)
             let featureSim = Ranker.featureSimilarity(queryDeviation, itemDeviation, weights: weights)
-            let poseSim = 1 - abs((item.pose?.activity ?? 0.1) - (sample.pose?.activity ?? 0))
-            let faceScore = (1 - weights.pose) * featureSim + weights.pose * poseSim
+            let poseSim = PoseFeatures.similarity(query: sample.pose, item: item.pose)
+            let faceScore = (1 - poseWeight) * featureSim + poseWeight * poseSim
+            score = 0.7 * faceScore + 0.3 * fit
+        } else if let queryPose = sample.pose, queryPose.gestureStrength >= Ranker.gestureWithoutFace, item.pose?.showsArms == true {
+            let poseSim = PoseFeatures.similarity(query: queryPose, item: item.pose)
+            let faceScore = (1 - poseWeight) * 0.5 + poseWeight * poseSim
             score = 0.7 * faceScore + 0.3 * fit
         } else {
             score = 0.25 + 0.3 * fit

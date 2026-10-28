@@ -31,7 +31,7 @@
 	<key>MemeMeUpdateFeedURL</key>
 	<string></string>
 	<key>NSCameraUsageDescription</key>
-	<string>MemeMe uses the camera only while its panel is open, to match your expression. Nothing leaves your Mac.</string>
+	<string>MemeMe uses the camera only while its panel is open, to match your expression and to take the photos or GIFs of you that you copy. Nothing leaves your Mac unless you paste it.</string>
 	<key>NSDesktopFolderUsageDescription</key>
 	<string>MemeMe indexes images on your Desktop, including screenshots, so you can find your memes by face or by words. Files stay where they are and nothing leaves your Mac.</string>
 	<key>NSDocumentsFolderUsageDescription</key>

@@ -61,16 +61,34 @@ enum Clipboard {
             }
         }
 
+        try write(fileData: fileData, named: fileName, gifData: isGIF ? data : nil, pngData: pngData)
+        return writtenChangeCount
+    }
+
+    /// Puts a capture (GIF or PNG bytes) on the pasteboard as `fileName`, like `copy(fileURL:item:)`; returns the
+    /// temp file it wrote.
+    @MainActor @discardableResult
+    static func copy(data: Data, fileName: String) throws -> URL {
+        removeStaleCopies()
+        guard !data.isEmpty else { throw ClipboardError.emptyFile }
+        let isGIF = isGIFData(data)
+        let pngData = isGIF ? nil : (isPNGData(data) ? data : convertToPNG(data))
+        return try write(fileData: data, named: fileName, gifData: isGIF ? data : nil, pngData: pngData)
+    }
+
+    /// One pasteboard item: the file URL of a temp copy, plus GIF or PNG data. Returns the temp copy.
+    @MainActor @discardableResult
+    private static func write(fileData: Data, named fileName: String, gifData: Data?, pngData: Data?) throws -> URL {
         let directory = try makeTemporaryDirectory()
         let temporaryURL = directory.appendingPathComponent(fileName, isDirectory: false)
         try fileData.write(to: temporaryURL, options: .atomic)
 
         let pasteboardItem = NSPasteboardItem()
         _ = pasteboardItem.setString(temporaryURL.absoluteString, forType: .fileURL)
-        if isGIF {
-            _ = pasteboardItem.setData(data, forType: gifType)
-        } else if let png = pngData {
-            _ = pasteboardItem.setData(png, forType: .png)
+        if let gifData {
+            _ = pasteboardItem.setData(gifData, forType: gifType)
+        } else if let pngData {
+            _ = pasteboardItem.setData(pngData, forType: .png)
         }
 
         let pasteboard = NSPasteboard.general
@@ -81,7 +99,7 @@ enum Clipboard {
         }
         writtenChangeCount = pasteboard.changeCount
         writtenDirectory = directory
-        return writtenChangeCount
+        return temporaryURL
     }
 
     @MainActor static var lastWriteChangeCount: Int {

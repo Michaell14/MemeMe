@@ -33,6 +33,8 @@ final class CameraController: NSObject, ObservableObject {
 
     let session = AVCaptureSession()
     var onSample: ((ExpressionSample) -> Void)?   // delivered on the main actor, ≤ 10 per second
+    /// The capture view's filtered picture, delivered on the main actor for every camera frame while the view is open.
+    var onCapturePreview: ((CGImage) -> Void)?
 
     private let sessionQueue = DispatchQueue(label: "com.mememe.camera.session")
     private let frameQueue = DispatchQueue(label: "com.mememe.camera.frames", qos: .userInitiated)
@@ -48,6 +50,12 @@ final class CameraController: NSObject, ObservableObject {
         super.init()
         authorization = AVCaptureDevice.authorizationStatus(for: .video)
         processor.controller = self
+        processor.renderer.onPreview = { [weak self] image in
+            let controller = self
+            Task { @MainActor in
+                controller?.onCapturePreview?(image)
+            }
+        }
         runningObservation = observeSessionRunning(session) { [weak self] running in
             let controller = self
             Task { @MainActor in
@@ -113,10 +121,71 @@ final class CameraController: NSObject, ObservableObject {
         if !regionRects.isEmpty { regionRects = [:] }
 
         let session = self.session
+        let processor = self.processor
+        frameQueue.async {
+            // A still waiting for a frame gets nil instead of waiting forever.
+            processor.renderer.reset()
+        }
         sessionQueue.async {
             if session.isRunning {
                 session.stopRunning()
             }
+        }
+    }
+
+    // MARK: - Capture view
+
+    /// Renders every frame for the capture view (`onCapturePreview`) with `filter` while `active`.
+    func setCaptureView(active: Bool, filter: CameraFilter) {
+        let processor = self.processor
+        frameQueue.async {
+            processor.renderer.isActive = active
+            processor.renderer.filter = filter
+            if !active {
+                processor.renderer.cancelClip()
+            }
+        }
+    }
+
+    /// The next frame as the capture view shows it (480 px square at VGA, filtered); nil when no frame comes within 1 s.
+    func captureStill() async -> CGImage? {
+        guard isRunning else { return nil }
+        let processor = self.processor
+        let frameQueue = self.frameQueue
+        return await withCheckedContinuation { continuation in
+            frameQueue.async {
+                let token = processor.renderer.requestStill(continuation)
+                frameQueue.asyncAfter(deadline: .now() + 1) {
+                    processor.renderer.expireStill(token)
+                }
+            }
+        }
+    }
+
+    /// Starts keeping frames for a clip (12.5 a second, 320 px, at most 3 s).
+    func beginClip() {
+        let processor = self.processor
+        frameQueue.async {
+            processor.renderer.beginClip()
+        }
+    }
+
+    /// The clip recorded since `beginClip`; nil when none was recording.
+    func endClip() async -> CapturedClip? {
+        let processor = self.processor
+        let frameQueue = self.frameQueue
+        return await withCheckedContinuation { continuation in
+            frameQueue.async {
+                continuation.resume(returning: processor.renderer.endClip())
+            }
+        }
+    }
+
+    /// Drops a clip being recorded.
+    func cancelClip() {
+        let processor = self.processor
+        frameQueue.async {
+            processor.renderer.cancelClip()
         }
     }
 
@@ -245,16 +314,29 @@ private final class FrameProcessor: NSObject, AVCaptureVideoDataOutputSampleBuff
 
     private let faceRequest = VNDetectFaceLandmarksRequest()
     private let bodyRequest = VNDetectHumanBodyPoseRequest()
+    private let handRequest: VNDetectHumanHandPoseRequest = {
+        let request = VNDetectHumanHandPoseRequest()
+        request.maximumHandCount = 2
+        return request
+    }()
     /// Slightly under 0.1 s so 30 and 60 fps sources yield exactly 10 analyzed frames per second.
     private let minimumFrameInterval: Double = 0.099
     private var lastFrameTime: Double?
     private var frameCounter = 0
     private var lastPose: PoseFeatures?
+    /// The capture view's picture and captures.
+    let renderer = CaptureRenderer()
+    /// The body last read (on even frames) and the sign of its hands (read on odd frames while a wrist is in view).
+    private var lastBody: BodyJoints?
+    private var lastHand: HandShape?
 
     func reset() {
         lastFrameTime = nil
         frameCounter = 0
         lastPose = nil
+        lastBody = nil
+        lastHand = nil
+        renderer.reset()
     }
 
     func captureOutput(
@@ -264,14 +346,20 @@ private final class FrameProcessor: NSObject, AVCaptureVideoDataOutputSampleBuff
     ) {
         let presentationTime = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
         let frameTime = presentationTime.isFinite ? presentationTime : CACurrentMediaTime()
+        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        // The capture view shows every frame; Vision reads at most 10 a second.
+        renderer.render(pixelBuffer, time: frameTime)
         if let last = lastFrameTime, frameTime >= last, frameTime - last < minimumFrameInterval {
             return
         }
         lastFrameTime = frameTime
 
-        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        // While the capture view is open the search is paused: only the face is read (for the filters).
+        let readsBody = !renderer.isActive
         let analyzeBody = frameCounter % 2 == 0
         frameCounter &+= 1
+        let imageWidth = CVPixelBufferGetWidth(pixelBuffer)
+        let imageHeight = CVPixelBufferGetHeight(pixelBuffer)
 
         let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .up, options: [:])
         do {
@@ -284,16 +372,39 @@ private final class FrameProcessor: NSObject, AVCaptureVideoDataOutputSampleBuff
         let face = faces.max(by: { boxArea($0.boundingBox) < boxArea($1.boundingBox) })
         let features = face.flatMap { FaceFeatureExtractor.features(from: $0) }
         let rects = face.map { FaceFeatureExtractor.regionRects(from: $0) } ?? [:]
+        if renderer.needsFrames {
+            renderer.updateFace(face.flatMap { FaceGeometry.geometry(from: $0) }, at: frameTime)
+            if let features {
+                renderer.noteExpression(intensity: RestingBaseline().intensity(of: features))
+            }
+        }
 
-        if analyzeBody {
+        // Body pose on even frames and hand pose on odd ones (only while a wrist is in view), so a frame never
+        // runs more than two Vision requests.
+        if !readsBody {
+            lastPose = nil
+        } else if analyzeBody {
             do {
                 try handler.perform([bodyRequest])
                 let bodies = visionResults(bodyRequest.results ?? [], as: VNHumanBodyPoseObservation.self)
-                lastPose = bodies
-                    .map { FaceFeatureExtractor.pose(from: $0) }
-                    .max(by: { $0.bodyVisible < $1.bodyVisible }) ?? PoseFeatures.none
+                lastBody = FaceFeatureExtractor.primaryBody(bodies, faceBox: face?.boundingBox,
+                                                            imageWidth: imageWidth, imageHeight: imageHeight)
+                if lastBody?[.leftWrist] == nil && lastBody?[.rightWrist] == nil {
+                    lastHand = nil
+                }
+                lastPose = lastBody.map { PoseFeatures(joints: $0, hand: lastHand) } ?? PoseFeatures.none
             } catch {
                 // Keep the previous pose; the next body frame will refresh it.
+            }
+        } else if let body = lastBody, body[.leftWrist] != nil || body[.rightWrist] != nil {
+            do {
+                try handler.perform([handRequest])
+                let hands = visionResults(handRequest.results ?? [], as: VNHumanHandPoseObservation.self)
+                let joints = FaceFeatureExtractor.handJoints(hands, imageWidth: imageWidth, imageHeight: imageHeight)
+                lastHand = HandShape.strongest(body.ownHands(joints).compactMap { HandShape($0) })
+                lastPose = PoseFeatures(joints: body, hand: lastHand)
+            } catch {
+                // Keep the previous hand; the next odd frame will refresh it.
             }
         }
 

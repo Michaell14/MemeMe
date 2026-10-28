@@ -240,7 +240,7 @@ final class PeakHoldTrackerTests: XCTestCase {
             XCTAssertFalse(tracker.ingest(frame(TestFaces.neutral, step, pose: handsUp)), "step \(step)")
         }
         XCTAssertTrue(tracker.ingest(frame(TestFaces.neutral, 4, pose: handsUp)))
-        XCTAssertEqual(tracker.queryIntensity, 0.8, accuracy: 1e-12)     // 0.8 × activity
+        XCTAssertEqual(tracker.queryIntensity, 0.8, accuracy: 1e-12)     // 0.8 × activity (a pose measured the old way)
         XCTAssertEqual(tracker.query?.pose, handsUp)
     }
 

@@ -261,8 +261,11 @@ final class PanelController: NSObject {
 
     private func installMonitors() {
         removeMonitors()
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
             guard let self else { return event }
+            if event.type == .keyUp {
+                return self.handleKeyUp(event)
+            }
             return self.handleKeyDown(event)
         }
         // Clicks in other apps close the panel, so a later ↵ can't reach the chat by surprise. Deciding on
@@ -448,6 +451,10 @@ final class PanelController: NSObject {
         let hasNoModifiers = flags.intersection([.command, .control, .option, .shift]).isEmpty
         let hasNoCommandLikeModifiers = flags.intersection([.command, .control, .option]).isEmpty
 
+        if model.isCaptureOpen {
+            return handleCaptureKeyDown(event, hasNoCommandLikeModifiers: hasNoCommandLikeModifiers)
+        }
+
         switch event.keyCode {
         case KeyCode.escape:
             if !model.handleEscape() {
@@ -471,8 +478,14 @@ final class PanelController: NSObject {
             return nil
 
         case KeyCode.space:
-            guard hasNoModifiers, model.queryText.isEmpty else { return event }
-            model.snap()
+            guard model.queryText.isEmpty else { return event }
+            if hasNoModifiers {
+                model.snap()
+                return nil
+            }
+            // ⇧Space opens the capture view.
+            guard flags.intersection([.command, .control, .option, .shift]) == .shift, model.canOpenCapture else { return event }
+            model.openCapture()
             return nil
 
         case KeyCode.tab:
@@ -509,6 +522,41 @@ final class PanelController: NSObject {
             }
             return nil
         }
+    }
+
+    /// The capture view has no text field: Space (tap or hold) and ↵ are the shutter, ← → change the filter, Esc goes
+    /// back; other plain keys do nothing.
+    private func handleCaptureKeyDown(_ event: NSEvent, hasNoCommandLikeModifiers: Bool) -> NSEvent? {
+        switch event.keyCode {
+        case KeyCode.escape:
+            if !model.handleEscape() {
+                hide()
+            }
+            return nil
+        case KeyCode.space:
+            // Held down, the key repeats; only the first press counts.
+            if !event.isARepeat {
+                model.capture.press()
+            }
+            return nil
+        case KeyCode.returnKey, KeyCode.enter:
+            guard hasNoCommandLikeModifiers, !event.isARepeat else { return nil }
+            model.capture.press()
+            model.capture.release()
+            return nil
+        case KeyCode.left, KeyCode.right:
+            model.capture.cycleFilter(by: event.keyCode == KeyCode.left ? -1 : 1)
+            return nil
+        default:
+            return hasNoCommandLikeModifiers ? nil : event
+        }
+    }
+
+    /// Releasing Space ends a press in the capture view (people often let go of ⇧ first, so any modifiers count).
+    private func handleKeyUp(_ event: NSEvent) -> NSEvent? {
+        guard panel.isVisible, model.isCaptureOpen, event.keyCode == KeyCode.space else { return event }
+        model.capture.release()
+        return nil
     }
 
     /// The digit 0–9 this key types on the current keyboard layout, if any. Decimal digits of any script

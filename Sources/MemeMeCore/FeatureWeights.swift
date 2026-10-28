@@ -36,8 +36,9 @@ public struct FeatureWeights: Codable, Hashable, Sendable {
         }
     }
 
-    /// m = max deviation; if m < 0.05 → all 1, else 1 + 2 * d / m per region. pose = clamp(0.15 + 0.5 * poseActivity, 0.15, 0.6)
-    public static func automatic(deviation: [FaceRegion: Double], poseActivity: Double) -> FeatureWeights {
+    /// m = max deviation; if m < 0.05 → all 1, else 1 + 2 * d / m per region. pose = min(0.6, 0.05 + 0.55 * poseStrength)
+    /// (`PoseFeatures.gestureStrength`): a plain face leaves the pose a small say, a clear gesture most of it.
+    public static func automatic(deviation: [FaceRegion: Double], poseStrength: Double) -> FeatureWeights {
         var weights = FeatureWeights()
         var largest = 0.0
         for region in FaceRegion.allCases {
@@ -49,8 +50,8 @@ public struct FeatureWeights: Codable, Hashable, Sendable {
                 weights[region] = 1 + 2 * regionDeviation / largest
             }
         }
-        let activity = poseActivity.isFinite ? poseActivity : 0
-        weights.pose = min(0.6, max(0.15, 0.15 + 0.5 * activity))
+        let strength = VectorMath.clampUnit(poseStrength)
+        weights.pose = min(0.6, 0.05 + 0.55 * strength)
         return weights
     }
 

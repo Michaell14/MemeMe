@@ -48,7 +48,7 @@ struct FooterView: View {
                 }
             }
             .frame(minHeight: 20)
-            Text("↵ copy · 1–9 pick · drag into chat · esc")
+            Text("↵ copy · 1–9 pick · drag into chat · ⇧space send yourself · esc")
                 .font(.system(size: 11))
                 .foregroundColor(Theme.mutedText)
                 .lineLimit(1)

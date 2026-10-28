@@ -8,6 +8,8 @@ public struct PeakHoldConfig: Sendable {
     public var sameDirectionCosine: Double = 0.85
     public var minimumIntensity: Double = 0.12
     public var bufferWindow: TimeInterval = 0.5
+    /// A frame without a face (a hand over it, say) still counts when its gesture is at least this strong.
+    public var minimumGestureWithoutFace: Double = 0.5
 
     public init() {}
 }
@@ -26,8 +28,10 @@ public final class PeakHoldTracker {
     public private(set) var candidate: ExpressionSample?
     public private(set) var lastSample: ExpressionSample?
     public private(set) var lastFaceTimestamp: TimeInterval?    // timestamp of the last sample that had a face
+    /// Timestamp of the last sample that had a face or a gesture strong enough to stand in for one.
+    public private(set) var lastSeenTimestamp: TimeInterval?
 
-    /// A frame with its effective intensity and unit direction (7 signed deviations + pose activity).
+    /// A frame with its effective intensity and unit direction (7 signed face deviations + 6 gesture numbers).
     private struct Entry {
         let sample: ExpressionSample
         let intensity: Double
@@ -60,16 +64,27 @@ public final class PeakHoldTracker {
     @discardableResult
     public func ingest(_ sample: ExpressionSample) -> Bool {
         lastSample = sample
-        guard let face = sample.face else {
+        if let face = sample.face {
+            lastFaceTimestamp = sample.timestamp
+            lastSeenTimestamp = sample.timestamp
+            lastFaceSample = sample
+            // Judge the frame against the baseline as it was when the frame arrived, then let calm frames refine it.
+            let entry = makeEntry(for: sample)
+            baseline.observe(face)
+            return hold(entry)
+        }
+        // No face: only a clear gesture (a facepalm hides the face) keeps the hold going.
+        guard (sample.pose?.gestureStrength ?? 0) >= config.minimumGestureWithoutFace else {
             clearCandidate()
             return false
         }
-        lastFaceTimestamp = sample.timestamp
-        lastFaceSample = sample
+        lastSeenTimestamp = sample.timestamp
+        return hold(makeEntry(for: sample))
+    }
 
-        // Judge the frame against the baseline as it was when the frame arrived, then let calm frames refine it.
-        let entry = makeEntry(for: sample, face: face)
-        baseline.observe(face)
+    /// Adds a frame to the run being held; true when it completes the hold and becomes the query.
+    private func hold(_ entry: Entry) -> Bool {
+        let sample = entry.sample
 
         guard entry.intensity >= config.minimumIntensity else {
             clearCandidate()
@@ -129,9 +144,9 @@ public final class PeakHoldTracker {
     /// Space: makes the last sample with a face the query, even if neutral. Returns true if it changed the query.
     @discardableResult
     public func snap() -> Bool {
-        guard let sample = lastFaceSample, let face = sample.face else { return false }
+        guard let sample = lastFaceSample, sample.face != nil else { return false }
         if query == sample { return false }
-        let entry = makeEntry(for: sample, face: face)
+        let entry = makeEntry(for: sample)
         query = sample
         queryIntensity = entry.intensity
         queryDirection = entry.direction
@@ -156,12 +171,18 @@ public final class PeakHoldTracker {
         candidateIsNewExpression = false
     }
 
-    private func makeEntry(for sample: ExpressionSample, face: FaceFeatures) -> Entry {
-        let activity = sample.pose?.activity ?? 0
-        let intensity = max(baseline.intensity(of: face), 0.8 * activity)
-        var deviation = baseline.signedDeviation(of: face)
-        deviation.append(activity)
-        return Entry(sample: sample, intensity: intensity, direction: VectorMath.normalized(deviation))
+    /// intensity = max(face intensity, 0.8 × gesture strength); direction = the face's signed deviations (zeros without
+    /// a face) + half the pose's gesture numbers (a pose measured the old way: [activity, 0, 0, 0, 0, 0]).
+    private func makeEntry(for sample: ExpressionSample) -> Entry {
+        let faceIntensity = sample.face.map { baseline.intensity(of: $0) } ?? 0
+        let intensity = max(faceIntensity, 0.8 * (sample.pose?.gestureStrength ?? 0))
+        var direction = sample.face.map { baseline.signedDeviation(of: $0) } ?? [Double](repeating: 0, count: 7)
+        if let descriptor = sample.pose?.descriptor {
+            direction += descriptor.gestureDirection.map { 0.5 * $0 }
+        } else {
+            direction += [sample.pose?.activity ?? 0, 0, 0, 0, 0, 0]
+        }
+        return Entry(sample: sample, intensity: intensity, direction: VectorMath.normalized(direction))
     }
 
     /// Highest `intensity * sharpness`; the newest wins ties.

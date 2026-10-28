@@ -22,10 +22,10 @@ Read `docs/DESIGN.md` for behavior and exact UI strings.
 | Owner | Files |
 |---|---|
 | Core | `Sources/MemeMeCore/*.swift`, `Tests/MemeMeCoreTests/*.swift` |
-| Vision & camera | `Sources/MemeMeApp/Vision/FaceFeatureExtractor.swift`, `Vision/ImageAnalyzer.swift`, `Vision/ThumbnailCache.swift`, `Camera/CameraController.swift`, `Camera/CameraPreviewView.swift` |
+| Vision & camera | `Sources/MemeMeApp/Vision/FaceFeatureExtractor.swift`, `Vision/ImageAnalyzer.swift`, `Vision/ThumbnailCache.swift`, `Camera/CameraController.swift`, `Camera/CameraPreviewView.swift`, `Camera/CameraFilter.swift`, `Camera/CaptureRenderer.swift` |
 | Library, web, stickers | `Sources/MemeMeApp/Library/LibraryIndexer.swift`, `Library/FolderWatcher.swift`, `Web/GIFProvider.swift`, `Web/GiphyProvider.swift`, `Web/WebDiscover.swift`, `Stickers/StickerMaker.swift`, `Stickers/FriendService.swift`, `System/Clipboard.swift`, `System/SystemConditions.swift` |
-| Panel UI | `Sources/MemeMeApp/UI/PanelController.swift`, `UI/PanelView.swift`, `UI/MirrorColumn.swift`, `UI/ResultGrid.swift`, `UI/FooterView.swift`, `UI/SetupCardView.swift`, `UI/HUDController.swift`, `UI/StickerPopoverView.swift`, `UI/AnimatedImageView.swift`, `UI/Theme.swift` |
-| App shell | `Sources/MemeMeApp/App/main.swift`, `App/AppDelegate.swift`, `App/AppModel.swift`, `App/HotKey.swift`, `App/StatusItemController.swift`, `App/StickerPopoverModel.swift`, `App/LoginItem.swift`, `Resources/Info.plist`, `scripts/build-app.sh`, `.github/workflows/ci.yml`, `README.md`, `.gitignore` |
+| Panel UI | `Sources/MemeMeApp/UI/PanelController.swift`, `UI/PanelView.swift`, `UI/MirrorColumn.swift`, `UI/ResultGrid.swift`, `UI/FooterView.swift`, `UI/SetupCardView.swift`, `UI/HUDController.swift`, `UI/StickerPopoverView.swift`, `UI/AnimatedImageView.swift`, `UI/CaptureView.swift`, `UI/Theme.swift` |
+| App shell | `Sources/MemeMeApp/App/main.swift`, `App/AppDelegate.swift`, `App/AppModel.swift`, `App/CaptureModel.swift`, `App/HotKey.swift`, `App/StatusItemController.swift`, `App/StickerPopoverModel.swift`, `App/LoginItem.swift`, `Resources/Info.plist`, `scripts/build-app.sh`, `.github/workflows/ci.yml`, `README.md`, `.gitignore` |
 | Updates | `Sources/MemeMeApp/Update/UpdateChecker.swift`, `Update/UpdateInstaller.swift`, `Tests/MemeMeAppTests/UpdateCheckerTests.swift`, `Tests/MemeMeAppTests/UpdateInstallerTests.swift` |
 | Release | `VERSION`, `scripts/build-dmg.sh`, `scripts/dmg-settings.py`, `scripts/dmgbuild-requirements.txt`, `scripts/render-dmg-background.cjs`, `Resources/DMG/*`, `scripts/publish-release.sh`, `scripts/build-site.sh`, `site/index.html` |
 
@@ -58,13 +58,19 @@ public struct FaceFeatures: Codable, Hashable, Sendable {
     public func clamped() -> FaceFeatures   // every field clamped to 0...1
 }
 
-public struct PoseFeatures: Codable, Hashable, Sendable {
+public struct PoseFeatures: Codable, Hashable, Sendable {   // lenient decoding: earlier versions' poses load with descriptor nil
     public var handsRaised: Double   // 0...1 wrists at/above shoulders or near the face
     public var armsSpread: Double    // 0...1 wrist span relative to shoulder width
     public var bodyVisible: Double   // 0...1 confidence that shoulders are in frame
-    public init(handsRaised: Double, armsSpread: Double, bodyVisible: Double)
+    public var descriptor: PoseDescriptor?          // the pose in detail; nil for items analyzed before it existed
+    public init(handsRaised: Double, armsSpread: Double, bodyVisible: Double, descriptor: PoseDescriptor? = nil)
+    public init(joints: BodyJoints, hand: HandShape? = nil)   // all of the above from one body
     public static let none: PoseFeatures            // all 0
-    public var activity: Double { get }             // max(handsRaised, armsSpread) * bodyVisible, clamped 0...1
+    public var activity: Double { get }             // max(handsRaised, armsSpread) * bodyVisible, clamped 0...1 (the old measure)
+    public var gestureStrength: Double { get }      // descriptor?.gestureStrength ?? activity
+    public var showsArms: Bool { get }              // descriptor?.showsArms ?? (bodyVisible > 0)
+    /// 0...1; see "Pose" below.
+    public static func similarity(query: PoseFeatures?, item: PoseFeatures?) -> Double
 }
 
 public struct ExpressionSample: Codable, Hashable, Sendable {
@@ -75,6 +81,52 @@ public struct ExpressionSample: Codable, Hashable, Sendable {
     public init(face: FaceFeatures?, pose: PoseFeatures? = nil, timestamp: TimeInterval, sharpness: Double = 1)
 }
 ```
+
+### BodyPose.swift
+
+```swift
+public enum BodyJoint: String, CaseIterable, Sendable { case nose, leftEye, rightEye, leftEar, rightEar, neck, leftShoulder, rightShoulder, leftElbow, rightElbow, leftWrist, rightWrist }
+public enum HandJoint: String, CaseIterable, Sendable { case wrist, thumbCMC, thumbMP, thumbIP, thumbTip, indexMCP, …, littleTip }   // Vision's 21
+public struct JointReading: Hashable, Sendable { x, y, confidence }   // Vision-normalized, origin bottom-left
+public struct PosePoint: Hashable, Sendable { x, y }                  // aspect-corrected: x × width / height, y as Vision's
+public struct PoseBox: Hashable, Sendable {                           // aspect-corrected rectangle
+    public init(normalizedX:y:width:height:imageWidth:imageHeight:)
+    public func grown(by fraction: Double) -> PoseBox
+    public func contains(_ point: PosePoint) -> Bool
+}
+public struct BodyJoints: Hashable, Sendable {
+    public init(readings: [BodyJoint: JointReading], imageWidth: Double, imageHeight: Double)   // drops joints < 0.3 confidence
+    public init(points: [BodyJoint: PosePoint], shortSide: Double = 1, shoulderConfidence: Double = 1)
+    public subscript(joint: BodyJoint) -> PosePoint? { get }
+    public static func primary(of bodies: [BodyJoints], faceBox: PoseBox?) -> BodyJoints?   // head in the face box grown 30 %, else surest shoulders
+    public func ownHands(_ hands: [HandJoints]) -> [HandJoints]   // hand wrist within 0.6 shoulder widths of a body wrist (all without wrists)
+}
+public struct HandJoints: Hashable, Sendable { init(readings:imageWidth:imageHeight:); init(points:) }
+public struct HandShape: Codable, Hashable, Sendable {
+    public var thumbsUp, point, openPalm, fist, peace: Double   // 0...1
+    public init?(_ hand: HandJoints)                // nil without the wrist or with fewer than 2 fingers
+    public var signStrength: Double { get }         // max(thumbsUp, point, peace)
+    public static func strongest(_ shapes: [HandShape]) -> HandShape?   // per-sign max
+}
+public struct PoseDescriptor: Codable, Hashable, Sendable {
+    public enum Dimension: Int, CaseIterable { leftLift, leftOut, leftHead, leftElbowLift, leftElbowBend, rightLift, …, rightElbowBend, wristGap, shoulderTilt, headRise }
+    public private(set) var values: [Double?]      // 13, each 0...1 (3 decimals), nil = a joint it needs wasn't seen
+    public var hand: HandShape?
+    public init?(_ joints: BodyJoints, hand: HandShape? = nil)   // nil without both shoulders or a neck, or a body < 2 % of the short side
+    public var mirrored: PoseDescriptor { get }    // arms swapped
+    public var showsArms: Bool { get }             // a wrist, an elbow or a hand sign was seen
+    public var gestureStrength: Double { get }
+    public var gestureDirection: [Double] { get }  // 6 numbers for the tracker (0 at rest)
+    public static func compare(_ a: PoseDescriptor, _ b: PoseDescriptor) -> (similarity: Double, coverage: Double)
+}
+```
+Pose (binding):
+- Body frame: origin O = shoulder midpoint (else the neck); x along the shoulder line (oriented left to right in the image, so the tilt is taken out either way the person faces); unit S = shoulder distance, at least 0.8 × the head's estimate (2.6 × ear distance, else 6 × eye distance). Head H = mean of nose, eyes, ears. Points p' = rotate(p − O) / S.
+- Per arm (wrist w', elbow e', shoulder s'): `lift = (w'.y + 1.5) / 3.5`, `out = |w'.x| / 2.5`, `head = |w' − H'| / 2`, `elbowLift` = upper-arm angle from straight down / 180°, `elbowBend` = 1 − elbow angle / 180°. `wristGap = |wL − wR| / S / 3`, `shoulderTilt = |roll| / 30°`, `headRise = H'.y / 1.5`. All clamped to 0...1.
+- Hand: a finger is straight when |tip − wrist| / |PIP − wrist| ≥ 1.2 (ramp from 0.95) and curled when ≤ 0.8 (ramp to 1.05). thumbsUp = min(others curled, thumb tip−IP within ~35° of up, thumb tip above the other fingers by 0.1–0.35 palms); point = index straight, 3 others curled; peace = index and middle straight, ring and little curled; openPalm / fist = all straight / curled.
+- gestureStrength: weighted RMS distance from arms at rest (lift .03, out .2, head 1, elbowLift .05, elbowBend .1, gap .37; weights 1, .5, 1, .5, .25, .5) over the numbers seen, `clamp((rms − 0.1) / 0.3)`; a hand sign ≥ 0.7 raises it to the sign's strength.
+- compare: weights per number lift 2, out 1, head 2, elbowLift 1, elbowBend 1, gap 1.5, tilt .5, headRise .5 (hand signs 1 each when both have a hand); per number `max(0, 1 − |Δ| / 0.25)`. similarity = over numbers both have; coverage = their weight / the weight of numbers either has.
+- `PoseFeatures.similarity(query:item:)`, g = gesture strength: the item's arms not seen → `1 − 0.7·g_query`; the query without a descriptor or the item measured the old way → level = `1 − |g_query − g_item|`; else the better of the item as-is and mirrored of `coverage × similarity × (0.5 + 0.5·level) + (1 − coverage) × level`.
 
 ### Baseline.swift
 
@@ -106,8 +158,8 @@ public struct FeatureWeights: Codable, Hashable, Sendable {
     public init(brows: Double = 1, eyes: Double = 1, mouth: Double = 1, pose: Double = 0.15)
     public static let uniform: FeatureWeights
     public subscript(region: FaceRegion) -> Double { get set }
-    /// m = max deviation; if m < 0.05 → all 1, else 1 + 2 * d / m per region. pose = clamp(0.15 + 0.5 * poseActivity, 0.15, 0.6)
-    public static func automatic(deviation: [FaceRegion: Double], poseActivity: Double) -> FeatureWeights
+    /// m = max deviation; if m < 0.05 → all 1, else 1 + 2 * d / m per region. pose = min(0.6, 0.05 + 0.55 * poseStrength)
+    public static func automatic(deviation: [FaceRegion: Double], poseStrength: Double) -> FeatureWeights
     /// Pinned regions get weight 6.
     public func pinning(_ pins: Set<FaceRegion>) -> FeatureWeights
 }
@@ -123,6 +175,7 @@ public struct PeakHoldConfig: Sendable {
     public var sameDirectionCosine: Double = 0.85
     public var minimumIntensity: Double = 0.12
     public var bufferWindow: TimeInterval = 0.5
+    public var minimumGestureWithoutFace: Double = 0.5
     public init()
 }
 
@@ -136,6 +189,7 @@ public final class PeakHoldTracker {
     public private(set) var candidate: ExpressionSample?    // the best frame of the run being held; nil when none
     public private(set) var lastSample: ExpressionSample?
     public private(set) var lastFaceTimestamp: TimeInterval? // timestamp of the last sample that had a face
+    public private(set) var lastSeenTimestamp: TimeInterval? // … a face, or a gesture ≥ minimumGestureWithoutFace standing in for one
     public init(baseline: RestingBaseline = RestingBaseline(), config: PeakHoldConfig = PeakHoldConfig())
     /// Feed every analyzed frame. Returns true when `query` changed.
     @discardableResult public func ingest(_ sample: ExpressionSample) -> Bool
@@ -147,8 +201,8 @@ public final class PeakHoldTracker {
 ```
 
 Algorithm (binding):
-- `ingest`: set `lastSample`. No face → clear the candidate, `holdProgress = 0`, return false. Calm frames feed `baseline.observe`.
-- Effective intensity `e = max(baseline.intensity(of: face), 0.8 * (pose?.activity ?? 0))`. Direction vector = `signedDeviation(of: face) + [pose?.activity ?? 0]` (8 values), normalized.
+- `ingest`: set `lastSample`. No face and a gesture strength below `minimumGestureWithoutFace` (0.5) → clear the candidate, `holdProgress = 0`, return false (a facepalm hides the face: its gesture carries on). Calm frames with a face feed `baseline.observe`.
+- Effective intensity `e = max(baseline.intensity(of: face) (0 without), 0.8 * (pose?.gestureStrength ?? 0))`. Direction vector = `signedDeviation(of: face)` (7 zeros without) + `0.5 × descriptor.gestureDirection` (a pose without a descriptor: `[activity, 0, 0, 0, 0, 0]`), 13 values, normalized.
 - A sample is a candidate if `e >= minimumIntensity`; otherwise clear the candidate, return false.
 - The candidate is a run of consecutive candidate samples whose direction cosine with the run's first sample is ≥ `sameDirectionCosine`; a sample outside that cone starts a new run. Within a run keep the best sample by `e * sharpness` among samples whose timestamp is within `bufferWindow` of the newest.
 - Required hold: no query → `holdDuration`. Same direction as the query (cosine ≥ `sameDirectionCosine`) → `holdDuration`, and only if `bestE >= queryIntensity * strongerRatio` (otherwise `holdProgress = 0`, no replacement). Different direction → `newExpressionHold` and `candidateIsNewExpression = true`.
@@ -173,7 +227,8 @@ public struct EarlyMoodTrigger: Sendable {
 ```swift
 public enum Mood: String, CaseIterable, Codable, Hashable, Sendable {
     case shocked, screaming, laughing, happy, smug, sideEye, crying, sad, angry, confused, unimpressed, nervous, excited, reaction
-    /// GIPHY query, e.g. "shocked reaction", "side eye", "unimpressed", "reaction"
+    case celebrate, facepalm, mindBlown, shrug, thumbsUp, pointing, clapping   // body language
+    /// GIPHY query, e.g. "shocked reaction", "side eye", "unimpressed", "reaction"; body language: the label ("mind blown", "thumbs up")
     public var searchQuery: String { get }
     /// Human word, e.g. "shocked", "side eye"
     public var label: String { get }
@@ -181,19 +236,29 @@ public enum Mood: String, CaseIterable, Codable, Hashable, Sendable {
 
 public enum MoodClassifier {
     /// Rules in this order (d = signed deviation from baseline.neutral; o = face.mouthOpenness; s = face.smile - 0.5):
-    /// 1. face nil → .reaction
-    /// 2. pose.handsRaised ≥ 0.5 && o ≥ 0.35 → .screaming;  pose.activity ≥ 0.5 && s > 0.08 → .excited
-    /// 3. o ≥ 0.45 && s ≤ 0.05 && (d.eye ≥ 0.1 || d.brow ≥ 0.1) → o ≥ 0.7 ? .screaming : .shocked
-    /// 4. o ≥ 0.2 && s > 0.08 → .laughing
-    /// 5. d.eye ≥ 0.15 && d.brow ≥ 0.12 → .shocked
-    /// 6. face.gazeSide ≥ 0.45 → .sideEye
-    /// 7. s > 0.12 → d.eye < -0.12 ? .smug : .happy
-    /// 8. s < -0.1 → d.brow > 0.05 ? .crying : .sad
-    /// 9. d.brow > 0.12 && s < 0 → .nervous
-    /// 10. d.brow < -0.12 → .angry
-    /// 11. face.headTilt ≥ 0.35 → .confused
-    /// 12. else → .unimpressed
+    /// 1. pose.descriptor with body language that has its own word → gestureMood
+    /// 2. face nil → .reaction
+    /// 3. poses without a descriptor only: pose.handsRaised ≥ 0.5 && o ≥ 0.35 → .screaming;  pose.activity ≥ 0.5 && s > 0.08 → .excited
+    /// 4. o ≥ 0.45 && s ≤ 0.05 && (d.eye ≥ 0.1 || d.brow ≥ 0.1) → o ≥ 0.7 ? .screaming : .shocked
+    /// 5. o ≥ 0.2 && s > 0.08 → .laughing
+    /// 6. d.eye ≥ 0.15 && d.brow ≥ 0.12 → .shocked
+    /// 7. face.gazeSide ≥ 0.45 → .sideEye
+    /// 8. s > 0.12 → d.eye < -0.12 ? .smug : .happy
+    /// 9. s < -0.1 → d.brow > 0.05 ? .crying : .sad
+    /// 10. d.brow > 0.12 && s < 0 → .nervous
+    /// 11. d.brow < -0.12 → .angry
+    /// 12. face.headTilt ≥ 0.35 → .confused
+    /// 13. else → .unimpressed
     public static func mood(for face: FaceFeatures?, pose: PoseFeatures?, baseline: RestingBaseline) -> Mood
+    /// Each rule needs the joints it reads; in this order:
+    /// 1. hand: thumbsUp ≥ 0.7 → .thumbsUp; point ≥ 0.7 → .pointing
+    /// 2. both arms up (lift ≥ 0.7 with head ≥ 0.35, or no wrist and elbowLift ≥ 0.5) → o ≥ 0.35 && s ≤ 0.05 ? .screaming : .celebrate
+    /// 3. both hands at the head (head ≤ 0.35, lift ≥ 0.5) → o ≥ 0.45 ? .screaming : .mindBlown
+    /// 4. a hand on the face (head ≤ 0.22, ≤ 0.3 without a face; lift ≥ 0.5), face nil or d.eye ≤ −0.1, o < 0.35 → .facepalm
+    /// 5. wristGap ≤ 0.12 and both lifts 0.3...0.75 → .clapping
+    /// 6. both elbowBend ≥ 0.3, out ≥ 0.3, lift 0.1...0.5 → .shrug
+    /// 7. both out ≥ 0.45 and lift ≥ 0.35, s > 0.08 → .excited
+    public static func gestureMood(_ pose: PoseDescriptor, face: FaceFeatures?, baseline: RestingBaseline) -> Mood?
 }
 ```
 
@@ -219,6 +284,7 @@ public struct LibraryItem: Codable, Identifiable, Hashable, Sendable {
     public var isAnimated: Bool
     public var face: FaceFeatures?
     public var pose: PoseFeatures?
+    public var poseRevision: Int          // 0: pose not described in detail yet; currentPoseRevision (1) since
     public var intensity: Double          // 0...1 against FaceFeatures.populationNeutral
     public var featurePrint: [Float]?     // JSON: base64 of little-endian Float32 (FloatCoding)
     public var featurePrintRevision: Int
@@ -231,7 +297,8 @@ public struct LibraryItem: Codable, Identifiable, Hashable, Sendable {
     public var attribution: String?       // web: "via GIPHY"
     public var timesSent: Int
     public var lastSentAt: Date?
-    public init(id: UUID = UUID(), fileURL: URL, displayName: String, kind: ItemKind, tier: ItemTier = .meme, source: String, sourceDetail: String? = nil, addedAt: Date = Date(), fileModifiedAt: Date? = nil, fileSize: Int64 = 0, contentHash: String, isSticker: Bool = false, isAnimated: Bool = false, face: FaceFeatures? = nil, pose: PoseFeatures? = nil, intensity: Double = 0, featurePrint: [Float]? = nil, featurePrintRevision: Int = 0, text: String = "", labels: [String] = [], personID: UUID? = nil, faceEmbedding: [Float]? = nil, remoteURL: URL? = nil, previewURL: URL? = nil, attribution: String? = nil, timesSent: Int = 0, lastSentAt: Date? = nil)
+    public init(id: UUID = UUID(), fileURL: URL, displayName: String, kind: ItemKind, tier: ItemTier = .meme, source: String, sourceDetail: String? = nil, addedAt: Date = Date(), fileModifiedAt: Date? = nil, fileSize: Int64 = 0, contentHash: String, isSticker: Bool = false, isAnimated: Bool = false, face: FaceFeatures? = nil, pose: PoseFeatures? = nil, poseRevision: Int = 0, intensity: Double = 0, featurePrint: [Float]? = nil, featurePrintRevision: Int = 0, text: String = "", labels: [String] = [], personID: UUID? = nil, faceEmbedding: [Float]? = nil, remoteURL: URL? = nil, previewURL: URL? = nil, attribution: String? = nil, timesSent: Int = 0, lastSentAt: Date? = nil)
+    public static let currentPoseRevision: Int      // 1
     public var isOwn: Bool { get }          // kind == .mine || kind == .friend
     /// "March 2026" (en_US_POSIX "LLLL yyyy", UTC) of fileModifiedAt ?? addedAt
     public var monthKey: String { get }
@@ -324,7 +391,7 @@ public struct Ranker: Sendable {
 ```
 
 Scoring (binding):
-- **expressionScore**: target `t = sample.face.map { baseline.intensity(of: $0) } ?? 0.3`. If `item.face` and `sample.face` exist: `qDev = baseline.signedDeviation(of: sample.face)`, `iDev = item.face.vector - populationNeutral.vector`; per region `sim_r = max(0, 1 - meanAbsDiff(qDev[idx_r], iDev[idx_r]) / 0.5)`; `featureSim = Σ w_r·sim_r / Σ w_r`; `poseSim = 1 - |(item.pose?.activity ?? 0.1) - (sample.pose?.activity ?? 0)|`; `faceScore = (1 - w.pose)·featureSim + w.pose·poseSim`; `fit = 1 - |item.intensity - t|`; `score = 0.7·faceScore + 0.3·fit`. Without item or sample face: `score = 0.25 + 0.3·fit`. Then `+0.02` if `isOwn`, `+0.01·min(timesSent,5)/5`, `-0.01` if `kind == .web`.
+- **expressionScore**: target `t = sample.face.map { baseline.intensity(of: $0) } ?? 0.3`. If `item.face` and `sample.face` exist: `qDev = baseline.signedDeviation(of: sample.face)`, `iDev = item.face.vector - populationNeutral.vector`; per region `sim_r = max(0, 1 - meanAbsDiff(qDev[idx_r], iDev[idx_r]) / 0.5)`; `featureSim = Σ w_r·sim_r / Σ w_r`; `poseSim = PoseFeatures.similarity(query: sample.pose, item: item.pose)`; `faceScore = (1 - w.pose)·featureSim + w.pose·poseSim`; `fit = 1 - |item.intensity - t|`; `score = 0.7·faceScore + 0.3·fit`. Without item or sample face: when the sample's gesture strength is ≥ `Ranker.gestureWithoutFace` (0.4) and the item's arms were seen, the same with featureSim 0.5 (a facepalm hides the face; the pose carries the match); else `score = 0.25 + 0.3·fit`. Then `+0.02` if `isOwn`, `+0.01·min(timesSent,5)/5`, `-0.01` if `kind == .web`.
 - **expression** results: items with `tier == .meme` only; sort by score desc; keep at most 2 `kind == .friend` items within the first `limit` (extras are dropped from the window); return `limit`.
 - **text**: parse with `TextQuery.parse`. Pool: `tier` meme or maybe, matching filters; every term must be a substring of `lowercased(displayName + " " + text + " " + labels.joined(" ") + " " + source + " " + (sourceDetail ?? "") + " " + person name)`. Order inside groups: by `expressionScore` when `face` is non-nil, else newest first (`fileModifiedAt ?? addedAt`). Groups and `section`: own items grouped by `monthKey` (newest month first), then `.pack` ("Packs"), then `.web` ("From GIPHY"). If fewer than 3 hits, append matching `skipped` items with section "From your photos". Return up to `limit`.
 - **image**: meme tier; `fp = featurePrint != nil && item.featurePrint != nil ? (cosine + 1) / 2 : 0.5`; `fs = face sim with uniform weights using populationNeutral for both (0.5 when either is nil)`; `score = 0.7·fp + 0.3·fs`, then the same own/web adjustments.
@@ -504,7 +571,10 @@ Not thread-safe: used from the main actor only.
 enum FaceFeatureExtractor {
     /// nil when the observation has no landmarks.
     static func features(from face: VNFaceObservation) -> FaceFeatures?
-    static func pose(from body: VNHumanBodyPoseObservation?) -> PoseFeatures
+    /// The body that goes with the face (`BodyJoints.primary`), with the strongest sign of its own hands; nil without a body.
+    static func pose(bodies: [VNHumanBodyPoseObservation], hands: [VNHumanHandPoseObservation] = [], faceBox: CGRect?, imageWidth: Int, imageHeight: Int) -> PoseFeatures?
+    static func primaryBody(_ bodies: [VNHumanBodyPoseObservation], faceBox: CGRect?, imageWidth: Int, imageHeight: Int) -> BodyJoints?
+    static func handJoints(_ hands: [VNHumanHandPoseObservation], imageWidth: Int, imageHeight: Int) -> [HandJoints]
     /// Vision-normalized image rects (origin bottom-left) for .eyes (union of both eyes) and .mouth (outer lips), padded 25 %; .brows (union of brows).
     static func regionRects(from face: VNFaceObservation) -> [FaceRegion: CGRect]
 }
@@ -516,7 +586,7 @@ Mapping (landmark `normalizedPoints` are relative to the face bounding box, orig
 - smile: corners = leftmost and rightmost outer-lip points; `s = (mean corner y − mean outer-lip y) / max(width, 0.01)`; `smile = clamp(0.5 + 2.5·s)`.
 - `headTilt = clamp(|roll| / (π/4))` (`face.roll?.doubleValue ?? 0`).
 - gaze: per eye `(pupil.x − eyeCenter.x) / eyeWidth`, averaged → `gazeSide = clamp(|offset| · 3)`; 0.1 when pupils are missing.
-- pose: joints with confidence ≥ 0.3. `bodyVisible` = mean shoulder confidence (0 if missing). `handsRaised` = max over wrists of (wrist above shoulder line → 1, within 0.6·shoulderWidth of the nose → 0.8, else 0). `armsSpread = clamp((|lw.x − rw.x| / shoulderWidth − 1) / 1.5)`.
+- pose: Vision's joints become `BodyJoints` / `HandJoints` (confidence ≥ 0.3, x corrected by the image's aspect) and `PoseFeatures(joints:hand:)` measures them (BodyPose.swift). `bodyVisible` = mean shoulder confidence (0 if missing). `handsRaised` = max over wrists of (wrist above the shoulder line → 1, within 0.6·shoulderWidth of the nose → 0.8, else 0). `armsSpread = clamp((|lw.x − rw.x| / shoulderWidth − 1) / 1.5)`.
 
 ### Vision/ImageAnalyzer.swift
 
@@ -548,17 +618,19 @@ struct ImageAnalysis {
 
 enum ImageAnalyzer {
     static var featurePrintRevision: Int { get }   // VNGenerateImageFeaturePrintRequest revision used everywhere
-    static func load(url: URL) -> LoadedImage?      // ImageIO; nil if not an image or > 25 MB
+    static func load(url: URL, maxPixelSize: Int = 2048) -> LoadedImage?   // ImageIO; nil if not an image or > 25 MB
     /// Synchronous; never call on the main thread. For animated images analyzes up to 3 frames and keeps the most intense.
     static func analyze(url: URL, includeText: Bool = true) throws -> ImageAnalysis
     static func analyze(_ image: LoadedImage, includeText: Bool = true) throws -> ImageAnalysis
     static func featurePrint(of cgImage: CGImage) throws -> [Float]
+    /// Pose alone (frames decoded to 1024 px), for the indexer's pose pass: the clearest gesture of up to 3 frames.
+    static func analyzePose(url: URL) -> PoseReading   // .unreadable or .read(PoseFeatures?)
     static func sha256Hex(_ data: Data) -> String
     /// kMDItemWhereFroms host, e.g. "reddit.com", if any.
     static func downloadedFromHost(url: URL) -> String?
 }
 ```
-Requests per frame: `VNDetectFaceLandmarksRequest`, `VNDetectHumanBodyPoseRequest`; per image once: `VNGenerateImageFeaturePrintRequest`, `VNClassifyImageRequest` (top labels with confidence ≥ 0.3, at most 8), `VNRecognizeTextRequest` (`.fast`, no language correction, joined, ≤ 200 chars) when `includeText`. Intensity uses `RestingBaseline()` (population neutral).
+Requests per frame: `VNDetectFaceLandmarksRequest`, `VNDetectHumanBodyPoseRequest` (the body whose head is in the largest face's box), `VNDetectHumanHandPoseRequest` (up to 4 hands, only when a wrist was seen); no pose for frames under 128 px on the short side. The pose kept is that of the frame with the clearest gesture when it is ≥ 0.3 and clearer than the chosen frame's; per image once: `VNGenerateImageFeaturePrintRequest`, `VNClassifyImageRequest` (top labels with confidence ≥ 0.3, at most 8), `VNRecognizeTextRequest` (`.fast`, no language correction, joined, ≤ 200 chars) when `includeText`. Intensity uses `RestingBaseline()` (population neutral).
 
 ### Vision/ThumbnailCache.swift
 
@@ -586,10 +658,53 @@ Requests per frame: `VNDetectFaceLandmarksRequest`, `VNDetectHumanBodyPoseReques
     func refreshAuthorization()
     func requestAccess() async -> Bool
     func start()   // no-op unless authorized; lazily configures (front/default camera, .vga640x480 or .medium preset, BGRA output, alwaysDiscardsLateVideoFrames); startRunning on a private serial queue
-    func stop()    // stopRunning on the private queue; clears faceVisible and regionRects
+    func stop()    // stopRunning on the private queue; clears faceVisible and regionRects; a pending still gets nil
+    // Capture view (CaptureRenderer on the frame queue)
+    var onCapturePreview: ((CGImage) -> Void)?    // every rendered frame while the capture view is open, on the main actor
+    func setCaptureView(active: Bool, filter: CameraFilter)
+    func captureStill() async -> CGImage?         // the next rendered frame; nil when none comes within 1 s
+    func beginClip()                              // 12.5 frames a second, 320 px, at most 3 s
+    func endClip() async -> CapturedClip?
+    func cancelClip()
 }
 ```
-Frames: `AVCaptureVideoDataOutputSampleBufferDelegate` on a private queue, throttled to 10 fps; per frame `VNDetectFaceLandmarksRequest` (+ `VNDetectHumanBodyPoseRequest` every other frame, reusing the last pose), `VNImageRequestHandler(cvPixelBuffer:orientation: .up)`. Sample timestamp `CACurrentMediaTime()`; sharpness `1`.
+Frames: `AVCaptureVideoDataOutputSampleBufferDelegate` on a private queue. Every frame first goes to `CaptureRenderer.render` (a no-op unless the capture view is open or a capture runs); Vision is then throttled to 10 fps; per frame `VNDetectFaceLandmarksRequest`, then on even frames `VNDetectHumanBodyPoseRequest` (the body whose head is in the face's box) and on odd frames, while that body shows a wrist, `VNDetectHumanHandPoseRequest` (2 hands; the body's own hands' strongest sign), so at most 2 requests a frame; `VNImageRequestHandler(cvPixelBuffer:orientation: .up)`, image size from the pixel buffer. While the capture view is open no body or hand pose is read, and the face's `FaceGeometry` (plus its intensity, for the clip's best frame) goes to the renderer. Sample timestamp `CACurrentMediaTime()`; sharpness `1`.
+
+### Camera/CameraFilter.swift and Camera/CaptureRenderer.swift
+
+```swift
+struct FaceGeometry: Equatable, Sendable {          // Vision-normalized, unmirrored buffer
+    var firstEye, secondEye, mouth: CGPoint; var mouthOpen: CGFloat   // pupils, else eye contour centers; inner-lip height / face height
+    static func geometry(from face: VNFaceObservation) -> FaceGeometry?
+}
+struct FaceAnchors: Equatable, Sendable {           // pixels of the mirrored centered square, origin bottom-left
+    var leftEye, rightEye, mouth: CGPoint; var mouthOpen: CGFloat     // leftEye = the one on the left of the picture
+    init(geometry: FaceGeometry, imageWidth: CGFloat, imageHeight: CGFloat)   // x' = side − (x·w − (w − side)/2), y' = y·h − (h − side)/2
+    var eyeDistance: CGFloat { get }; var angle: CGFloat { get }; var eyeMidpoint: CGPoint { get }
+    func above(_ point: CGPoint, by distance: CGFloat) -> CGPoint
+    func blended(toward target: FaceAnchors, amount: CGFloat) -> FaceAnchors
+}
+enum CameraFilter: String, CaseIterable, Identifiable, Sendable {
+    case none, noir, comic, pixel, deepFried, shades, hearts, bugEyes, crown
+    var title: String { get }        // "None", "Noir", "Comic", "8-bit", "Deep fried", "Deal with it", "Heart eyes", "Bug eyes", "Crown"
+    var followsFace: Bool { get }    // shades, hearts, bugEyes, crown: unchanged without a face
+    func apply(to image: CIImage, face: FaceAnchors?, time: TimeInterval) -> CIImage   // cropped to image.extent
+}
+struct CapturedClip { let frames: [CGImage]; let frameDelay: Double; let bestFrame: CGImage? }
+final class CaptureRenderer {        // confined to the camera's frame queue
+    static let clipFrameDelay: Double            // 0.08
+    static let clipSide: Int                     // 320
+    static let maximumClipDuration: TimeInterval // 3
+    var isActive: Bool; var filter: CameraFilter; var onPreview: ((CGImage) -> Void)?
+    static func mirroredSquare(_ frame: CIImage, width: CGFloat, height: CGFloat) -> CIImage
+}
+enum CaptureEncoder {
+    static func png(_ image: CGImage) -> Data?
+    static func gif(_ frames: [CGImage], frameDelay: Double) -> Data?   // loops forever; delay and unclamped delay per frame
+}
+```
+Filters (Core Image, `CIFilterBuiltins`): noir = photoEffectNoir + vignette (intensity 1, radius 2); comic = comicEffect; 8-bit = pixellate (scale side / 40) + colorPosterize (6); deep fried = colorControls (saturation 2.6, contrast 1.5, brightness 0.04) + sharpenLuminance (2) + unsharpMask (2.5, 1.5); bug eyes = bumpDistortion on each eye (radius 0.75·d, scale 0.55) and the mouth when open > 0.12 (0.9·d, 0.4); shades = pixel-art glasses (24 × 6 cells, nearest sampling) 2.4·d wide on the eyes; hearts = a heart 0.9·d wide on each eye, pulsing ±8 % at 2 Hz; crown = 2.3·d wide, 1.75·d above the eyes (d = eye distance, all turned with the eye line). The drawings are made once with Core Graphics (`FilterSprites`).
+Rendering: `CIImage(cvPixelBuffer:)` → centered square → mirrored → filter → `CIContext.createCGImage` (RGBA8, sRGB) at the square's size (480 at VGA); face anchors move halfway to each new reading per frame and are dropped 0.5 s after the last face. A still is the next rendered frame; a clip keeps a frame when 0.08 s (− 0.01) have passed since the last kept one, scaled to 320 px, for at most 3 s, and remembers the full-size frame whose analyzed face was most intense.
 
 ### Camera/CameraPreviewView.swift
 
@@ -643,7 +758,9 @@ struct IndexBatch: Identifiable, Equatable {
     func clearPendingSummary()
 }
 ```
-Scanning: top-level files only; skip hidden files, non-images (UTType conforming to `.image`), files > 25 MB, files already indexed with the same path + modification date + size. Analyze at most 2 at a time at utility priority; pause while `SystemConditions.shouldDeferBackgroundWork`. Item fields: `kind .mine`, `tier` from `MemeTierClassifier`, `source` = folder display name ("Downloads", "Desktop", "Screenshots" for the screenshot folder, else the folder name), `sourceDetail` = "from <host>" via `downloadedFromHost`. Skipped-tier items keep only path, hash, dates, facts-derived tier (no face, fingerprint, text, labels). Save the store at most every 5 s while indexing and at the end.
+Scanning: top-level files only; skip hidden files, non-images (UTType conforming to `.image`), files > 25 MB, files already indexed with the same path + modification date + size. Analyze at most 2 at a time at utility priority; pause while `SystemConditions.shouldDeferBackgroundWork`. Item fields: `kind .mine`, `tier` from `MemeTierClassifier`, `source` = folder display name ("Downloads", "Desktop", "Screenshots" for the screenshot folder, else the folder name), `sourceDetail` = "from <host>" via `downloadedFromHost`. Skipped-tier items keep only path, hash, dates, facts-derived tier (no face, fingerprint, text, labels). Save the store at most every 5 s while indexing and at the end. New items get `poseRevision = LibraryItem.currentPoseRevision`.
+
+Pose pass: when no scan is queued (after a scan, on start, after a pause ends), items with `kind .mine`, a tier other than `.skipped` and `poseRevision` below the current one are read again with `ImageAnalyzer.analyzePose(url:)`, one at a time at background priority, waiting while `shouldDeferBackgroundWork`, stopping for a scan or a pause (the scan's end starts it again). Only `pose` and `poseRevision` change (an unreadable file keeps its old pose, so it isn't retried every launch); the store is saved at most once a minute and at the end, and no library change is announced (the next search reads the new poses).
 
 ### System/SystemConditions.swift
 
@@ -769,6 +886,8 @@ struct StickerBatch: Identifiable, Equatable {
     func forget(personID: UUID)                                                     // removes the person's embeddings and unlinks stickers
 }
 ```
+`func makeOwnSticker(fromCapture url: URL) async throws -> LibraryItem?`: "Save as sticker" for a capture. Analyzes the PNG (no text), cuts out the largest face with `StickerMaker.makeStickers` (no sticker policy, eligibility or grouping) and adds `kind .mine`, `tier .meme`, `isSticker true`, `source "Camera"`, `displayName` "You — " + mood label (face and pose), `poseRevision` current; nil when nothing could be cut; an identical sticker already kept is returned instead.
+
 Sticker items: `kind .friend`, `isSticker true`, `source "Friend sticker"`, `sourceDetail` = source file name, `displayName` = person name (or "New face") + " — " + mood label of its face, `tier .meme`. Matching only runs when `groupFaces == true`: `.confident` → set `personID` and add the embedding; `.likely` → leave `personID` nil until `confirm`; `.newFace` → create an unnamed `Person` with the embedding and assign it.
 
 ### System/Clipboard.swift
@@ -777,6 +896,8 @@ Sticker items: `kind .friend`, `isSticker true`, `source "Friend sticker"`, `sou
 enum Clipboard {
     /// Writes a pasteable representation of `fileURL` for `item`; returns the pasteboard changeCount after writing.
     @MainActor @discardableResult static func copy(fileURL: URL, item: LibraryItem) throws -> Int
+    /// A capture's bytes (GIF or PNG) as `fileName`, written the same way; returns the temp file.
+    @MainActor @discardableResult static func copy(data: Data, fileName: String) throws -> URL
     @MainActor static var lastWriteChangeCount: Int { get }
     /// When the pasteboard holds an image (or image file) that MemeMe didn't write, returns a local file URL (temp copy for raw image data).
     @MainActor static func imageOnPasteboard() -> URL?
@@ -816,14 +937,15 @@ enum Theme {
     func hide()                         // orders out, calls model.panelDidHide, reactivates the previous app if it is no longer frontmost
 }
 ```
-NSPanel subclass: `styleMask [.borderless, .nonactivatingPanel]`, `canBecomeKey true`, `canBecomeMain false`, `isFloatingPanel true`, `level .floating`, `collectionBehavior [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]`, `hidesOnDeactivate false`, `backgroundColor .clear`, `hasShadow true`; `sharingType` stays at the default, so screenshots and screen recordings include it. Hosting: `NSHostingView(rootView: PanelView(model:))`, sized to fit (width 640). While visible: a local key-down monitor (keys in DESIGN.md: Esc, ↵/Enter, digits 1–9 as typed on the active keyboard layout, arrows, Space with empty query, Tab / Shift-Tab, ⌘V) and a global mouse-down monitor (outside click → hide). `model.onRequestClose = { [weak self] in self?.hide() }`.
+NSPanel subclass: `styleMask [.borderless, .nonactivatingPanel]`, `canBecomeKey true`, `canBecomeMain false`, `isFloatingPanel true`, `level .floating`, `collectionBehavior [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]`, `hidesOnDeactivate false`, `backgroundColor .clear`, `hasShadow true`; `sharingType` stays at the default, so screenshots and screen recordings include it. Hosting: `NSHostingView(rootView: PanelView(model:))`, sized to fit (width 640). While visible: a local key-down and key-up monitor (keys in DESIGN.md: Esc, ↵/Enter, digits 1–9 as typed on the active keyboard layout, arrows, Space with empty query, Tab / Shift-Tab, ⌘V) and a global mouse-down monitor (outside click → hide). `model.onRequestClose = { [weak self] in self?.hide() }`.
 
 Key handling:
 - Esc → `if !model.handleEscape() { hide() }`
 - ↵ / Enter → `model.commitFocused()`
 - digits 1–9 as typed on the active keyboard layout (main row or keypad; Shift allowed, no ⌘/⌃/⌥; 0 is swallowed) → `model.commitNumbered(index: n - 1)` (your memes only)
 - ←/→ → `model.moveFocus(dx: ∓1, dy: 0)` only when `model.queryText` is empty; ↑/↓ → `model.moveFocus(dx: 0, dy: ∓1)`
-- Space with empty query → `model.snap()`
+- Space with empty query → `model.snap()`; ⇧Space with empty query → `model.openCapture()` when `model.canOpenCapture`
+- In the capture view (`model.isCaptureOpen`): Esc → `model.handleEscape()` (cancels a capture in progress, else closes the view); Space down (not a repeat) → `model.capture.press()`, Space up (whatever the modifiers) → `model.capture.release()`; ↵ / Enter → press + release (a photo); ←/→ → `model.capture.cycleFilter(by: ∓1)`; other keys without ⌘/⌃/⌥ are swallowed
 - Tab → `model.moreLikeFocused()`; Shift-Tab → `model.backToFace()`
 - ⌘V → consume only if `model.pasteFromClipboard()` returns true
 - everything else passes through to the focused search field.
@@ -839,7 +961,11 @@ struct ResultTile: View { let result: RankedResult; let number: Int?; let isFocu
 struct FooterView: View { @ObservedObject var model: AppModel }
 struct SetupCardView: View { @ObservedObject var model: AppModel }
 struct AnimatedImageView: NSViewRepresentable { init(url: URL); init(image: NSImage) }   // NSImageView with animates = true
+struct CaptureView: View { init(model: AppModel) }                                   // replaces the strip while model.isCaptureOpen
 ```
+- `PanelView` shows `CaptureView` instead of the strip and footer while `model.isCaptureOpen`; drops are ignored there and the search field gets the focus back when it closes.
+- `MirrorColumn` puts a 26 px camera button (SF Symbol `camera.fill`, 55 % black circle) at the mirror's bottom right while `model.canOpenCapture`.
+- `CaptureView`: a 300 × 300 stage (`CapturePreview`, an `NSView` whose layer contents are set straight from `camera.onCapturePreview`, aspect fill) with a white flash on each photo, a coral progress ring while recording and the shutter (a `DragGesture(minimumDistance: 0)`: press → `capture.press()`, release → `capture.release()`); beside it the title, the status line, the filter chips (3 columns) and "Back to memes"; the legend below.
 - The search field is a SwiftUI `TextField` bound to `$model.queryText`, focused on appear (`@FocusState`), plain style.
 - Drops on the whole panel: `.onDrop(of: [.fileURL, .image], …)` → `model.search(withImageAt:)`.
 - Tiles: `.onHover { if $0 { model.hover(index:) } }`, `.onTapGesture { model.commit(index:) }`, `.onDrag { model.dragItemProvider(index:) ?? NSItemProvider() }`, with slots from `TileGrid` (GIPHY tiles: `model.giphySlot(offset)`).
@@ -852,8 +978,11 @@ struct AnimatedImageView: NSViewRepresentable { init(url: URL); init(image: NSIm
 @MainActor final class HUDController {
     static let shared: HUDController
     /// Pill at the top center of the main screen for 1.6 s (or until replaced). Optional 28 px thumbnail.
-    func show(_ message: String, thumbnail: URL? = nil)
+    /// With an action: a button, clicks taken without activating MemeMe (first mouse), 5 s and while hovered.
+    func show(_ message: String, thumbnail: URL? = nil, action: HUDAction? = nil)
+    func dismiss()
 }
+struct HUDAction { let title: String; let perform: @MainActor () -> Void }
 ```
 
 ### UI/StickerPopoverView.swift
@@ -994,6 +1123,28 @@ struct UpdateInstaller {
 - Observes `model.updates.$available`: the icon is `face.smiling` with a small dot when an update is available (one template image, so it follows the menu bar's color).
 - Menu: with an update, the first item is "Update to MemeMe <displayVersion>…" (→ `model.installUpdate()`), or "Updating MemeMe…" disabled while `phase` is `.downloading`/`.installing`, then a separator. When `model.updates.isEnabled`, a section before Quit: "Check for Updates…" (→ `model.updates.checkFromMenu()`) and a disabled "Version <installedDisplayVersion>".
 
+### App/CaptureModel.swift
+
+```swift
+enum CapturePhase: Equatable { case idle, pressing, recording(progress: Double), saving }
+struct CaptureResult { let data: Data; let isGIF: Bool; let stickerFrame: CGImage? }
+@MainActor final class CaptureModel: ObservableObject {
+    @Published private(set) var filter: CameraFilter
+    @Published private(set) var phase: CapturePhase
+    @Published private(set) var flashCount: Int        // bumped per photo
+    @Published private(set) var failed: Bool
+    var onCaptured: ((CaptureResult) -> Void)?
+    static let holdThreshold: TimeInterval             // 0.35
+    static let minimumClipFrames: Int                  // 4
+    init(camera: CameraController)
+    var isBusy: Bool { get }
+    func select(_ filter: CameraFilter); func cycleFilter(by step: Int)
+    func activate(); func deactivate()                 // the view opened (filter None) / closed
+    func press(); func release(); func cancel()
+}
+```
+A press held 0.35 s starts a clip (`camera.beginClip`); the release (or 3 s) ends it. A release before that takes a photo (`camera.captureStill`, PNG). A clip under 4 frames becomes a photo of its best frame. Encoding runs detached at user-initiated priority; `cancel` (Esc, close) drops a capture in flight.
+
 ### App/AppModel.swift
 
 ```swift
@@ -1029,9 +1180,11 @@ enum DropOutcome { case kept(IndexBatch), stickers(StickerBatch), nothing }
     @Published private(set) var holdProgress: Double
     @Published private(set) var hotKeyAvailable: Bool
     @Published private(set) var isPanelVisible: Bool
+    @Published private(set) var isCaptureOpen: Bool
 
     let store: LibraryStore
     let camera: CameraController
+    let capture: CaptureModel
     let indexer: LibraryIndexer
     let web: WebDiscover
     let friends: FriendService
@@ -1059,8 +1212,12 @@ enum DropOutcome { case kept(IndexBatch), stickers(StickerBatch), nothing }
     func moveFocus(dx: Int, dy: Int)
     func hover(index: Int)
     func togglePin(_ region: FaceRegion)
-    func handleEscape() -> Bool
+    func handleEscape() -> Bool                      // in the capture view: cancels a capture in progress, else closes the view
     func snap()
+    // Send yourself
+    var canOpenCapture: Bool { get }                 // mode == .live, no setup card, camera running
+    func openCapture()                               // isCaptureOpen = true, capture.activate(); the search pauses (handleSample ignores samples)
+    func closeCapture()                              // capture.deactivate(); also on hide and on a new session
     func moreLikeFocused()
     func backToFace()
     func search(withImageAt url: URL)
@@ -1096,5 +1253,6 @@ Behavior summary (details in DESIGN.md):
 - `camera.onSample` → `tracker.ingest`; the mood of `tracker.candidate` (the expression being held) goes through `EarlyMoodTrigger` (same mood for 0.2 s) → `web.warm(mood)`; publish `holdProgress`; on query change: mood → weights (`automatic(...).pinning(pins)`) → your memes ranked at once (`store.items` without `.web`); the GIPHY row shows `web.cachedGIFs(for: mood)` at once, else placeholders until `await web.gifs(for: mood)` (its own task and generation; text, image and more-like searches leave the row alone). `normalizeFocus` keeps the focus on a tile: until the user moves it, the first one for Recent and the face (so ↵ copies a GIPHY GIF when there are no memes), and nothing for a typed, image or more-like search that finds no meme. `newResultIDs` for ids not shown before (cleared after 600 ms). The row's first GIF and a focused GIF prefetch their full GIF. No face for 1.5 s → hint "Can’t see your face".
 - Text changes (debounced 80 ms) → text mode; camera stops if typing began within 1 s of show, otherwise `showsFaceToken = true`; naming prompt when `TextQuery.possibleName` is set, no results, and `friends.unnamedPeople` is non-empty. Empty text → back to live (restart camera if it was stopped).
 - `commit`: resolve file (a GIPHY GIF → `await web.prepareForCopy`, HUD "Copying…" if it takes > 150 ms); `Clipboard.copy` (a GIPHY GIF as "reaction.gif"); for your memes only: increment `timesSent`, set `lastSentAt`, `recents.record` (GIPHY GIFs are never kept or listed as recent); first run → `showSetupCard = true` and `hasCompletedFirstRun = true` (panel stays open); otherwise close and HUD "Copied “<title>” · ⌘V — not sent" with the copied file as thumbnail. ↵ is ignored within 300 ms of the last text edit.
+- A capture (`capture.onCaptured`): `commitToken += 1`; `Clipboard.copy(data:fileName:)` as "reaction.gif" / "reaction.png"; the sticker source is that PNG (photo) or the clip's best frame written as `capture.png` in a fresh clipboard folder; close the capture view and the panel; HUD "Copied your photo · ⌘V — not sent" (or GIF) with the copy as thumbnail and the action "Save as sticker" → HUD "Making your sticker…", `friends.makeOwnSticker(fromCapture:)`, then "Saved “<name>” as a sticker" or "Couldn’t find you in that one.". Captures are not recorded as sent and don't count as the first pick.
 - Persist the store (debounced 2 s) after changes; persist `tracker.baseline` into settings on hide.
 - Footer priority: `.indexing` > `.added` (panel visible) > `.update(manifest)` (when `updates.available` is set, `updates.phase` is `.idle` or `.checking` and `UpdatePolicy.shouldOfferInPanel(manifest, skippedBuild: settings.skippedUpdateBuild)`) > `.libraryOffer` > `.legend`. AppModel subscribes to `updates.objectWillChange` like it does to the indexer and refreshes the footer on the next main-actor turn.

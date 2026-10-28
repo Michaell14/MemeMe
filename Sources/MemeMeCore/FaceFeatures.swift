@@ -63,24 +63,109 @@ public struct FaceFeatures: Codable, Hashable, Sendable {
     }
 }
 
-/// Coarse body language from the body-pose request.
+/// Body language from the body and hand pose requests.
 public struct PoseFeatures: Codable, Hashable, Sendable {
     public var handsRaised: Double   // 0...1 wrists at/above shoulders or near the face
     public var armsSpread: Double    // 0...1 wrist span relative to shoulder width
     public var bodyVisible: Double   // 0...1 confidence that shoulders are in frame
+    /// The pose in detail (arms, elbows, hand sign); nil for items analyzed before it existed or when it couldn't be measured.
+    public var descriptor: PoseDescriptor?
 
-    public init(handsRaised: Double, armsSpread: Double, bodyVisible: Double) {
+    public init(handsRaised: Double, armsSpread: Double, bodyVisible: Double, descriptor: PoseDescriptor? = nil) {
         self.handsRaised = handsRaised
         self.armsSpread = armsSpread
         self.bodyVisible = bodyVisible
+        self.descriptor = descriptor
+    }
+
+    /// Measures a body (and the strongest sign of its hands).
+    public init(joints: BodyJoints, hand: HandShape? = nil) {
+        let leftShoulder = joints[.leftShoulder]
+        let rightShoulder = joints[.rightShoulder]
+        let shoulderLine = PosePoint.mean([leftShoulder, rightShoulder].compactMap { $0 })?.y
+        var shoulderWidth: Double?
+        if let left = leftShoulder, let right = rightShoulder, abs(left.x - right.x) > 0.01 {
+            shoulderWidth = abs(left.x - right.x)
+        }
+        let nose = joints[.nose]
+        func raised(_ wrist: PosePoint?) -> Double {
+            guard let wrist else { return 0 }
+            if let line = shoulderLine, wrist.y >= line { return 1 }
+            if let nose, let width = shoulderWidth, wrist.distance(to: nose) <= 0.6 * width { return 0.8 }
+            return 0
+        }
+        let leftWrist = joints[.leftWrist]
+        let rightWrist = joints[.rightWrist]
+        var spread = 0.0
+        if let left = leftWrist, let right = rightWrist, let width = shoulderWidth {
+            spread = VectorMath.clampUnit((abs(left.x - right.x) / width - 1) / 1.5)
+        }
+        self.init(handsRaised: max(raised(leftWrist), raised(rightWrist)),
+                  armsSpread: spread,
+                  bodyVisible: joints.shoulderConfidence,
+                  descriptor: PoseDescriptor(joints, hand: hand))
     }
 
     /// No body language at all.
     public static let none = PoseFeatures(handsRaised: 0, armsSpread: 0, bodyVisible: 0)
 
-    /// max(handsRaised, armsSpread) * bodyVisible, clamped 0...1.
+    /// max(handsRaised, armsSpread) * bodyVisible, clamped 0...1 (the measure before `descriptor` existed).
     public var activity: Double {
         VectorMath.clampUnit(max(handsRaised, armsSpread) * bodyVisible)
+    }
+
+    /// 0 (arms at rest or not seen) … 1 (a clear gesture): from the descriptor, else `activity`.
+    public var gestureStrength: Double {
+        descriptor?.gestureStrength ?? activity
+    }
+
+    /// Whether the arms (or a hand) were seen, so the pose says something; a face with shoulders doesn't.
+    /// Poses measured the old way: whether the shoulders were seen.
+    public var showsArms: Bool {
+        descriptor?.showsArms ?? (bodyVisible > 0)
+    }
+
+    /// How well an item's pose matches the query's (0...1), g = gesture strength:
+    /// - the item's arms weren't seen: unknown, so 1 − 0.7 × the query's g (neutral without a gesture, below a
+    ///   matching pose when the user makes one);
+    /// - the query not described in detail, or the item measured the old way: 1 − |g difference| ("level");
+    /// - both described: on the numbers both show, shape similarity × (0.5 + 0.5 × level), so a different gesture or
+    ///   arms at rest don't pass for the user's gesture; what only one side shows counts as level (the query's arms
+    ///   out of frame ≈ arms down). The better of the item as-is and mirrored.
+    public static func similarity(query: PoseFeatures?, item: PoseFeatures?) -> Double {
+        let queryStrength = query?.gestureStrength ?? 0
+        let unknown = 1 - 0.7 * queryStrength
+        guard let item, item.showsArms else { return unknown }
+        let level = 1 - abs(queryStrength - item.gestureStrength)
+        guard let queryPose = query?.descriptor, let itemPose = item.descriptor else { return level }
+        func blended(_ match: (similarity: Double, coverage: Double)) -> Double {
+            match.coverage * match.similarity * (0.5 + 0.5 * level) + (1 - match.coverage) * level
+        }
+        let direct = blended(PoseDescriptor.compare(queryPose, itemPose))
+        let mirrored = blended(PoseDescriptor.compare(queryPose, itemPose.mirrored))
+        return VectorMath.clampUnit(max(direct, mirrored))
+    }
+
+    // MARK: Codable (lenient, so poses stored by earlier versions keep loading)
+
+    private enum CodingKeys: String, CodingKey {
+        case handsRaised, armsSpread, bodyVisible, descriptor
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        handsRaised = container.decodeLenient(Double.self, forKey: .handsRaised, default: 0)
+        armsSpread = container.decodeLenient(Double.self, forKey: .armsSpread, default: 0)
+        bodyVisible = container.decodeLenient(Double.self, forKey: .bodyVisible, default: 0)
+        descriptor = container.decodeLenientIfPresent(PoseDescriptor.self, forKey: .descriptor)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(handsRaised, forKey: .handsRaised)
+        try container.encode(armsSpread, forKey: .armsSpread)
+        try container.encode(bodyVisible, forKey: .bodyVisible)
+        try container.encodeIfPresent(descriptor, forKey: .descriptor)
     }
 }
 

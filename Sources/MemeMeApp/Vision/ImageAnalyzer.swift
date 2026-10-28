@@ -32,6 +32,12 @@ struct ImageAnalysis {
     var chosenFrame: CGImage
 }
 
+/// What the background pose pass found in one file.
+enum PoseReading: Sendable {
+    case unreadable
+    case read(PoseFeatures?)
+}
+
 private let visionLog = Logger(subsystem: "com.mememe.app", category: "vision")
 
 private enum ImageAnalyzerError: Error {
@@ -45,7 +51,11 @@ enum ImageAnalyzer {
 
     private static let maximumFileSize = 25 * 1024 * 1024
     /// Longest side of the frames handed to Vision; larger images are downsampled while decoding.
-    private static let maximumAnalysisPixelSize = 2048
+    static let maximumAnalysisPixelSize = 2048
+    /// Longest side of the frames read for pose alone (the background pass that measures older items again).
+    static let poseAnalysisPixelSize = 1024
+    /// Images whose shorter side is below this have no pose read: too small for joints to mean anything.
+    private static let minimumPosePixelSize = 128
     private static let maximumTextLength = 200
     private static let minimumLabelConfidence: Float = 0.3
     private static let maximumLabelCount = 8
@@ -60,8 +70,8 @@ enum ImageAnalyzer {
 
     // MARK: - Loading
 
-    /// ImageIO; nil if not an image or > 25 MB.
-    static func load(url: URL) -> LoadedImage? {
+    /// ImageIO; nil if not an image or > 25 MB. Frames are decoded to at most `maxPixelSize` on the longest side.
+    static func load(url: URL, maxPixelSize: Int = maximumAnalysisPixelSize) -> LoadedImage? {
         guard url.isFileURL else { return nil }
         if let values = try? url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]) {
             if values.isRegularFile == false { return nil }
@@ -70,10 +80,10 @@ enum ImageAnalyzer {
         guard let data = try? Data(contentsOf: url), !data.isEmpty, data.count <= maximumFileSize else {
             return nil
         }
-        return decode(data: data, fileName: url.lastPathComponent)
+        return decode(data: data, fileName: url.lastPathComponent, maxPixelSize: maxPixelSize)
     }
 
-    private static func decode(data: Data, fileName: String) -> LoadedImage? {
+    private static func decode(data: Data, fileName: String, maxPixelSize: Int) -> LoadedImage? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
         let imageCount = CGImageSourceGetCount(source)
         guard imageCount > 0 else { return nil }
@@ -99,7 +109,7 @@ enum ImageAnalyzer {
         }
 
         let longestSide = max(width ?? 0, height ?? 0)
-        let decodeSize = longestSide > 0 ? min(maximumAnalysisPixelSize, longestSide) : maximumAnalysisPixelSize
+        let decodeSize = longestSide > 0 ? min(maxPixelSize, longestSide) : maxPixelSize
         let frames = indices.compactMap { decodeFrame(source: source, index: $0, maxPixel: decodeSize) }
         guard let first = frames.first else { return nil }
 
@@ -169,6 +179,7 @@ enum ImageAnalyzer {
         let frames = image.frames.isEmpty ? [image.cgImage] : image.frames
 
         var best: FrameAnalysis?
+        var analyzed: [FrameAnalysis] = []
         for (offset, frame) in frames.enumerated() {
             let candidate: FrameAnalysis
             if offset == 0 {
@@ -178,10 +189,12 @@ enum ImageAnalyzer {
             } else {
                 continue
             }
+            analyzed.append(candidate)
             if let current = best, current.rank >= candidate.rank { continue }
             best = candidate
         }
         guard let chosen = best else { throw ImageAnalyzerError.unreadableImage }
+        let pose = clearestPose(frames: analyzed, fallback: chosen)
 
         let handler = VNImageRequestHandler(cgImage: chosen.frame, options: [:])
 
@@ -226,7 +239,7 @@ enum ImageAnalyzer {
 
         return ImageAnalysis(
             face: chosen.face,
-            pose: chosen.pose,
+            pose: pose,
             intensity: chosen.intensity,
             featurePrint: featurePrint,
             featurePrintRevision: featurePrintRevision,
@@ -299,17 +312,7 @@ enum ImageAnalyzer {
         let primaryFace = faces.max(by: { area($0.boundingBox) < area($1.boundingBox) })
         let face = primaryFace.flatMap { FaceFeatureExtractor.features(from: $0) }
 
-        var pose: PoseFeatures?
-        let bodyRequest = VNDetectHumanBodyPoseRequest()
-        do {
-            try handler.perform([bodyRequest])
-            let bodies = observations(bodyRequest.results ?? [], as: VNHumanBodyPoseObservation.self)
-            pose = bodies
-                .map { FaceFeatureExtractor.pose(from: $0) }
-                .max(by: { $0.bodyVisible < $1.bodyVisible })
-        } catch {
-            pose = nil
-        }
+        let pose = readPose(frame, handler: handler, faceBox: primaryFace?.boundingBox)
 
         let intensity = face.map { baseline.intensity(of: $0) } ?? 0
         return FrameAnalysis(
@@ -319,6 +322,57 @@ enum ImageAnalyzer {
             intensity: intensity,
             faceBoxes: faces.map { $0.boundingBox }
         )
+    }
+
+    /// The pose of the person whose face is `faceBox` (else the clearest body), hands included when a wrist is seen;
+    /// nil without a body or in an image too small to read joints in.
+    private static func readPose(_ frame: CGImage, handler: VNImageRequestHandler, faceBox: CGRect?) -> PoseFeatures? {
+        guard min(frame.width, frame.height) >= minimumPosePixelSize else { return nil }
+        let bodyRequest = VNDetectHumanBodyPoseRequest()
+        guard (try? handler.perform([bodyRequest])) != nil else { return nil }
+        let bodies = observations(bodyRequest.results ?? [], as: VNHumanBodyPoseObservation.self)
+        guard let body = FaceFeatureExtractor.primaryBody(bodies, faceBox: faceBox, imageWidth: frame.width, imageHeight: frame.height) else {
+            return nil
+        }
+        var hand: HandShape?
+        if body[.leftWrist] != nil || body[.rightWrist] != nil {
+            let handRequest = VNDetectHumanHandPoseRequest()
+            handRequest.maximumHandCount = 4
+            if (try? handler.perform([handRequest])) != nil {
+                let hands = observations(handRequest.results ?? [], as: VNHumanHandPoseObservation.self)
+                let joints = FaceFeatureExtractor.handJoints(hands, imageWidth: frame.width, imageHeight: frame.height)
+                hand = HandShape.strongest(body.ownHands(joints).compactMap { HandShape($0) })
+            }
+        }
+        return PoseFeatures(joints: body, hand: hand)
+    }
+
+    /// The pose of the frame with the clearest gesture when it is one (an animation's gesture may peak in another
+    /// frame than its face), else the chosen frame's.
+    private static func clearestPose(frames: [FrameAnalysis], fallback: FrameAnalysis) -> PoseFeatures? {
+        let strongest = frames.compactMap(\.pose).max { $0.gestureStrength < $1.gestureStrength }
+        if let strongest, strongest.gestureStrength >= 0.3, strongest.gestureStrength > (fallback.pose?.gestureStrength ?? 0) {
+            return strongest
+        }
+        return fallback.pose
+    }
+
+    /// Pose alone, for items analyzed before poses were described in detail: up to 3 frames, the clearest gesture
+    /// wins (nil when no frame shows a body).
+    static func analyzePose(url: URL) -> PoseReading {
+        guard let image = load(url: url, maxPixelSize: poseAnalysisPixelSize) else { return .unreadable }
+        var poses: [PoseFeatures] = []
+        for frame in image.frames.isEmpty ? [image.cgImage] : image.frames {
+            let handler = VNImageRequestHandler(cgImage: frame, options: [:])
+            let faceRequest = VNDetectFaceRectanglesRequest()
+            try? handler.perform([faceRequest])
+            let faces = observations(faceRequest.results ?? [], as: VNFaceObservation.self)
+            let primaryFace = faces.max(by: { area($0.boundingBox) < area($1.boundingBox) })
+            if let pose = readPose(frame, handler: handler, faceBox: primaryFace?.boundingBox) {
+                poses.append(pose)
+            }
+        }
+        return .read(poses.max { $0.gestureStrength < $1.gestureStrength })
     }
 
     private static func runFeaturePrint(handler: VNImageRequestHandler) throws -> [Float] {

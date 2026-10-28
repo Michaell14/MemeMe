@@ -24,39 +24,41 @@ final class FeatureWeightsTests: XCTestCase {
     }
 
     func testAutomaticScalesByTheLargestDeviation() {
-        let weights = FeatureWeights.automatic(deviation: [.brows: 0.1, .eyes: 0.2, .mouth: 0.4], poseActivity: 0)
+        let weights = FeatureWeights.automatic(deviation: [.brows: 0.1, .eyes: 0.2, .mouth: 0.4], poseStrength: 0)
         XCTAssertEqual(weights.brows, 1.5, accuracy: 1e-9)    // 1 + 2 × 0.1 / 0.4
         XCTAssertEqual(weights.eyes, 2.0, accuracy: 1e-9)
         XCTAssertEqual(weights.mouth, 3.0, accuracy: 1e-9)
-        XCTAssertEqual(weights.pose, 0.15, accuracy: 1e-12)
+        XCTAssertEqual(weights.pose, 0.05, accuracy: 1e-12)    // a plain face leaves the pose a small say
     }
 
     func testAutomaticIsUniformForSmallDeviations() {
-        let weights = FeatureWeights.automatic(deviation: [.brows: 0.01, .eyes: 0.02, .mouth: 0.04], poseActivity: 0.5)
+        let weights = FeatureWeights.automatic(deviation: [.brows: 0.01, .eyes: 0.02, .mouth: 0.04], poseStrength: 0.5)
         XCTAssertEqual(weights.brows, 1)
         XCTAssertEqual(weights.eyes, 1)
         XCTAssertEqual(weights.mouth, 1)
-        XCTAssertEqual(weights.pose, 0.4, accuracy: 1e-12)    // 0.15 + 0.5 × 0.5
+        XCTAssertEqual(weights.pose, 0.325, accuracy: 1e-12)  // 0.05 + 0.55 × 0.5
     }
 
     func testAutomaticThresholdAndMissingRegions() {
-        let weights = FeatureWeights.automatic(deviation: [.brows: 0.05], poseActivity: 0.2)
+        let weights = FeatureWeights.automatic(deviation: [.brows: 0.05], poseStrength: 0.2)
         XCTAssertEqual(weights.brows, 3, accuracy: 1e-9)      // m = 0.05 is not below the threshold
         XCTAssertEqual(weights.eyes, 1, accuracy: 1e-9)       // missing regions count as 0
         XCTAssertEqual(weights.mouth, 1, accuracy: 1e-9)
-        XCTAssertEqual(weights.pose, 0.25, accuracy: 1e-12)
+        XCTAssertEqual(weights.pose, 0.16, accuracy: 1e-12)   // 0.05 + 0.55 × 0.2
     }
 
     func testAutomaticPoseShareIsClamped() {
-        XCTAssertEqual(FeatureWeights.automatic(deviation: [:], poseActivity: 1).pose, 0.6, accuracy: 1e-12)
-        XCTAssertEqual(FeatureWeights.automatic(deviation: [:], poseActivity: 0.9).pose, 0.6, accuracy: 1e-12)
-        XCTAssertEqual(FeatureWeights.automatic(deviation: [:], poseActivity: 0).pose, 0.15, accuracy: 1e-12)
-        XCTAssertEqual(FeatureWeights.automatic(deviation: [:], poseActivity: -1).pose, 0.15, accuracy: 1e-12)
+        XCTAssertEqual(FeatureWeights.automatic(deviation: [:], poseStrength: 1).pose, 0.6, accuracy: 1e-12)
+        XCTAssertEqual(FeatureWeights.automatic(deviation: [:], poseStrength: 2).pose, 0.6, accuracy: 1e-12)
+        XCTAssertEqual(FeatureWeights.automatic(deviation: [:], poseStrength: 0.95).pose, 0.5725, accuracy: 1e-12)
+        XCTAssertEqual(FeatureWeights.automatic(deviation: [:], poseStrength: 0).pose, 0.05, accuracy: 1e-12)
+        XCTAssertEqual(FeatureWeights.automatic(deviation: [:], poseStrength: -1).pose, 0.05, accuracy: 1e-12)
+        XCTAssertEqual(FeatureWeights.automatic(deviation: [:], poseStrength: .nan).pose, 0.05, accuracy: 1e-12)
     }
 
     func testAutomaticFromABaselineDeviation() {
         let deviation = RestingBaseline().deviation(of: makeFace(mouth: 0.65))   // mouth 0.4, others 0
-        let weights = FeatureWeights.automatic(deviation: deviation, poseActivity: 0)
+        let weights = FeatureWeights.automatic(deviation: deviation, poseStrength: 0)
         XCTAssertEqual(weights.mouth, 3, accuracy: 1e-9)
         XCTAssertEqual(weights.brows, 1, accuracy: 1e-9)
         XCTAssertEqual(weights.eyes, 1, accuracy: 1e-9)

@@ -19,32 +19,11 @@ struct PanelView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if model.showSetupCard {
-                SetupCardView(model: model)
+            if model.isCaptureOpen {
+                CaptureView(model: model)
+            } else {
+                strip
             }
-            HStack(alignment: .top, spacing: 16) {
-                if !model.showSetupCard {
-                    MirrorColumn(model: model)
-                }
-                VStack(alignment: .leading, spacing: 10) {
-                    if !model.showSetupCard {
-                        searchField
-                        if let naming = model.naming, !naming.candidates.isEmpty {
-                            NamingRow(prompt: naming) { personID in
-                                model.nameUnknownFace(personID: personID)
-                            }
-                        }
-                    }
-                    ResultGrid(model: model)
-                        .opacity(model.showSetupCard ? 0.55 : 1)
-                    if model.showsGiphyRow {
-                        GiphyRow(model: model)
-                            .opacity(model.showSetupCard ? 0.55 : 1)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-            }
-            FooterView(model: model)
         }
         .padding(16)
         .frame(width: Theme.panelWidth, alignment: .topLeading)
@@ -70,6 +49,12 @@ struct PanelView: View {
                 searchFocused = true
             }
         }
+        .onChange(of: model.isCaptureOpen) { _, open in
+            // Back from the capture view: typing searches again.
+            if !open {
+                searchFocused = true
+            }
+        }
         .task(id: model.isPanelVisible) { @MainActor in
             // The panel becomes key just after it is shown; focus the field once it is.
             guard model.isPanelVisible else { return }
@@ -89,6 +74,37 @@ struct PanelView: View {
     }
 
     // MARK: Search field
+
+    /// Mirror + hint, your memes and the GIPHY row, footer.
+    @ViewBuilder
+    private var strip: some View {
+        if model.showSetupCard {
+            SetupCardView(model: model)
+        }
+        HStack(alignment: .top, spacing: 16) {
+            if !model.showSetupCard {
+                MirrorColumn(model: model)
+            }
+            VStack(alignment: .leading, spacing: 10) {
+                if !model.showSetupCard {
+                    searchField
+                    if let naming = model.naming, !naming.candidates.isEmpty {
+                        NamingRow(prompt: naming) { personID in
+                            model.nameUnknownFace(personID: personID)
+                        }
+                    }
+                }
+                ResultGrid(model: model)
+                    .opacity(model.showSetupCard ? 0.55 : 1)
+                if model.showsGiphyRow {
+                    GiphyRow(model: model)
+                        .opacity(model.showSetupCard ? 0.55 : 1)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        FooterView(model: model)
+    }
 
     private var searchField: some View {
         HStack(spacing: 8) {
@@ -138,6 +154,7 @@ struct PanelView: View {
 
     /// Files and images dropped on the panel become an image query (never saved silently).
     private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
+        guard !model.isCaptureOpen else { return false }
         let model = self.model
         let fileType = UTType.fileURL.identifier
         let imageType = UTType.image.identifier

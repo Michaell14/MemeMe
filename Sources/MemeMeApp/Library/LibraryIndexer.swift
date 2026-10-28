@@ -42,6 +42,8 @@ struct IndexBatch: Identifiable, Equatable {
     /// Paths skipped because their bytes were already indexed elsewhere → that content hash.
     private var duplicateHashes: [String: String] = [:]
     private var resumeTask: Task<Void, Never>?
+    /// Measures again the poses of items analyzed before poses were described in detail (see `refreshPoses`).
+    private var poseTask: Task<Void, Never>?
     private var lastSave = Date.distantPast
     private var lastNotify = Date.distantPast
     private var hasUnsavedChanges = false
@@ -54,6 +56,8 @@ struct IndexBatch: Identifiable, Equatable {
     private static let deferredRetryNanoseconds: UInt64 = 10_000_000_000
     /// Scans with at least this many new files report progress (isIndexing) even when the user didn't ask.
     private static let busyThreshold = 10
+    /// The pose pass saves this seldom: it changes nothing a search shows at once, and the library file is large.
+    private static let poseSaveInterval: TimeInterval = 60
 
     init(store: LibraryStore) {
         self.store = store
@@ -92,6 +96,8 @@ struct IndexBatch: Identifiable, Equatable {
         watchers.removeAll()
         resumeTask?.cancel()
         resumeTask = nil
+        poseTask?.cancel()
+        poseTask = nil
         cancelScan()
         scanQueue.removeAll()
         activeBatch = nil
@@ -365,7 +371,12 @@ struct IndexBatch: Identifiable, Equatable {
     }
 
     private func startScanIfNeeded() {
-        guard scanTask == nil, !scanQueue.isEmpty, !isCollectingPaused else { return }
+        guard scanTask == nil, !isCollectingPaused else { return }
+        guard !scanQueue.isEmpty else {
+            // Nothing to scan: catch up on older items' poses.
+            startPoseRefreshIfNeeded()
+            return
+        }
         scanGeneration += 1
         let generation = scanGeneration
         progressCount = 0
@@ -574,6 +585,64 @@ struct IndexBatch: Identifiable, Equatable {
 
         saveIfDue()
         notifyIfDue()
+    }
+
+    // MARK: - Pose pass
+
+    /// Items analyzed before poses were described in detail (`LibraryItem.currentPoseRevision`) that can be read again.
+    static func needsPoseRefresh(_ item: LibraryItem) -> Bool {
+        item.kind == .mine && item.tier != .skipped && item.poseRevision < LibraryItem.currentPoseRevision
+    }
+
+    private func startPoseRefreshIfNeeded() {
+        guard poseTask == nil, scanTask == nil, !isCollectingPaused else { return }
+        let pending = store.items.filter(LibraryIndexer.needsPoseRefresh).map(\.id)
+        guard !pending.isEmpty else { return }
+        poseTask = Task(priority: .background) { [weak self] in
+            await self?.refreshPoses(pending)
+        }
+    }
+
+    /// One image at a time, in the background: reads the pose again and keeps everything else. Stops for a scan or a
+    /// pause (the scan's end starts it again) and waits while the Mac is in Low Power Mode or hot. A file that can't
+    /// be read keeps its old pose, so it isn't tried on every launch.
+    private func refreshPoses(_ ids: [UUID]) async {
+        var lastPoseSave = Date()
+        var changed = false
+        var index = 0
+        while index < ids.count, !Task.isCancelled, scanTask == nil, !isCollectingPaused {
+            if SystemConditions.shouldDeferBackgroundWork {
+                try? await Task.sleep(nanoseconds: LibraryIndexer.deferredRetryNanoseconds)
+                continue
+            }
+            let id = ids[index]
+            index += 1
+            guard let item = store.item(id: id), LibraryIndexer.needsPoseRefresh(item) else { continue }
+            let url = item.fileURL
+            let reading = await Task.detached(priority: .background) {
+                ImageAnalyzer.analyzePose(url: url)
+            }.value
+            guard !Task.isCancelled else { break }
+            // The file may have changed (and been analyzed afresh) meanwhile.
+            guard var current = store.item(id: id), current.fileURL == url, LibraryIndexer.needsPoseRefresh(current) else { continue }
+            if case .read(let pose) = reading {
+                current.pose = pose
+            }
+            current.poseRevision = LibraryItem.currentPoseRevision
+            store.update(current)
+            changed = true
+            if Date().timeIntervalSince(lastPoseSave) >= LibraryIndexer.poseSaveInterval {
+                lastPoseSave = Date()
+                saveNow()
+                changed = false
+            }
+        }
+        if changed {
+            saveNow()
+        }
+        if !Task.isCancelled {
+            poseTask = nil
+        }
     }
 
     /// The file at an indexed path changed: keep the item's identity and history, take the new analysis.
@@ -887,6 +956,7 @@ private enum IndexWork {
             item.sourceDetail = ImageAnalyzer.downloadedFromHost(url: file.url).map { "from " + $0 }
             item.face = analysis.face
             item.pose = analysis.pose
+            item.poseRevision = LibraryItem.currentPoseRevision
             item.intensity = analysis.intensity
             item.featurePrint = analysis.featurePrint
             item.featurePrintRevision = analysis.featurePrintRevision
@@ -965,6 +1035,7 @@ private enum KeepWork {
                 isAnimated: analysis.facts.isAnimated,
                 face: analysis.face,
                 pose: analysis.pose,
+                poseRevision: LibraryItem.currentPoseRevision,
                 intensity: analysis.intensity,
                 featurePrint: analysis.featurePrint,
                 featurePrintRevision: analysis.featurePrintRevision,

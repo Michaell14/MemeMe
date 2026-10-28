@@ -12,7 +12,7 @@ final class MoodTests: XCTestCase {
         PoseFeatures(handsRaised: hands, armsSpread: arms, bodyVisible: body)
     }
 
-    func testRule1NoFaceIsAGenericReaction() {
+    func testNoFaceIsAGenericReaction() {
         XCTAssertEqual(classify(nil), .reaction)
         XCTAssertEqual(classify(nil, pose: pose(hands: 1)), .reaction)
     }
@@ -108,6 +108,13 @@ final class MoodTests: XCTestCase {
             .nervous: "nervous reaction",
             .excited: "excited reaction",
             .reaction: "reaction",
+            .celebrate: "celebrate",
+            .facepalm: "facepalm",
+            .mindBlown: "mind blown",
+            .shrug: "shrug",
+            .thumbsUp: "thumbs up",
+            .pointing: "pointing",
+            .clapping: "clapping",
         ]
         XCTAssertEqual(expected.count, Mood.allCases.count)
         for mood in Mood.allCases {

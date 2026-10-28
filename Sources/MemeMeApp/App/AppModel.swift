@@ -44,7 +44,7 @@ private enum HintCopy {
     static let promptSubtitle = "That’s the search. There’s no button to press."
     static let warmingTitle = "Starting camera…"
     static let warmingSubtitle = "Your recent picks are ready below."
-    static let liveTitle = "Make a face. Results follow it."
+    static let liveTitle = "Make a face or a pose. Results follow it."
     static let liveSubtitle = "Click your eyes or mouth to focus on them."
     static let noFaceTitle = "Can’t see your face"
     static let noFaceSubtitle = "Try more light, or just type."
@@ -148,9 +148,12 @@ enum Pick: Equatable {
     @Published private(set) var holdProgress: Double = 0
     @Published private(set) var hotKeyAvailable: Bool = true
     @Published private(set) var isPanelVisible: Bool = false
+    /// The capture view replaces the panel's contents: a big filtered mirror and a shutter.
+    @Published private(set) var isCaptureOpen: Bool = false
 
     let store: LibraryStore
     let camera: CameraController
+    let capture: CaptureModel
     let indexer: LibraryIndexer
     let web: WebDiscover
     let friends: FriendService
@@ -236,7 +239,9 @@ enum Pick: Equatable {
     /// `webCacheRoot`: where web discovery keeps its cache (nil = ~/Library/Caches/MemeMe/Web); tests pass a temp folder.
     init(store: LibraryStore, webCacheRoot: URL?) {
         self.store = store
-        self.camera = CameraController()
+        let camera = CameraController()
+        self.camera = camera
+        self.capture = CaptureModel(camera: camera)
         self.indexer = LibraryIndexer(store: store)
         self.web = WebDiscover(store: store, cacheRoot: webCacheRoot)
         self.friends = FriendService(store: store)
@@ -253,6 +258,9 @@ enum Pick: Equatable {
 
         camera.onSample = { [weak self] sample in
             self?.handleSample(sample)
+        }
+        capture.onCaptured = { [weak self] result in
+            self?.deliverCapture(result)
         }
         indexer.onLibraryChanged = { [weak self] in
             self?.libraryDidChange()
@@ -339,6 +347,7 @@ enum Pick: Equatable {
 
     func panelDidHide() {
         isPanelVisible = false
+        closeCapture()
         cancelSessionTasks()
         camera.stop()
         if holdProgress != 0 { holdProgress = 0 }
@@ -422,7 +431,16 @@ enum Pick: Equatable {
     }
 
     /// Esc: the first press clears refinements (text, pins, more-like-this, image query); returns false when there were none.
+    /// In the capture view it drops a capture in progress, else goes back to the memes.
     func handleEscape() -> Bool {
+        if isCaptureOpen {
+            if capture.isBusy {
+                capture.cancel()
+            } else {
+                closeCapture()
+            }
+            return true
+        }
         // The You're-set card closes with the panel.
         if showSetupCard { return false }
         let hadText = !queryText.isEmpty || mode == .text || naming != nil
@@ -731,6 +749,83 @@ enum Pick: Equatable {
         saveSoon()
     }
 
+    // MARK: - Capture view
+
+    /// The camera button and ⇧Space open the capture view while the camera reads you.
+    var canOpenCapture: Bool {
+        mode == .live && !showSetupCard && camera.isRunning
+    }
+
+    func openCapture() {
+        guard canOpenCapture, !isCaptureOpen else { return }
+        isCaptureOpen = true
+        capture.activate()
+        if holdProgress != 0 { holdProgress = 0 }
+        earlyMood.reset()
+    }
+
+    /// Back to the memes (Esc, or after a capture is copied); a capture in progress is dropped.
+    func closeCapture() {
+        guard isCaptureOpen else { return }
+        capture.deactivate()
+        isCaptureOpen = false
+        refreshHint()
+    }
+
+    /// A finished capture: copy it as "reaction.gif" / "reaction.png", close the panel, and offer
+    /// "Save as sticker" on the HUD. A capture is never kept unless saved as a sticker.
+    private func deliverCapture(_ result: CaptureResult) {
+        // A pick that was still downloading must not overwrite this on the pasteboard.
+        commitToken += 1
+        let fileURL: URL
+        do {
+            fileURL = try Clipboard.copy(data: result.data, fileName: result.isGIF ? "reaction.gif" : "reaction.png")
+        } catch {
+            modelLog.error("Copying a capture to the pasteboard failed")
+            HUDController.shared.show("Couldn’t copy that one. Try again.")
+            return
+        }
+        // A photo is cut from the file just copied; a GIF from its strongest frame.
+        let stickerSource = result.isGIF ? result.stickerFrame.flatMap { AppModel.writeStickerSource($0) } : fileURL
+        closeCapture()
+        if isPanelVisible {
+            onRequestClose?()
+        }
+        let action = stickerSource.map { url in
+            HUDAction(title: "Save as sticker") { [weak self] in
+                self?.saveCaptureAsSticker(from: url)
+            }
+        }
+        HUDController.shared.show("Copied your \(result.isGIF ? "GIF" : "photo") · ⌘V — not sent", thumbnail: fileURL, action: action)
+    }
+
+    /// A PNG of `frame` next to the clipboard's copies (deleted within the hour like them).
+    private static func writeStickerSource(_ frame: CGImage) -> URL? {
+        guard let data = CaptureEncoder.png(frame) else { return nil }
+        let directory = Clipboard.clipboardDirectory().appendingPathComponent(UUID().uuidString, isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
+            let url = directory.appendingPathComponent("capture.png", isDirectory: false)
+            try data.write(to: url, options: .atomic)
+            return url
+        } catch {
+            return nil
+        }
+    }
+
+    private func saveCaptureAsSticker(from url: URL) {
+        HUDController.shared.show("Making your sticker…")
+        Task { [weak self] in
+            guard let self else { return }
+            let item = try? await self.friends.makeOwnSticker(fromCapture: url)
+            if let item {
+                HUDController.shared.show("Saved “\(item.displayName)” as a sticker", thumbnail: item.fileURL)
+            } else {
+                HUDController.shared.show("Couldn’t find you in that one.")
+            }
+        }
+    }
+
     // MARK: - Camera
 
     private func handleSample(_ sample: ExpressionSample) {
@@ -740,8 +835,9 @@ enum Pick: Equatable {
             liveSince = sample.timestamp
             faceMissing = false
         }
-        // In text, image and more-like modes the camera only feeds the (dimmed) mirror.
-        guard mode == .live else {
+        // In text, image and more-like modes the camera only feeds the (dimmed) mirror; in the capture view it
+        // only feeds the capture picture.
+        guard mode == .live, !isCaptureOpen else {
             earlyMood.reset()
             return
         }
@@ -763,10 +859,12 @@ enum Pick: Equatable {
         refreshHint()
     }
 
-    /// "Can't see your face" after 1.5 s without a face; it clears once the face has been back for 1 s.
+    /// "Can't see your face" after 1.5 s without a face; it clears once the face has been back for 1 s. A clear
+    /// gesture hiding the face (a facepalm) counts as being seen.
     private func updateFaceMissing(with sample: ExpressionSample) {
-        guard sample.face != nil else {
-            let lastSeen = max(tracker.lastFaceTimestamp ?? 0, liveSince ?? sample.timestamp)
+        let gestureStandsIn = (sample.pose?.gestureStrength ?? 0) >= tracker.config.minimumGestureWithoutFace
+        guard sample.face != nil || gestureStandsIn else {
+            let lastSeen = max(tracker.lastSeenTimestamp ?? 0, liveSince ?? sample.timestamp)
             // A real gap starts the 1 s over; a frame or two without a detection (dim light) doesn't.
             if sample.timestamp - lastSeen >= AppModel.faceGap {
                 faceBackSince = nil
@@ -893,7 +991,7 @@ enum Pick: Equatable {
         resultSource = .expression
         let mood = MoodClassifier.mood(for: sample.face, pose: sample.pose, baseline: tracker.baseline)
         let deviation = sample.face.map { tracker.baseline.deviation(of: $0) } ?? [:]
-        let weights = FeatureWeights.automatic(deviation: deviation, poseActivity: sample.pose?.activity ?? 0).pinning(pins)
+        let weights = FeatureWeights.automatic(deviation: deviation, poseStrength: sample.pose?.gestureStrength ?? 0).pinning(pins)
         currentWeights = weights
         searchGeneration += 1
 
@@ -1515,6 +1613,7 @@ enum Pick: Equatable {
     // MARK: - Session and persistence
 
     private func resetForNewSession() {
+        closeCapture()
         cancelSessionTasks()
         clearTextState()
         resetQueryImage()

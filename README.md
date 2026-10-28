@@ -83,7 +83,9 @@ Every change to the app on the default branch is released automatically. When `S
 |---|---|
 | ⌃⌘M | Open or close the panel (in any app, no permission needed) |
 | Make a face | Hold it for about 0.3 s; a different face needs about 1 s (the ring fills) |
+| Strike a pose | Arms up, hands on your head, a facepalm, a shrug, a thumbs up, pointing, clapping: memes with that pose come first, and GIPHY is searched for it |
 | Space | Use the current face now, even a neutral one (only while the search field is empty) |
+| ⇧Space or the camera button on the mirror | Send yourself: tap the shutter (or Space) for a photo, hold it for a GIF of up to 3 s; ← → pick a filter (Noir, Comic, 8-bit, Deep fried, Deal with it, Heart eyes, Bug eyes, Crown). It's copied, ready to paste; **Save as sticker** on the notice keeps your face as a sticker |
 | ↵, 1–9, click | Copy the focused, numbered or clicked result and close (1–9 are your memes) |
 | Arrow keys | Move the focus; ↓ from your memes goes to the GIPHY row |
 | Typing | Search by words: text in images, labels, file names, sources, friends' names. Filter words: `mine`, `gif`, `sticker`, a friend's name |
