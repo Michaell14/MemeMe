@@ -341,7 +341,8 @@ enum ImageAnalyzer {
             if (try? handler.perform([handRequest])) != nil {
                 let hands = observations(handRequest.results ?? [], as: VNHumanHandPoseObservation.self)
                 let joints = FaceFeatureExtractor.handJoints(hands, imageWidth: frame.width, imageHeight: frame.height)
-                hand = HandShape.strongest(body.ownHands(joints).compactMap { HandShape($0) })
+                let box = FaceFeatureExtractor.poseBox(faceBox, imageWidth: frame.width, imageHeight: frame.height)
+                hand = HandShape.strongest(body.ownHands(joints).compactMap { HandShape($0, faceBox: box) })
             }
         }
         return PoseFeatures(joints: body, hand: hand)

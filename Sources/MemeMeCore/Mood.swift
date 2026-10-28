@@ -99,8 +99,8 @@ public enum MoodClassifier {
     ///    → mouth open ≥ 0.45 ? .screaming : .mindBlown
     /// 4. a hand on the face (head ≤ 0.22, lift ≥ 0.5; ≤ 0.3 when the face is hidden) with the eyes shut or the face
     ///    hidden, mouth open < 0.35, no smile (≤ 0.05: a smile narrows the eyes too) → .facepalm
-    /// 5. wrists together (gap ≤ 0.12) in front, both lifts 0.3...0.75, clear of the chin (head > 0.3), open hands
-    ///    when the hands were read (a mug or clasped fingers isn't a clap) → .clapping
+    /// 5. wrists together (gap ≤ 0.12) in front, both lifts 0.3...0.75, clear of the chin (head > 0.3), not resting low
+    ///    (`forearmRest` < 0.5), open hands when the hands were read (a mug or clasped fingers isn't a clap) → .clapping
     /// 6. both elbows bent ≥ 0.3, wrists out ≥ 0.3 and low (lift 0.1...0.5) → .shrug
     /// 7. both arms spread (out ≥ 0.45, lift ≥ 0.35) with a smile > 0.08 → .excited
     public static func gestureMood(_ pose: PoseDescriptor, face: FaceFeatures?, baseline: RestingBaseline) -> Mood? {
@@ -155,7 +155,7 @@ public enum MoodClassifier {
             guard let lift = arm.lift, lift >= 0.3, lift <= 0.75 else { return false }
             return (arm.head ?? 1) > 0.3
         }
-        if let gap = pose[.wristGap], gap <= 0.12, openHands, both(inFront) {
+        if let gap = pose[.wristGap], gap <= 0.12, openHands, pose.forearmRest < 0.5, both(inFront) {
             return .clapping
         }
         let shrugging: (Arm) -> Bool = { arm in

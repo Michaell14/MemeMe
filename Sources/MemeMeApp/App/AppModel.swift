@@ -760,8 +760,10 @@ enum Pick: Equatable {
 
     func openCapture() {
         guard canOpenCapture, !isCaptureOpen else { return }
-        // A GIPHY pick still downloading must not copy, show the You're-set card or close the panel under the capture view.
+        // A GIPHY pick still downloading must not copy, show the You're-set card or close the panel under the capture view;
+        // it no longer holds the one-pick-at-a-time lock either.
         commitToken += 1
+        committingSession = nil
         isCaptureOpen = true
         capture.activate()
         if holdProgress != 0 { holdProgress = 0 }
@@ -1407,7 +1409,8 @@ enum Pick: Equatable {
 
     private func performCommit(_ pick: Pick, token: Int, session: Int, appBundleID: String?) async {
         defer {
-            if committingSession == session { committingSession = nil }
+            // A pick dropped meanwhile (the capture view opened) leaves the lock to the pick that replaced it.
+            if committingSession == session, token == commitToken { committingSession = nil }
         }
         let resolved = await resolveFileForCopy(pick)
         // A newer pick (made after reopening the panel) owns the clipboard.

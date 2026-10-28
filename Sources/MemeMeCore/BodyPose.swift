@@ -195,8 +195,9 @@ public struct HandShape: Codable, Hashable, Sendable {
         self.peace = peace
     }
 
-    /// nil when the wrist or too few fingers were seen.
-    public init?(_ hand: HandJoints) {
+    /// nil when the wrist or too few fingers were seen. With `faceBox`, a finger or thumb lying on the face (a finger up
+    /// the cheek while thinking, "shh", a thumb along the jaw) is no pointing or thumbs-up sign.
+    public init?(_ hand: HandJoints, faceBox: PoseBox? = nil) {
         guard let wrist = hand[.wrist] else { return nil }
         // A finger is straight when its tip is clearly farther from the wrist than its middle joint, curled when closer.
         func ratio(_ pip: HandJoint, _ tip: HandJoint) -> Double? {
@@ -238,7 +239,11 @@ public struct HandShape: Codable, Hashable, Sendable {
             }
             thumbsUp = min(othersCurled, upright, above)
         }
-        let point = index == nil ? 0 : all([extended(index), curled(middle), curled(ring), curled(little)], known: 3)
+        var point = index == nil ? 0 : all([extended(index), curled(middle), curled(ring), curled(little)], known: 3)
+        if let faceBox {
+            if let tip = hand[.indexTip], faceBox.contains(tip) { point = 0 }
+            if let tip = hand[.thumbTip], faceBox.contains(tip) { thumbsUp = 0 }
+        }
         let peace = index == nil || middle == nil ? 0 : all([extended(index), extended(middle), curled(ring), curled(little)], known: 3)
         self.init(thumbsUp: thumbsUp,
                   point: point,
@@ -454,23 +459,29 @@ public struct PoseDescriptor: Codable, Hashable, Sendable {
     /// frame); elbows up and out with the wrists hidden are hands clasped behind the head, a resting pose.
     public static let elbowOnlyUp = 0.88
 
-    /// Every wrist seen is low, in front and away from the head: forearms on a desk or in the lap, a resting pose.
-    var forearmsAtRest: Bool {
+    /// How much the wrists seen rest low, in front and away from the head (forearms on a desk or in the lap, a mug or
+    /// phone held at the chest): 1 inside that zone (lift ≤ 0.3, out ≤ 0.2, head ≥ 0.45), falling to 0 across a narrow
+    /// band around it so the strength never jumps; 0 without a wrist.
+    var forearmRest: Double {
         let wrists: [(lift: Double?, out: Double?, head: Double?)] = [
             (self[.leftLift], self[.leftOut], self[.leftHead]),
             (self[.rightLift], self[.rightOut], self[.rightHead]),
         ].filter { $0.lift != nil }
-        return !wrists.isEmpty && wrists.allSatisfy { wrist in
-            (wrist.lift ?? 1) <= 0.3 && (wrist.out ?? 1) <= 0.2 && (wrist.head ?? 0) >= 0.7
+        let factors = wrists.map { wrist in
+            min(VectorMath.clampUnit((0.38 - (wrist.lift ?? 1)) / 0.08),
+                VectorMath.clampUnit((0.26 - (wrist.out ?? 1)) / 0.06),
+                VectorMath.clampUnit(((wrist.head ?? 0) - 0.35) / 0.1))
         }
+        return factors.min() ?? 0
     }
 
-    /// 0 for arms at rest (hanging, on a desk, behind the head, or not seen) … 1 for a clear gesture: the weighted RMS
-    /// distance from arms hanging at the sides over the arms seen, minus a small dead zone (fidgeting, typing), or a
-    /// clear hand sign.
+    /// 0 for arms at rest (hanging, on a desk, holding a mug at the chest, behind the head, or not seen) … 1 for a clear
+    /// gesture: the weighted RMS distance from arms hanging at the sides over the arms seen, minus a small dead zone
+    /// (fidgeting, typing), scaled down by `forearmRest`; or a clear hand sign.
     public var gestureStrength: Double {
         var strength = 0.0
-        if !forearmsAtRest {
+        let rest = forearmRest
+        if rest < 1 {
             var sum = 0.0
             var weights = 0.0
             for entry in PoseDescriptor.rest {
@@ -483,7 +494,7 @@ public struct PoseDescriptor: Codable, Hashable, Sendable {
             }
             if weights > 0 {
                 let rms = (sum / weights).squareRoot()
-                strength = VectorMath.clampUnit((rms - 0.1) / 0.3)
+                strength = VectorMath.clampUnit((rms - 0.1) / 0.3) * (1 - rest)
             }
         }
         if let sign = hand?.signStrength, sign >= 0.7 {

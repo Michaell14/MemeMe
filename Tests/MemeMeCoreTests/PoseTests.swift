@@ -131,6 +131,16 @@ final class PoseDescriptorTests: XCTestCase {
         XCTAssertEqual(PoseFeatures.similarity(query: desk, item: hanging), 1, accuracy: 1e-9)
     }
 
+    func testAPhoneOrMugAtTheChestIsRestAndTheStrengthNeverJumps() throws {
+        let phone = TestArm(elbow: (x: 0.55, y: -0.9), wrist: (x: 0.15, y: -0.45))
+        XCTAssertEqual(try descriptor(TestPoses.body(left: phone, right: nil)).gestureStrength, 0)
+        XCTAssertEqual(try descriptor(TestPoses.both(phone)).gestureStrength, 0)
+        // Raised a little more, it eases in rather than jumping to a full gesture.
+        let higher = try descriptor(TestPoses.both(TestArm(elbow: (x: 0.55, y: -0.9), wrist: (x: 0.15, y: -0.3))))
+        XCTAssertGreaterThan(higher.gestureStrength, 0.2)
+        XCTAssertLessThan(higher.gestureStrength, 0.8)
+    }
+
     func testAFaceWithShouldersShowsNoArms() throws {
         let shoulders = try descriptor(TestPoses.body(left: nil, right: nil))
         XCTAssertFalse(shoulders.showsArms)
@@ -233,6 +243,20 @@ final class HandShapeTests: XCTestCase {
         XCTAssertLessThan(shape.point, 0.1)
         XCTAssertLessThan(shape.thumbsUp, 0.1)
         XCTAssertLessThan(shape.signStrength, 0.1)
+    }
+
+    func testAFingerOrThumbOnTheFaceIsNoSign() throws {
+        // The index finger up the cheek (thinking, "shh") isn't pointing; a thumb along the jaw isn't a thumbs up.
+        let pointing = TestHands.pointing()
+        let aroundIndexTip = PoseBox(minX: 1.5, minY: 0, maxX: 2, maxY: 1)
+        XCTAssertGreaterThan(try XCTUnwrap(HandShape(pointing)).point, 0.9)
+        XCTAssertEqual(try XCTUnwrap(HandShape(pointing, faceBox: aroundIndexTip)).point, 0)
+        let thumbs = TestHands.thumbsUp()
+        let aroundThumbTip = PoseBox(minX: 0.3, minY: 1, maxX: 0.8, maxY: 1.5)
+        XCTAssertEqual(try XCTUnwrap(HandShape(thumbs, faceBox: aroundThumbTip)).thumbsUp, 0)
+        // A face elsewhere changes nothing.
+        let elsewhere = PoseBox(minX: 5, minY: 5, maxX: 6, maxY: 6)
+        XCTAssertGreaterThan(try XCTUnwrap(HandShape(thumbs, faceBox: elsewhere)).thumbsUp, 0.9)
     }
 
     func testTooLittleOfAHandIsNoShape() {

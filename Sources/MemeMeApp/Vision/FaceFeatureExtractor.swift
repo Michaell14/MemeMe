@@ -104,20 +104,23 @@ enum FaceFeatureExtractor {
         guard let body = primaryBody(bodies, faceBox: faceBox, imageWidth: imageWidth, imageHeight: imageHeight) else {
             return nil
         }
-        let shapes = body.ownHands(handJoints(hands, imageWidth: imageWidth, imageHeight: imageHeight)).compactMap { HandShape($0) }
+        let box = poseBox(faceBox, imageWidth: imageWidth, imageHeight: imageHeight)
+        let shapes = body.ownHands(handJoints(hands, imageWidth: imageWidth, imageHeight: imageHeight)).compactMap { HandShape($0, faceBox: box) }
         return PoseFeatures(joints: body, hand: HandShape.strongest(shapes))
     }
 
     /// The body that goes with the face (see `BodyJoints.primary`).
     static func primaryBody(_ bodies: [VNHumanBodyPoseObservation], faceBox: CGRect?, imageWidth: Int, imageHeight: Int) -> BodyJoints? {
-        let width = Double(imageWidth)
-        let height = Double(imageHeight)
-        let joints = bodies.map { bodyJoints(from: $0, imageWidth: width, imageHeight: height) }
-        let box = faceBox.map {
+        let joints = bodies.map { bodyJoints(from: $0, imageWidth: Double(imageWidth), imageHeight: Double(imageHeight)) }
+        return BodyJoints.primary(of: joints, faceBox: poseBox(faceBox, imageWidth: imageWidth, imageHeight: imageHeight))
+    }
+
+    /// A Vision-normalized face box in the pose's aspect-corrected units.
+    static func poseBox(_ faceBox: CGRect?, imageWidth: Int, imageHeight: Int) -> PoseBox? {
+        faceBox.map {
             PoseBox(normalizedX: Double($0.minX), y: Double($0.minY), width: Double($0.width), height: Double($0.height),
-                    imageWidth: width, imageHeight: height)
+                    imageWidth: Double(imageWidth), imageHeight: Double(imageHeight))
         }
-        return BodyJoints.primary(of: joints, faceBox: box)
     }
 
     static func handJoints(_ hands: [VNHumanHandPoseObservation], imageWidth: Int, imageHeight: Int) -> [HandJoints] {

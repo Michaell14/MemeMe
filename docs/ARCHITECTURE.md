@@ -104,7 +104,7 @@ public struct BodyJoints: Hashable, Sendable {
 public struct HandJoints: Hashable, Sendable { init(readings:imageWidth:imageHeight:); init(points:) }
 public struct HandShape: Codable, Hashable, Sendable {
     public var thumbsUp, point, openPalm, fist, peace: Double   // 0...1
-    public init?(_ hand: HandJoints)                // nil without the wrist or with fewer than 2 fingers
+    public init?(_ hand: HandJoints, faceBox: PoseBox? = nil)   // nil without the wrist or with fewer than 2 fingers; an index or thumb tip inside faceBox is no pointing / thumbs-up sign
     public var signStrength: Double { get }         // max(thumbsUp, point, peace)
     public static func strongest(_ shapes: [HandShape]) -> HandShape?   // per-sign max
 }
@@ -124,7 +124,7 @@ Pose (binding):
 - Body frame: origin O = shoulder midpoint (else the neck); x along the shoulder line (oriented left to right in the image, so the tilt is taken out either way the person faces); unit S = shoulder distance, at least 0.8 × the head's estimate (2.6 × ear distance, else 6 × eye distance, else 3 × nose-to-ear distance seen from the side) and at least 0.7 × the longer upper arm. The shoulder line gives the tilt (and `shoulderTilt`) only when it is at least 0.5 S long; a body turned to the side keeps roll 0. Head H = mean of nose, eyes, ears. Points p' = rotate(p − O) / S.
 - Per arm (wrist w', elbow e', shoulder s'): `lift = (w'.y + 1.5) / 3.5`, `out = |w'.x| / 2.5`, `head = |w' − H'| / 2`, `elbowLift` = upper-arm angle from straight down / 180°, `elbowBend` = 1 − elbow angle / 180°. `wristGap = |wL − wR| / S / 3`, `shoulderTilt = |roll| / 30°`, `headRise = H'.y / 1.5`. All clamped to 0...1.
 - Hand: a finger is straight when |tip − wrist| / |PIP − wrist| ≥ 1.2 (ramp from 0.95) and curled when ≤ 0.8 (ramp to 1.05). thumbsUp = min(others curled, thumb tip−IP within ~35° of up, thumb tip above the other fingers by 0.1–0.35 palms); point = index straight, 3 others curled; peace = index and middle straight, ring and little curled; openPalm / fist = all straight / curled.
-- gestureStrength: 0 when every wrist seen is low, in front and away from the head (lift ≤ 0.3, out ≤ 0.2, head ≥ 0.7: forearms on a desk or in the lap); else the weighted RMS distance from arms hanging at the sides (lift .03, out .2, head 1, elbowLift .05, elbowBend .1, gap .37; weights 1, .5, 1, .5, .25, .5) over the numbers seen, skipping an elbowLift whose wrist wasn't seen unless it is ≥ `elbowOnlyUp` (0.88, near vertical: hands out of the top of the frame, not clasped behind the head), `clamp((rms − 0.1) / 0.3)`; a hand sign ≥ 0.7 raises it to the sign's strength.
+- gestureStrength: the weighted RMS distance from arms hanging at the sides (lift .03, out .2, head 1, elbowLift .05, elbowBend .1, gap .37; weights 1, .5, 1, .5, .25, .5) over the numbers seen, skipping an elbowLift whose wrist wasn't seen unless it is ≥ `elbowOnlyUp` (0.88, near vertical: hands out of the top of the frame, not clasped behind the head), `clamp((rms − 0.1) / 0.3)`, times (1 − `forearmRest`) (1 when every wrist seen is low, in front and away from the head: lift ≤ 0.3, out ≤ 0.2, head ≥ 0.45 — forearms on a desk, a mug or phone at the chest — falling to 0 over 0.08 / 0.06 / 0.1 beyond, so it never jumps); a hand sign ≥ 0.7 raises it to the sign's strength.
 - compare: weights per number lift 2, out 1, head 2, elbowLift 1, elbowBend 1, gap 1.5, tilt .5, headRise .5 (hand signs 1 each when both have a hand); per number `max(0, 1 − |Δ| / 0.25)`. similarity = over numbers both have; coverage = their weight / the weight of numbers either has.
 - `PoseFeatures.similarity(query:item:)`, g = gesture strength: the item's arms not seen → `1 − 0.7·g_query`; the query without a descriptor or both at rest (g < 0.15) → level = `1 − |g_query − g_item|`; an item measured the old way → unknown against a query with a descriptor, else level; else the better of the item as-is and mirrored of `coverage × similarity × (0.5 + 0.5·level) + (1 − coverage) × level`.
 
@@ -255,7 +255,7 @@ public enum MoodClassifier {
     /// 2. both arms up (lift ≥ 0.7 with head ≥ 0.35, or no wrist and elbowLift ≥ 0.88) → o ≥ 0.35 && s ≤ 0.05 ? .screaming : .celebrate
     /// 3. both hands beside the head (head ≤ 0.35, lift ≥ 0.5, out ≥ 0.09) → o ≥ 0.45 ? .screaming : .mindBlown
     /// 4. a hand on the face (head ≤ 0.22, ≤ 0.3 without a face; lift ≥ 0.5), face nil or d.eye ≤ −0.1, o < 0.35, s ≤ 0.05 → .facepalm
-    /// 5. wristGap ≤ 0.12, both lifts 0.3...0.75 with head > 0.3, and open hands when read (openPalm ≥ 0.5) → .clapping
+    /// 5. wristGap ≤ 0.12, both lifts 0.3...0.75 with head > 0.3, forearmRest < 0.5, and open hands when read (openPalm ≥ 0.5) → .clapping
     /// 6. both elbowBend ≥ 0.3, out ≥ 0.3, lift 0.1...0.5 → .shrug
     /// 7. both out ≥ 0.45 and lift ≥ 0.35, s > 0.08 → .excited
     public static func gestureMood(_ pose: PoseDescriptor, face: FaceFeatures?, baseline: RestingBaseline) -> Mood?

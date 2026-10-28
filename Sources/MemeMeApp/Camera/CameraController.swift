@@ -401,7 +401,8 @@ private final class FrameProcessor: NSObject, AVCaptureVideoDataOutputSampleBuff
                 try handler.perform([handRequest])
                 let hands = visionResults(handRequest.results ?? [], as: VNHumanHandPoseObservation.self)
                 let joints = FaceFeatureExtractor.handJoints(hands, imageWidth: imageWidth, imageHeight: imageHeight)
-                lastHand = HandShape.strongest(body.ownHands(joints).compactMap { HandShape($0) })
+                let box = FaceFeatureExtractor.poseBox(face?.boundingBox, imageWidth: imageWidth, imageHeight: imageHeight)
+                lastHand = HandShape.strongest(body.ownHands(joints).compactMap { HandShape($0, faceBox: box) })
                 lastPose = PoseFeatures(joints: body, hand: lastHand)
             } catch {
                 // Keep the previous hand; the next odd frame will refresh it.
