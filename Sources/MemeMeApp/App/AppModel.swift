@@ -837,6 +837,7 @@ enum Pick: Equatable {
                 guard !self.isPanelVisible else { return }
                 HUDController.shared.show("Saved “\(item.displayName)” as a sticker", thumbnail: item.fileURL)
             } else {
+                // Shown even over a reopened panel (like "Couldn’t read that image"): nothing else would say it failed.
                 HUDController.shared.show("Couldn’t find you in that one.")
             }
         }

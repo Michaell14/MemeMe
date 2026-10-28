@@ -574,6 +574,26 @@ final class PoseTrackingTests: XCTestCase {
         XCTAssertEqual(tracker.query?.pose, onDesk)
     }
 
+    func testAShrugAfterAHeldSmileBecomesTheQuery() throws {
+        // The face is quicker than the arms: the smile is held first, then the shoulders shrug. The shrug is weaker
+        // than the smile on its own, and still replaces the resting arms.
+        let tracker = PeakHoldTracker(baseline: RestingBaseline(sampleCount: 100))
+        let resting = TestPoses.features(TestPoses.both(TestPoses.rest))
+        let shrugging = TestPoses.features(TestPoses.both(TestPoses.shrug))
+        XCTAssertGreaterThanOrEqual(shrugging.gestureStrength, Ranker.gestureWithoutFace)
+        XCTAssertLessThan(0.8 * shrugging.gestureStrength, tracker.baseline.intensity(of: TestFaces.smile))
+        for step in 1...3 {
+            XCTAssertFalse(tracker.ingest(frame(TestFaces.smile, step, pose: resting)))
+        }
+        XCTAssertTrue(tracker.ingest(frame(TestFaces.smile, 4, pose: resting)))
+        for step in 5...15 {
+            tracker.ingest(frame(TestFaces.smile, step, pose: shrugging))
+        }
+        let query = try XCTUnwrap(tracker.query)
+        XCTAssertEqual(query.pose, shrugging)
+        XCTAssertEqual(MoodClassifier.mood(for: query.face, pose: query.pose, baseline: tracker.baseline), .shrug)
+    }
+
     func testSnapDuringAGestureHidingTheFaceKeepsTheGesture() {
         let tracker = PeakHoldTracker(baseline: RestingBaseline(sampleCount: 100))
         XCTAssertFalse(tracker.ingest(frame(TestFaces.surprise, 1, pose: nil)))
