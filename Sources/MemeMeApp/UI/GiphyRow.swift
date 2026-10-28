@@ -76,7 +76,7 @@ struct GiphyRow: View {
     private var emptyMessage: String? {
         if model.isGiphyLoading { return nil }
         if model.giphyUnavailable { return "GIPHY isn’t answering right now." }
-        return model.giphyQuery == nil ? "Make a face for GIFs from GIPHY." : "Nothing on GIPHY for this one."
+        return model.giphyQuery == nil ? "Make a face or a pose for GIFs from GIPHY." : "Nothing on GIPHY for this one."
     }
 }
 

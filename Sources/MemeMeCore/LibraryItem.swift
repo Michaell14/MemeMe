@@ -41,8 +41,9 @@ public struct LibraryItem: Codable, Identifiable, Hashable, Sendable {
     public var timesSent: Int
     public var lastSentAt: Date?
 
-    /// Pose analysis with `PoseDescriptor` (arms, elbows, hand sign).
-    public static let currentPoseRevision = 1
+    /// Pose analysis with `PoseDescriptor`: 1 arms, elbows and hand sign; 2 also how far each wrist crosses the body,
+    /// where the elbows are and the torso (hips).
+    public static let currentPoseRevision = 2
 
     public init(id: UUID = UUID(), fileURL: URL, displayName: String, kind: ItemKind, tier: ItemTier = .meme, source: String, sourceDetail: String? = nil, addedAt: Date = Date(), fileModifiedAt: Date? = nil, fileSize: Int64 = 0, contentHash: String, isSticker: Bool = false, isAnimated: Bool = false, face: FaceFeatures? = nil, pose: PoseFeatures? = nil, poseRevision: Int = 0, intensity: Double = 0, featurePrint: [Float]? = nil, featurePrintRevision: Int = 0, text: String = "", labels: [String] = [], personID: UUID? = nil, faceEmbedding: [Float]? = nil, remoteURL: URL? = nil, previewURL: URL? = nil, attribution: String? = nil, timesSent: Int = 0, lastSentAt: Date? = nil) {
         self.id = id

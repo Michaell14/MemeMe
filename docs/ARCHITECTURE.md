@@ -85,7 +85,7 @@ public struct ExpressionSample: Codable, Hashable, Sendable {
 ### BodyPose.swift
 
 ```swift
-public enum BodyJoint: String, CaseIterable, Sendable { case nose, leftEye, rightEye, leftEar, rightEar, neck, leftShoulder, rightShoulder, leftElbow, rightElbow, leftWrist, rightWrist }
+public enum BodyJoint: String, CaseIterable, Sendable { case nose, leftEye, rightEye, leftEar, rightEar, neck, leftShoulder, rightShoulder, leftElbow, rightElbow, leftWrist, rightWrist, root, leftHip, rightHip }   // no legs
 public enum HandJoint: String, CaseIterable, Sendable { case wrist, thumbCMC, thumbMP, thumbIP, thumbTip, indexMCP, …, littleTip }   // Vision's 21
 public struct JointReading: Hashable, Sendable { x, y, confidence }   // Vision-normalized, origin bottom-left
 public struct PosePoint: Hashable, Sendable { x, y }                  // aspect-corrected: x × width / height, y as Vision's
@@ -100,6 +100,7 @@ public struct BodyJoints: Hashable, Sendable {
     public subscript(joint: BodyJoint) -> PosePoint? { get }
     public static func primary(of bodies: [BodyJoints], faceBox: PoseBox?) -> BodyJoints?   // head in the face box grown 30 %, else surest shoulders
     public func ownHands(_ hands: [HandJoints]) -> [HandJoints]   // hand wrist within 0.6 shoulder widths of a body wrist (all without wrists)
+    public func widthInImage(aspect: Double) -> Double?   // max(shoulder gap, 2.6 × ear gap) / aspect: share of the image's width; nil without either
 }
 public struct HandJoints: Hashable, Sendable { init(readings:imageWidth:imageHeight:); init(points:) }
 public struct HandShape: Codable, Hashable, Sendable {
@@ -108,13 +109,16 @@ public struct HandShape: Codable, Hashable, Sendable {
     public var signStrength: Double { get }         // max(thumbsUp, point, peace)
     public static func strongest(_ shapes: [HandShape]) -> HandShape?   // per-sign max
 }
+public enum BodyShape: String, CaseIterable, Sendable { case dab, bolt, flex, ohNo, armsCrossed, tPose, handsOnHips, pickMe, hello, bow }
 public struct PoseDescriptor: Codable, Hashable, Sendable {
-    public enum Dimension: Int, CaseIterable { leftLift, leftOut, leftHead, leftElbowLift, leftElbowBend, rightLift, …, rightElbowBend, wristGap, shoulderTilt, headRise }
-    public private(set) var values: [Double?]      // 13, each 0...1 (3 decimals), nil = a joint it needs wasn't seen
+    public enum Dimension: Int, CaseIterable { leftLift, leftOut, leftHead, leftElbowLift, leftElbowBend, rightLift, …, rightElbowBend, wristGap, shoulderTilt, headRise, leftCross, rightCross, leftElbowOut, rightElbowOut, torsoLength }
+    public private(set) var values: [Double?]      // 18, each 0...1 (3 decimals), nil = a joint it needs wasn't seen; only ever appended to (fewer read as nil)
     public var hand: HandShape?
     public init?(_ joints: BodyJoints, hand: HandShape? = nil)   // nil without both shoulders or a neck, or a body < 2 % of the short side
-    public var mirrored: PoseDescriptor { get }    // arms swapped
+    public var mirrored: PoseDescriptor { get }    // left and right numbers swapped
     public var showsArms: Bool { get }             // a wrist, an elbow or a hand sign was seen
+    public var bodyShape: BodyShape? { get }       // a shape with its own word, from the body alone
+    public static let shapeStrength: Double        // 0.6
     public var gestureStrength: Double { get }
     public var gestureDirection: [Double] { get }  // 9 numbers for the tracker (0 at rest): 6 for the arms (an unseen arm next to a seen one reads as resting unless its upper arm is near vertical), then thumbs up, pointing, peace (each from 0.7)
     public static func compare(_ a: PoseDescriptor, _ b: PoseDescriptor) -> (similarity: Double, coverage: Double)
@@ -122,10 +126,11 @@ public struct PoseDescriptor: Codable, Hashable, Sendable {
 ```
 Pose (binding):
 - Body frame: origin O = shoulder midpoint (else the neck); x along the shoulder line (oriented left to right in the image, so the tilt is taken out either way the person faces); unit S = shoulder distance, at least 0.8 × the head's estimate (2.6 × ear distance, else 6 × eye distance, else 3 × nose-to-ear distance seen from the side) and at least 0.7 × the longer upper arm. The shoulder line gives the tilt (and `shoulderTilt`) only when it is at least 0.5 S long; a body turned to the side keeps roll 0. Head H = mean of nose, eyes, ears. Points p' = rotate(p − O) / S.
-- Per arm (wrist w', elbow e', shoulder s'): `lift = (w'.y + 1.5) / 3.5`, `out = |w'.x| / 2.5`, `head = |w' − H'| / 2`, `elbowLift` = upper-arm angle from straight down / 180°, `elbowBend` = 1 − elbow angle / 180°. `wristGap = |wL − wR| / S / 3`, `shoulderTilt = |roll| / 30°`, `headRise = H'.y / 1.5`. All clamped to 0...1.
+- Per arm (wrist w', elbow e', shoulder s'): `lift = (w'.y + 1.5) / 3.5`, `out = |w'.x| / 2.5`, `head = |w' − H'| / 2`, `elbowLift` = upper-arm angle from straight down / 180°, `elbowBend` = 1 − elbow angle / 180°, `cross = (0.5 − sign(s'.x) × w'.x) / 2` (0 at its own shoulder, 0.25 at the middle, 0.5 at the other shoulder; only when the shoulder line is reliable), `elbowOut = |e'.x| / 2.5`. `wristGap = |wL − wR| / S / 3`, `shoulderTilt = |roll| / 30°`, `headRise = H'.y / 1.5`, `torsoLength = |hips'| / 2` (hips' = the middle of both hips, else the root; about 0.675 standing). All clamped to 0...1.
+- bodyShape (first match; a missing number never matches; "low" = lift ≤ 0.4, or without a wrist an elbowLift < 0.4 or none): dab = one arm up and out (lift ≥ 0.6, out ≥ 0.4, bend ≤ 0.25, cross ≤ 0.05) and the other across the face (cross ≥ 0.35, lift ≥ 0.5, head ≤ 0.5); bolt = one arm up and out and the other drawn back (bend ≥ 0.3, lift 0.3...0.6, cross ≤ 0.3); flex = both elbowLift 0.36...0.66, bend ≥ 0.38, lift ≥ 0.5, head ≥ 0.36; ohNo = both head ≤ 0.35, lift ≥ 0.5 and ≥ the head's lift + 0.03, not both out ≥ 0.09; armsCrossed = both cross ≥ 0.27, bend ≥ 0.3, lift ≤ 0.45 and ≥ 0.12 (0.21 without a torso); tPose = both lift 0.3...0.6, out ≥ 0.55, bend ≤ 0.2, elbowLift 0.38...0.65 (when seen); handsOnHips = torso ≥ 0.5 and akimbo (elbowOut − out ≥ 0.1, lift ≤ 0.32, elbowLift ≥ 0.15) on both arms, or one (elbowLift ≥ 0.17) with the other low; pickMe = one lift ≥ 0.75, bend ≤ 0.35, head ≥ 0.35 (when seen), the other low; hello = one lift 0.5...0.8, head 0.3...0.75, out ≥ 0.2, elbowLift ≤ 0.6, bend ≥ 0.25, the other low, an open palm when a hand was read; bow = torso ≤ 0.45 and headRise ≤ 0.25.
 - Hand: a finger is straight when |tip − wrist| / |PIP − wrist| ≥ 1.2 (ramp from 0.95) and curled when ≤ 0.8 (ramp to 1.05). thumbsUp = min(others curled, thumb tip−IP within ~35° of up, thumb tip above the other fingers by 0.1–0.35 palms); point = index straight, 3 others curled; peace = index and middle straight, ring and little curled; openPalm / fist = all straight / curled.
-- gestureStrength: the weighted RMS distance from arms hanging at the sides (lift .03, out .2, head 1, elbowLift .05, elbowBend .1, gap .37; weights 1, .5, 1, .5, .25, .5) over the numbers seen, skipping an elbowLift whose wrist wasn't seen unless it is ≥ `elbowOnlyUp` (0.88, near vertical: hands out of the top of the frame, not clasped behind the head), `clamp((rms − 0.1) / 0.3)`, where each arm's squared distances are scaled by (1 − its rest factor) (1 when its wrist is low, in front and away from the head: lift ≤ 0.3, out ≤ 0.2, head ≥ 0.45 — a forearm on a desk, a mug or phone at the chest — falling to 0 over 0.08 / 0.06 / 0.1 beyond, so it never jumps; the wrist gap by the larger of the two); a hand sign ≥ 0.7 raises it to the sign's strength. `forearmRest` (the smallest rest factor of the wrists seen) also keeps resting hands from reading as clapping.
-- compare: weights per number lift 2, out 1, head 2, elbowLift 1, elbowBend 1, gap 1.5, tilt .5, headRise .5 (hand signs 1 each when both have a hand); per number `max(0, 1 − |Δ| / 0.25)`. similarity = over numbers both have; coverage = their weight / the weight of numbers either has.
+- gestureStrength: max(armStrength, 0.6 when there is a bodyShape), and a hand sign ≥ 0.7 raises it to the sign's strength. armStrength: the weighted RMS distance from arms hanging at the sides (lift .03, out .2, head 1, elbowLift .05, elbowBend .1, gap .37; weights 1, .5, 1, .5, .25, .5) over the numbers seen, skipping an elbowLift whose wrist wasn't seen unless it is ≥ `elbowOnlyUp` (0.88, near vertical: hands out of the top of the frame, not clasped behind the head), `clamp((rms − 0.1) / 0.3)`, where each arm's squared distances are scaled by (1 − its rest factor) (1 when its wrist is low, in front and away from the head: lift ≤ 0.3, out ≤ 0.2, head ≥ 0.45 — a forearm on a desk, a mug or phone at the chest — falling to 0 over 0.08 / 0.06 / 0.1 beyond, so it never jumps; the wrist gap by the larger of the two). `forearmRest` (the smallest rest factor of the wrists seen) also keeps resting hands from reading as clapping.
+- compare: weights per number lift 2, out 1, head 2, elbowLift 1, elbowBend 1, gap 1.5, tilt .5, headRise .5, cross 1, elbowOut .5, torso .5 (hand signs 1 each when both have a hand; the torso, like the hand, only when both have it); per number `max(0, 1 − |Δ| / 0.25)`. similarity = over numbers both have; coverage = their weight / the weight of numbers either has.
 - `PoseFeatures.similarity(query:item:)`, g = gesture strength: the item's arms not seen → `1 − 0.7·g_query`; the query without a descriptor → level = `1 − |g_query − g_item|`; else, with t = clamp((max(g_query, g_item) − 0.1) / 0.3) (0 while both rest), `(1 − t) × level + t × X`, where X is unknown for an item measured the old way, else the better of the item as-is and mirrored of `coverage × similarity × (0.5 + 0.5·level) + (1 − coverage) × level`.
 
 ### Baseline.swift
@@ -176,6 +181,8 @@ public struct PeakHoldConfig: Sendable {
     public var minimumIntensity: Double = 0.12
     public var bufferWindow: TimeInterval = 0.5
     public var minimumGestureWithoutFace: Double = 0.5
+    public var gestureGrace: TimeInterval = 0.3
+    public var newPoseSimilarity: Double = 0.6
     public init()
 }
 
@@ -203,13 +210,29 @@ public final class PeakHoldTracker {
 ```
 
 Algorithm (binding):
-- `ingest`: set `lastSample`. No face and a gesture strength below `minimumGestureWithoutFace` (0.5) → clear the candidate, `holdProgress = 0`, return false (a facepalm hides the face: its gesture carries on). Calm frames with a face feed `baseline.observe`.
+- `ingest`: set `lastSample`. No face and a gesture strength below `minimumGestureWithoutFace` (0.5) → clear the candidate, `holdProgress = 0`, return false (a facepalm hides the face: its gesture carries on). Grace: a run whose first frame was a clear gesture (strength ≥ 0.4) instead skips such a frame (and one under `minimumIntensity`, and one outside its cone without its shape) while it is within `gestureGrace` (0.3 s) of the last frame it took, keeping the run, candidate and progress; face runs get none. Calm frames with a face feed `baseline.observe`.
 - Effective intensity `e = max(baseline.intensity(of: face) (0 without), 0.8 × gesture strength when it is ≥ 0.4 (else 0))`: half-raised arms with a neutral face are not an expression. Direction vector = `signedDeviation(of: face)` (7 zeros without) + `0.5 × gestureStrength × descriptor.gestureDirection` (a pose without a descriptor: `[activity, 0, 0, 0, 0, 0, 0, 0, 0]`), 16 values, normalized. A different hand sign with the arm where it was is therefore a different expression.
 - A sample is a candidate if `e >= minimumIntensity`; otherwise clear the candidate, return false.
-- The candidate is a run of consecutive candidate samples whose direction cosine with the run's first sample is ≥ `sameDirectionCosine`; a sample outside that cone starts a new run. Within a run keep the best sample by `e * sharpness` among samples whose timestamp is within `bufferWindow` of the newest.
-- Required hold: no query → `holdDuration`. Same direction as the query (cosine ≥ `sameDirectionCosine`) → `holdDuration`, and only if `bestE >= queryIntensity * strongerRatio` (otherwise `holdProgress = 0`, no replacement). Different direction, or a new gesture word → `newExpressionHold` and `candidateIsNewExpression = true`. A new gesture word: the best frame has a clear gesture (strength ≥ 0.4, so forearms on armrests reading as a shrug don't count) whose `MoodClassifier.gestureMood` differs from the query's (nil included). Strong gestures all reach intensity 0.8 and several share a direction (clapping, face in hands, mind blown), and a face is usually held before the arms arrive, so neither strength nor direction would let a hand caught on its way to the face, or a shrug after a held smile, replace the query. A word that flickers keeps restarting the run (a frame with the query's word clears it).
+- The candidate is a run of consecutive candidate samples whose direction cosine with the run's first sample is ≥ `sameDirectionCosine`, or whose `bodyShape` one of the run's samples has (a far face flickering swings the direction of a shape held up by its 0.6 floor); a sample outside that starts a new run. Within a run keep the samples within `bufferWindow` of the newest; the best is, among those with the pose word most of them have (`gestureMood` when the strength is ≥ 0.4, else none; a word beats none on a tie, then the newest sample's), the highest `e * sharpness`, the newest winning ties.
+- Required hold: no query → `holdDuration`. Same direction as the query (cosine ≥ `sameDirectionCosine`, or the query's `bodyShape`) → `holdDuration`, and only if `bestE >= queryIntensity * strongerRatio` (otherwise `holdProgress = 0`, no replacement). Different direction, a new gesture word, or a new pose → `newExpressionHold` and `candidateIsNewExpression = true`. A new pose: both the best sample and the query are clear gestures with descriptors, not the same shape, and the better of `compare(query, best)` and `compare(query, best.mirrored)` (a comparison covering < 0.6 counts as alike) is < `newPoseSimilarity`: strong poses all reach intensity 0.8 and many point the same way. A best sample held up only by its shape's floor (armStrength < 0.4, no hand sign, the face weaker) needs at least `newExpressionHold`: hands in pockets read as hands on hips for a frame or two now and then. A new gesture word: the best frame has a clear gesture (strength ≥ 0.4, so forearms on armrests reading as a shrug don't count) whose `MoodClassifier.gestureMood` differs from the query's as read when it became the query (nil included). Strong gestures all reach intensity 0.8 and several share a direction (clapping, face in hands, mind blown), and a face is usually held before the arms arrive, so neither strength nor direction would let a hand caught on its way to the face, or a shrug after a held smile, replace the query. A word that flickers keeps restarting the run (a frame with the query's word clears it).
 - `holdProgress = min(1, (newest.timestamp - run.start) / required)`. When it reaches 1: `query = best`, `queryIntensity = bestE`, clear the run, `holdProgress = 0`, `candidateIsNewExpression = false`, return true.
 - `candidate` is the run's best sample while it is held toward the query; clearing the candidate (and the query being set) makes it nil.
+
+### PoseBadge.swift
+
+```swift
+public enum PoseBadge: Equatable, Sendable {      // the pose behind the search, named on the mirror
+    case word(Mood), pose
+    public static func of(_ sample: ExpressionSample, baseline: RestingBaseline) -> PoseBadge?   // gestureMood's word; else .pose for strength ≥ 0.4; else nil
+    public var label: String { get }               // the mood's label, or "your pose"
+}
+public struct StandingBackDetector: Sendable {    // the hint's "Reading your pose"
+    public private(set) var isStandingBack: Bool
+    @discardableResult public mutating func observe(bodyWidth: Double?, at timestamp: TimeInterval) -> Bool
+    public mutating func reset()
+}
+```
+StandingBackDetector: on after 1.5 s with a body narrower than 0.2 of the image (`BodyJoints.widthInImage`); off after 1 s at 0.25 or wider, or 1.5 s without a body; in between nothing changes.
 
 ### EarlyMoodTrigger.swift
 
@@ -230,7 +253,8 @@ public struct EarlyMoodTrigger: Sendable {
 public enum Mood: String, CaseIterable, Codable, Hashable, Sendable {
     case shocked, screaming, laughing, happy, smug, sideEye, crying, sad, angry, confused, unimpressed, nervous, excited, reaction
     case celebrate, facepalm, mindBlown, shrug, thumbsUp, pointing, clapping   // body language
-    /// GIPHY query, e.g. "shocked reaction", "side eye", "unimpressed", "reaction"; body language: the label ("mind blown", "thumbs up")
+    case tPose, flex, dab, handsOnHips, armsCrossed, pickMe, hello, ohNo, peace, bow
+    /// GIPHY query, e.g. "shocked reaction", "side eye", "unimpressed", "reaction"; body language: the label ("mind blown", "thumbs up"), except "t pose", "peace sign", "bowing"
     public var searchQuery: String { get }
     /// Human word, e.g. "shocked", "side eye"
     public var label: String { get }
@@ -252,14 +276,17 @@ public enum MoodClassifier {
     /// 12. face.headTilt ≥ 0.35 → .confused
     /// 13. else → .unimpressed
     public static func mood(for face: FaceFeatures?, pose: PoseFeatures?, baseline: RestingBaseline) -> Mood
-    /// Each rule needs the joints it reads; in this order:
-    /// 1. hand: thumbsUp ≥ 0.7 → .thumbsUp; point ≥ 0.7 → .pointing
-    /// 2. both arms up (lift ≥ 0.7 with head ≥ 0.35, or no wrist and elbowLift ≥ 0.88) → o ≥ 0.35 && s ≤ 0.05 ? .screaming : .celebrate
-    /// 3. both hands beside the head (head ≤ 0.35, lift ≥ 0.5, out ≥ 0.09) → o ≥ 0.45 ? .screaming : .mindBlown
-    /// 4. a hand on the face (head ≤ 0.22, ≤ 0.3 without a face; lift ≥ 0.5), face nil or d.eye ≤ −0.25, o < 0.35, s ≤ 0.05 → .facepalm
-    /// 5. wristGap ≤ 0.12, both lifts 0.3...0.75 with head > 0.3, forearmRest < 0.5, and open hands when read (openPalm ≥ 0.5) → .clapping
-    /// 6. both elbowBend ≥ 0.3, out ≥ 0.3, lift 0.1...0.5 → .shrug
-    /// 7. both out ≥ 0.45 and lift ≥ 0.35, s > 0.08 → .excited
+    /// Each rule needs the joints it reads; in this order (shape = pose.bodyShape):
+    /// 1. hand: thumbsUp ≥ 0.7 → .thumbsUp; peace ≥ 0.7 → .peace; point ≥ 0.7 → .pointing
+    /// 2. shape dab → .dab; flex → .flex; bolt → .celebrate
+    /// 3. both arms up (lift ≥ 0.7, or ≥ 0.65 with out ≥ 0.45, with head ≥ 0.35; or no wrist and elbowLift ≥ 0.88) → o ≥ 0.35 && s ≤ 0.05 ? .screaming : .celebrate
+    /// 4. both hands beside the head (head ≤ 0.35, lift ≥ 0.5, out ≥ 0.09) → o ≥ 0.45 ? .screaming : .mindBlown
+    /// 5. shape ohNo → o ≥ 0.45 ? .screaming : .ohNo
+    /// 6. a hand on the face (head ≤ 0.22, ≤ 0.3 without a face; lift ≥ 0.5; elbowLift < 0.42), face nil or d.eye ≤ −0.25, o < 0.35, s ≤ 0.05 → .facepalm
+    /// 7. wristGap ≤ 0.12, both lifts 0.3...0.75 with head > 0.3, forearmRest < 0.5, and open hands when read (openPalm ≥ 0.5) → .clapping
+    /// 8. shape armsCrossed, tPose, handsOnHips, pickMe, hello, bow → that word
+    /// 9. both elbowBend ≥ 0.3, out ≥ 0.3, lift 0.1...0.5 → .shrug
+    /// 10. both out ≥ 0.45 and lift ≥ 0.35, s > 0.08 → .excited
     public static func gestureMood(_ pose: PoseDescriptor, face: FaceFeatures?, baseline: RestingBaseline) -> Mood?
 }
 ```
@@ -286,7 +313,7 @@ public struct LibraryItem: Codable, Identifiable, Hashable, Sendable {
     public var isAnimated: Bool
     public var face: FaceFeatures?
     public var pose: PoseFeatures?
-    public var poseRevision: Int          // 0: pose not described in detail yet; currentPoseRevision (1) since
+    public var poseRevision: Int          // 0: pose not described in detail yet; 1 arms and hands; currentPoseRevision (2) since: also the wrists across, elbows out and torso
     public var intensity: Double          // 0...1 against FaceFeatures.populationNeutral
     public var featurePrint: [Float]?     // JSON: base64 of little-endian Float32 (FloatCoding)
     public var featurePrintRevision: Int
@@ -300,7 +327,7 @@ public struct LibraryItem: Codable, Identifiable, Hashable, Sendable {
     public var timesSent: Int
     public var lastSentAt: Date?
     public init(id: UUID = UUID(), fileURL: URL, displayName: String, kind: ItemKind, tier: ItemTier = .meme, source: String, sourceDetail: String? = nil, addedAt: Date = Date(), fileModifiedAt: Date? = nil, fileSize: Int64 = 0, contentHash: String, isSticker: Bool = false, isAnimated: Bool = false, face: FaceFeatures? = nil, pose: PoseFeatures? = nil, poseRevision: Int = 0, intensity: Double = 0, featurePrint: [Float]? = nil, featurePrintRevision: Int = 0, text: String = "", labels: [String] = [], personID: UUID? = nil, faceEmbedding: [Float]? = nil, remoteURL: URL? = nil, previewURL: URL? = nil, attribution: String? = nil, timesSent: Int = 0, lastSentAt: Date? = nil)
-    public static let currentPoseRevision: Int      // 1
+    public static let currentPoseRevision: Int      // 2
     public var isOwn: Bool { get }          // kind == .mine || kind == .friend
     /// "March 2026" (en_US_POSIX "LLLL yyyy", UTC) of fileModifiedAt ?? addedAt
     public var monthKey: String { get }
@@ -673,6 +700,7 @@ Requests per frame: `VNDetectFaceLandmarksRequest`, `VNDetectHumanBodyPoseReques
     @Published private(set) var regionRects: [FaceRegion: CGRect]   // latest face, Vision-normalized image coordinates
     let session: AVCaptureSession
     var onSample: ((ExpressionSample) -> Void)?   // delivered on the main actor, ≤ 10 per second
+    private(set) var bodyWidth: Double?           // the last body's BodyJoints.widthInImage, set before each onSample; nil without one or in the capture view
     var isInUseByAnotherApplication: Bool { get } // the device start() would use
     var hasUsableCamera: Bool { get }             // false when no connected, unsuspended camera exists
     func refreshAuthorization()
@@ -1242,6 +1270,8 @@ enum DropOutcome { case kept(IndexBatch), stickers(StickerBatch), nothing }
     @Published private(set) var showsFaceToken: Bool
     @Published private(set) var naming: NamingPrompt?
     @Published private(set) var holdProgress: Double
+    @Published private(set) var heldPose: PoseBadge?     // PoseBadge.of(tracker.query) for a face search, nil otherwise; the mirror's label
+    @Published private(set) var poseCatches: Int         // +1 when a held pose becomes the query (or Space snaps one), at most every 1.5 s: the mirror's green flash
     @Published private(set) var hotKeyAvailable: Bool
     @Published private(set) var isPanelVisible: Bool
     @Published private(set) var isCaptureOpen: Bool
@@ -1317,7 +1347,7 @@ enum DropOutcome { case kept(IndexBatch), stickers(StickerBatch), nothing }
 Other internal helpers that exist outside the contract: `StickerBatchSources` (App/StickerPopoverModel.swift) and `TileDragEvents` (UI/PanelController.swift).
 Behavior summary (details in DESIGN.md):
 - `panelWillShow`: remember previous app + bundle id; reset query state; mode = `.cameraBusy` if `camera.isInUseByAnotherApplication`, `.prompt` if authorization is `.notDetermined`, `.cameraOff` if denied/restricted, else `.warming` (start camera); results = recent for that app (or the newest own memes); with none at all, or when no face can be read (`.cameraOff`, `.cameraBusy`, `.prompt`), the GIPHY row shows `.mood(.reaction)` and the classic memes row the most popular templates; footer per rules; on first run (`!settings.hasCompletedFirstRun`) request camera access 0.6 s after show (activate the app just for the prompt).
-- `camera.onSample` → `tracker.ingest`; the mood of `tracker.candidate` (the expression being held) goes through `EarlyMoodTrigger` (same mood for 0.2 s) → `web.warm(mood)`; publish `holdProgress`; on query change: mood → weights (`automatic(...).pinning(pins)`) → your memes ranked at once (`store.items` without `.web`); the GIPHY row shows `web.cachedGIFs(for: .mood(mood))` at once, else placeholders until `await web.gifs(for:)` (its own task and generation), and the classic memes row `pickTemplates(for: .mood(mood), …)` from `templates.cachedList` at once, else after `await templates.templates()` (its own task and generation). Image and more-like searches leave both rows alone. `normalizeFocus` keeps the focus on a tile: until the user moves it, the first one for Recent and the face (so ↵ copies a GIPHY GIF when there are no memes), and nothing for a typed, image or more-like search that finds no meme. `newResultIDs` for ids not shown before (cleared after 600 ms). The row's first GIF and a focused GIF prefetch their full GIF. No face for 1.5 s → hint "Can’t see your face".
+- `camera.onSample` → `tracker.ingest`; the mood of `tracker.candidate` (the expression being held) goes through `EarlyMoodTrigger` (same mood for 0.2 s) → `web.warm(mood)`; publish `holdProgress`; on query change: mood → weights (`automatic(...).pinning(pins)`) → your memes ranked at once (`store.items` without `.web`); the GIPHY row shows `web.cachedGIFs(for: .mood(mood))` at once, else placeholders until `await web.gifs(for:)` (its own task and generation), and the classic memes row `pickTemplates(for: .mood(mood), …)` from `templates.cachedList` at once, else after `await templates.templates()` (its own task and generation). Image and more-like searches leave both rows alone. `normalizeFocus` keeps the focus on a tile: until the user moves it, the first one for Recent and the face (so ↵ copies a GIPHY GIF when there are no memes), and nothing for a typed, image or more-like search that finds no meme. `newResultIDs` for ids not shown before (cleared after 600 ms). The row's first GIF and a focused GIF prefetch their full GIF. No face for 1.5 s → hint "Can’t see your face". `camera.bodyWidth` feeds a `StandingBackDetector`; while it says standing back, the hint is "Reading your pose" instead.
 - Text changes (debounced 80 ms) → text mode; camera stops if typing began within 1 s of show, otherwise `showsFaceToken = true`; naming prompt when `TextQuery.possibleName` is set, no results, and `friends.unnamedPeople` is non-empty. The typed terms (`TextQuery.parse(…).terms`: no filter words or people's names) → `WebQuery.words(from:)`: the classic memes row shows its templates at once; the GIPHY row shows GIPHY's results once typing has paused 0.6 s (any edit restarts the wait; at once when cached; while the naming prompt shows, nothing when `possibleName` isn't `MemeTemplateCatalog.isMemeWord` (mood words, mood labels, the table's search words, minus names such as "jordan" or "kermit"); a nil query leaves both rows alone). Until the user moves the focus, `normalizeFocus` keeps it on `startSlot` as rows fill in, so with no memes GIPHY's GIFs take it from the classic memes when they arrive. Empty text → back to live (restart camera if it was stopped); leaving typed words clears a GIPHY row showing them and puts the classic memes back to the popular ones.
 - `commit`: resolve file (a GIPHY GIF → `await web.prepareForCopy`, a classic meme → `await templates.prepareForCopy`, HUD "Copying…" if it takes > 150 ms); `Clipboard.copy` (a GIPHY GIF as "reaction.gif", a classic meme as "reaction.png": kind `.web`, source "Imgflip", hash "imgflip:<id>"); for your memes only: increment `timesSent`, set `lastSentAt`, `recents.record` (GIPHY GIFs are never kept or listed as recent); first run → `showSetupCard = true` and `hasCompletedFirstRun = true` (panel stays open); otherwise close and HUD "Copied “<title>” · ⌘V — not sent" with the copied file as thumbnail. ↵ is ignored within 300 ms of the last text edit.
 - A capture (`capture.onCaptured`): `commitToken += 1`; `Clipboard.copy(data:fileName:)` as "reaction.gif" / "reaction.png"; the sticker source is that PNG (photo) or the clip's best frame written as `capture.png` in a fresh clipboard folder; close the capture view and the panel; HUD "Copied your photo · ⌘V — not sent" (or GIF) with the copy as thumbnail and the action "Save as sticker" → HUD "Making your sticker…", `friends.makeOwnSticker(fromCapture:)`, then "Saved “<name>” as a sticker" with the action "Undo" (`friends.removeOwnSticker`, then "Sticker removed"), "Already one of your stickers" when it was kept before (both skipped when the panel was reopened meanwhile: they would cover it), or "Couldn’t find you in that one." (shown regardless). Captures are not recorded as sent and don't count as the first pick.

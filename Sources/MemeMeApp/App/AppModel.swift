@@ -46,6 +46,8 @@ private enum HintCopy {
     static let warmingTitle = "Starting camera…"
     static let warmingSubtitle = "Your recent picks are ready below."
     static let liveTitle = "Make a face or a pose. Results follow it."
+    static let standingBackTitle = "Reading your pose"
+    static let standingBackSubtitle = "Hold each pose for a second. Come closer for faces."
     static let noFaceTitle = "Can’t see your face"
     static let noFaceSubtitle = "Try more light, or just type."
     static let clearAction = "Clear"
@@ -157,6 +159,11 @@ enum Pick: Equatable {
     @Published private(set) var showsFaceToken: Bool = false
     @Published private(set) var naming: NamingPrompt?
     @Published private(set) var holdProgress: Double = 0
+    /// The pose behind the face search, named on the mirror: its word, or "your pose"; nil when the face alone made it.
+    @Published private(set) var heldPose: PoseBadge?
+    /// Counts each pose caught (a held pose becoming the search), at most one per `poseCatchSpacing`: the mirror
+    /// flashes green when it changes.
+    @Published private(set) var poseCatches = 0
     @Published private(set) var hotKeyAvailable: Bool = true
     @Published private(set) var isPanelVisible: Bool = false
     /// The capture view replaces the panel's contents: a big filtered mirror and a shutter.
@@ -193,6 +200,8 @@ enum Pick: Equatable {
     private static let faceBackDelay: TimeInterval = 1.0
     /// Shorter gaps in face detection are dropped frames, not the face leaving.
     private static let faceGap: TimeInterval = 0.3
+    /// The mirror flashes for a caught pose at most this often.
+    private static let poseCatchSpacing: TimeInterval = 1.5
     /// Typing that starts this soon after opening stops the camera instead of keeping the face token.
     private static let typingStopsCameraWindow: TimeInterval = 1.0
     /// A HUD says "Copying…" when fetching a web GIF takes longer than this.
@@ -221,6 +230,9 @@ enum Pick: Equatable {
     private var lastTextEditAt: TimeInterval = 0
     /// Starts an expression's web search while it is still being held.
     private var earlyMood = EarlyMoodTrigger()
+    /// Standing back to show the whole body: the hint talks about poses.
+    private var standingBack = StandingBackDetector()
+    private var lastPoseCatchAt: TimeInterval?
     private var textBeganAt: TimeInterval?
     private var searchGeneration = 0
     private var imageGeneration = 0
@@ -497,6 +509,7 @@ enum Pick: Equatable {
         guard mode == .live, !showSetupCard, tracker.snap() else { return }
         if holdProgress != 0 { holdProgress = 0 }
         runExpressionSearch(animate: true)
+        notePoseCaught(at: CACurrentMediaTime())
         refreshHint()
     }
 
@@ -891,9 +904,11 @@ enum Pick: Equatable {
         // only feeds the capture picture.
         guard mode == .live, !isCaptureOpen else {
             earlyMood.reset()
+            standingBack.reset()
             return
         }
 
+        standingBack.observe(bodyWidth: camera.bodyWidth, at: sample.timestamp)
         let queryChanged = tracker.ingest(sample)
         // Search the web for the expression being held, so its results are in by the time the hold completes.
         let candidateMood = tracker.candidate.map { MoodClassifier.mood(for: $0.face, pose: $0.pose, baseline: tracker.baseline) }
@@ -907,8 +922,17 @@ enum Pick: Equatable {
 
         if queryChanged {
             runExpressionSearch(animate: true)
+            notePoseCaught(at: sample.timestamp)
         }
         refreshHint()
+    }
+
+    /// A new search from a held pose flashes the mirror (not one from the face alone).
+    private func notePoseCaught(at timestamp: TimeInterval) {
+        guard heldPose != nil else { return }
+        if let last = lastPoseCatchAt, timestamp - last < AppModel.poseCatchSpacing { return }
+        lastPoseCatchAt = timestamp
+        poseCatches &+= 1
     }
 
     /// "Can't see your face" after 1.5 s without a face; it clears once the face has been back for 1 s. A clear
@@ -1015,6 +1039,7 @@ enum Pick: Equatable {
     /// moving the focus.
     private func showRecentResults(animateNew: Bool = false, resetFocus: Bool = true) {
         resultSource = .recent
+        if heldPose != nil { heldPose = nil }
         searchGeneration += 1
         let ranker = Ranker(baseline: tracker.baseline)
         let recentIDs = store.recents.recent(appBundleID: previousBundleID)
@@ -1046,6 +1071,8 @@ enum Pick: Equatable {
         }
         resultSource = .expression
         let mood = MoodClassifier.mood(for: sample.face, pose: sample.pose, baseline: tracker.baseline)
+        let badge = PoseBadge.of(sample, baseline: tracker.baseline)
+        if heldPose != badge { heldPose = badge }
         let deviation = sample.face.map { tracker.baseline.deviation(of: $0) } ?? [:]
         let weights = FeatureWeights.automatic(deviation: deviation, poseStrength: sample.pose?.gestureStrength ?? 0).pinning(pins)
         currentWeights = weights
@@ -1786,6 +1813,10 @@ enum Pick: Equatable {
         case .warming:
             return PanelHint(title: HintCopy.warmingTitle, subtitle: HintCopy.warmingSubtitle, actionTitle: nil, action: nil)
         case .live:
+            // Standing back, the face is too small to read: say so before "Can't see your face".
+            if standingBack.isStandingBack {
+                return PanelHint(title: HintCopy.standingBackTitle, subtitle: HintCopy.standingBackSubtitle, actionTitle: nil, action: nil)
+            }
             if faceMissing {
                 return PanelHint(title: HintCopy.noFaceTitle, subtitle: HintCopy.noFaceSubtitle, actionTitle: nil, action: nil)
             }
@@ -1835,6 +1866,9 @@ enum Pick: Equatable {
         resetQueryImage()
         tracker = PeakHoldTracker(baseline: tracker.baseline)
         earlyMood.reset()
+        standingBack.reset()
+        lastPoseCatchAt = nil
+        if heldPose != nil { heldPose = nil }
         clearGiphyRow()
         showsGiphyRow = store.settings.webDiscoverEnabled && web.hasAPIKey
         clearTemplateRow()

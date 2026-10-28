@@ -30,6 +30,9 @@ final class PeakHoldTrackerTests: XCTestCase {
         XCTAssertEqual(config.sameDirectionCosine, 0.85)
         XCTAssertEqual(config.minimumIntensity, 0.12)
         XCTAssertEqual(config.bufferWindow, 0.5)
+        XCTAssertEqual(config.minimumGestureWithoutFace, 0.5)
+        XCTAssertEqual(config.gestureGrace, 0.3)
+        XCTAssertEqual(config.newPoseSimilarity, 0.6)
     }
 
     func testInitialHoldTakesThreeHundredMilliseconds() {

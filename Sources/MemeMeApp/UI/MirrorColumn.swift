@@ -6,8 +6,15 @@ import SwiftUI
 struct MirrorColumn: View {
     @ObservedObject var model: AppModel
 
+    /// The green ring's opacity: 1 the moment a pose is caught, fading out.
+    @State private var catchFlash: Double = 0
+
     private let mirrorSize: CGFloat = 120
     private let mirrorRadius: CGFloat = 18
+
+    init(model: AppModel) {
+        _model = ObservedObject(wrappedValue: model)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -26,6 +33,11 @@ struct MirrorColumn: View {
         }
         .frame(width: mirrorSize, height: mirrorSize)
         .clipShape(RoundedRectangle(cornerRadius: mirrorRadius, style: .continuous))
+        .overlay(alignment: .topLeading) {
+            if model.mode == .live, let pose = model.heldPose {
+                poseLabel(pose)
+            }
+        }
         .overlay(alignment: .bottomTrailing) {
             if model.canOpenCapture {
                 captureButton
@@ -38,15 +50,50 @@ struct MirrorColumn: View {
                 .padding(-1.5)
         )
         .overlay {
-            if model.mode == .live && model.holdProgress > 0 {
+            // Fills while an expression or pose is held; a hold that is lost winds back instead of blinking off.
+            if model.mode == .live {
                 RoundedRectangle(cornerRadius: mirrorRadius + 1.5, style: .continuous)
                     .trim(from: 0, to: CGFloat(min(1, max(0, model.holdProgress))))
                     .stroke(Theme.amber, style: StrokeStyle(lineWidth: 3, lineCap: .round))
                     .padding(-1.5)
-                    .animation(.linear(duration: 0.1), value: model.holdProgress)
+                    .opacity(model.holdProgress >= 0.05 ? 1 : 0)
+                    .animation(.easeOut(duration: 0.25), value: model.holdProgress)
                     .allowsHitTesting(false)
             }
         }
+        .overlay {
+            // A pose caught: a green ring that fades.
+            RoundedRectangle(cornerRadius: mirrorRadius + 2.5, style: .continuous)
+                .stroke(Theme.green, lineWidth: 5)
+                .padding(-2.5)
+                .shadow(color: Theme.green.opacity(0.7), radius: 8)
+                .opacity(catchFlash)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+        .onChange(of: model.poseCatches) { _, _ in
+            catchFlash = 1
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 40_000_000)
+                withAnimation(.easeOut(duration: 0.6)) {
+                    catchFlash = 0
+                }
+            }
+        }
+    }
+
+    /// The held pose's name on the mirror's top-left corner (the camera button has the bottom right).
+    private func poseLabel(_ pose: PoseBadge) -> some View {
+        Text(verbatim: pose.label)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundColor(.white)
+            .lineLimit(1)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(Capsule().fill(Color.black.opacity(0.55)))
+            .padding(6)
+            .allowsHitTesting(false)
+            .accessibilityLabel(Text(verbatim: "Your pose: \(pose.label)"))
     }
 
     /// Opens the capture view (also ⇧Space). Above the mirror, so its clicks never reach the eye and mouth targets.

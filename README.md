@@ -83,7 +83,7 @@ Every change to the app on the default branch is released automatically. When `S
 |---|---|
 | ⌃⌘M | Open or close the panel (in any app, no permission needed) |
 | Make a face | Hold it for about 0.3 s; a different face needs about 1 s (the ring fills) |
-| Strike a pose | Arms up, hands on your head, a facepalm, a shrug, a thumbs up, pointing, clapping: memes with that pose come first, and GIPHY is searched for it |
+| Strike a pose | Arms up, a T-pose, a flex, a dab, hands on hips, arms crossed, one arm up, a wave, a bow, hands on your head, a facepalm, a shrug, clapping, a thumbs up, peace, pointing: memes with that pose come first, GIPHY and the classic memes are searched for it, and the mirror names the pose. Step back so your arms (and hips) are in view, and hold each pose for a second |
 | Space | Use the current face now, even a neutral one (only while the search field is empty) |
 | ⇧Space or the camera button on the mirror | Send yourself: tap the shutter (or Space) for a photo, hold it for a GIF of up to 3 s; ← → pick a filter (Noir, Comic, 8-bit, Deep fried, Deal with it, Heart eyes, Bug eyes, Crown). It's copied, ready to paste; **Save as sticker** on the notice keeps your face as a sticker |
 | ↵, 1–9, click | Copy the focused, numbered or clicked result and close (1–9 are your memes) |

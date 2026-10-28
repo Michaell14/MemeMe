@@ -5,14 +5,20 @@ public enum Mood: String, CaseIterable, Codable, Hashable, Sendable {
     case shocked, screaming, laughing, happy, smug, sideEye, crying, sad, angry, confused, unimpressed, nervous, excited, reaction
     // Body language
     case celebrate, facepalm, mindBlown, shrug, thumbsUp, pointing, clapping
+    case tPose, flex, dab, handsOnHips, armsCrossed, pickMe, hello, ohNo, peace, bow
 
-    /// GIPHY query, e.g. "shocked reaction", "side eye", "unimpressed", "reaction", "mind blown"
+    /// GIPHY query, e.g. "shocked reaction", "side eye", "unimpressed", "reaction", "mind blown", "t pose"
     public var searchQuery: String {
         switch self {
         case .sideEye: return "side eye"
         case .unimpressed: return "unimpressed"
         case .reaction: return "reaction"
-        case .celebrate, .facepalm, .mindBlown, .shrug, .thumbsUp, .pointing, .clapping: return label
+        case .tPose: return "t pose"
+        case .peace: return "peace sign"
+        // "bow" alone finds ribbons.
+        case .bow: return "bowing"
+        case .celebrate, .facepalm, .mindBlown, .shrug, .thumbsUp, .pointing, .clapping,
+             .flex, .dab, .handsOnHips, .armsCrossed, .pickMe, .hello, .ohNo: return label
         default: return label + " reaction"
         }
     }
@@ -41,6 +47,16 @@ public enum Mood: String, CaseIterable, Codable, Hashable, Sendable {
         case .thumbsUp: return "thumbs up"
         case .pointing: return "pointing"
         case .clapping: return "clapping"
+        case .tPose: return "t-pose"
+        case .flex: return "flex"
+        case .dab: return "dab"
+        case .handsOnHips: return "hands on hips"
+        case .armsCrossed: return "arms crossed"
+        case .pickMe: return "pick me"
+        case .hello: return "hello"
+        case .ohNo: return "oh no"
+        case .peace: return "peace"
+        case .bow: return "bow"
         }
     }
 }
@@ -91,19 +107,24 @@ public enum MoodClassifier {
     }
 
     /// Body language that has its own word, or nil. Each rule needs the joints it reads (a missing one never matches);
-    /// in this order:
-    /// 1. hand sign: thumbs up ≥ 0.7 → .thumbsUp; pointing ≥ 0.7 → .pointing
-    /// 2. both arms up (wrist lift ≥ 0.7 and not at the head, or with the hands out of frame an upper arm near vertical,
-    ///    elbowLift ≥ `PoseDescriptor.elbowOnlyUp`) → mouth open ≥ 0.35 without a smile ? .screaming : .celebrate
-    /// 3. both hands beside the head (head ≤ 0.35, lift ≥ 0.5, out ≥ 0.09: not under the chin or over the face)
+    /// in this order (shapes: `PoseDescriptor.bodyShape`):
+    /// 1. hand sign: thumbs up ≥ 0.7 → .thumbsUp; peace ≥ 0.7 → .peace; pointing ≥ 0.7 → .pointing
+    /// 2. shape dab → .dab; flex → .flex; bolt (one arm up and out, the other drawn back) → .celebrate
+    /// 3. both arms up (wrist lift ≥ 0.7, or ≥ 0.65 spread out ≥ 0.45, and not at the head; or with the hands out of
+    ///    frame an upper arm near vertical, elbowLift ≥ `PoseDescriptor.elbowOnlyUp`) → mouth open ≥ 0.35 without a
+    ///    smile ? .screaming : .celebrate
+    /// 4. both hands beside the head (head ≤ 0.35, lift ≥ 0.5, out ≥ 0.09: not under the chin or over the face)
     ///    → mouth open ≥ 0.45 ? .screaming : .mindBlown
-    /// 4. a hand on the face (head ≤ 0.22, lift ≥ 0.5; ≤ 0.3 when the face is hidden) with the eyes shut (≥ 0.25 below
-    ///    rest; heavy lids on a propped head aren't enough) or the face
-    ///    hidden, mouth open < 0.35, no smile (≤ 0.05: a smile narrows the eyes too) → .facepalm
-    /// 5. wrists together (gap ≤ 0.12) in front, both lifts 0.3...0.75, clear of the chin (head > 0.3), not resting low
+    /// 5. shape ohNo (hands on top of the head) → mouth open ≥ 0.45 ? .screaming : .ohNo
+    /// 6. a hand on the face (head ≤ 0.22, lift ≥ 0.5; ≤ 0.3 when the face is hidden; its upper arm below level,
+    ///    elbowLift < 0.42, so a dab's bent arm isn't one) with the eyes shut (≥ 0.25 below rest; heavy lids on a
+    ///    propped head aren't enough) or the face hidden, mouth open < 0.35, no smile (≤ 0.05: a smile narrows the eyes
+    ///    too) → .facepalm
+    /// 7. wrists together (gap ≤ 0.12) in front, both lifts 0.3...0.75, clear of the chin (head > 0.3), not resting low
     ///    (`forearmRest` < 0.5), open hands when the hands were read (a mug or clasped fingers isn't a clap) → .clapping
-    /// 6. both elbows bent ≥ 0.3, wrists out ≥ 0.3 and low (lift 0.1...0.5) → .shrug
-    /// 7. both arms spread (out ≥ 0.45, lift ≥ 0.35) with a smile > 0.08 → .excited
+    /// 8. shape armsCrossed, tPose, handsOnHips, pickMe, hello or bow → that word
+    /// 9. both elbows bent ≥ 0.3, wrists out ≥ 0.3 and low (lift 0.1...0.5) → .shrug
+    /// 10. both arms spread (out ≥ 0.45, lift ≥ 0.35) with a smile > 0.08 → .excited
     public static func gestureMood(_ pose: PoseDescriptor, face: FaceFeatures?, baseline: RestingBaseline) -> Mood? {
         let open = face?.mouthOpenness ?? 0
         let smile = (face?.smile ?? 0.5) - 0.5
@@ -125,11 +146,22 @@ public enum MoodClassifier {
 
         if let hand = pose.hand {
             if hand.thumbsUp >= 0.7 { return .thumbsUp }
+            if hand.peace >= 0.7 { return .peace }
             if hand.point >= 0.7 { return .pointing }
+        }
+        let shape = pose.bodyShape
+        if let shape {
+            switch shape {
+            case .dab: return .dab
+            case .flex: return .flex
+            case .bolt: return .celebrate
+            case .ohNo, .armsCrossed, .tPose, .handsOnHips, .pickMe, .hello, .bow: break
+            }
         }
         let armUp: (Arm) -> Bool = { arm in
             if let lift = arm.lift {
-                return lift >= 0.7 && (arm.head ?? 1) >= 0.35
+                let high = lift >= 0.7 || (lift >= 0.65 && (arm.out ?? 0) >= 0.45)
+                return high && (arm.head ?? 1) >= 0.35
             }
             return (arm.elbowLift ?? 0) >= PoseDescriptor.elbowOnlyUp
         }
@@ -143,10 +175,13 @@ public enum MoodClassifier {
         if both(handAtHead) {
             return open >= 0.45 ? .screaming : .mindBlown
         }
+        if shape == .ohNo {
+            return open >= 0.45 ? .screaming : .ohNo
+        }
         let reach = face == nil ? 0.3 : 0.22
         let handOnFace: (Arm) -> Bool = { arm in
             guard let head = arm.head, let lift = arm.lift else { return false }
-            return head <= reach && lift >= 0.5
+            return head <= reach && lift >= 0.5 && (arm.elbowLift ?? 0) < 0.42
         }
         if either(handOnFace) && (face == nil || eyeDeviation <= -0.25) && open < 0.35 && smile <= 0.05 {
             return .facepalm
@@ -158,6 +193,17 @@ public enum MoodClassifier {
         }
         if let gap = pose[.wristGap], gap <= 0.12, openHands, pose.forearmRest < 0.5, both(inFront) {
             return .clapping
+        }
+        if let shape {
+            switch shape {
+            case .armsCrossed: return .armsCrossed
+            case .tPose: return .tPose
+            case .handsOnHips: return .handsOnHips
+            case .pickMe: return .pickMe
+            case .hello: return .hello
+            case .bow: return .bow
+            case .dab, .bolt, .flex, .ohNo: break
+            }
         }
         let shrugging: (Arm) -> Bool = { arm in
             guard let bend = arm.elbowBend, let out = arm.out, let lift = arm.lift else { return false }

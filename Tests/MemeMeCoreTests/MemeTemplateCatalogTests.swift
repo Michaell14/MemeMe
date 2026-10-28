@@ -47,6 +47,19 @@ final class MemeTemplateCatalogTests: XCTestCase {
         XCTAssertEqual(MemeTemplateCatalog.pick(forTerms: ["unknown"], from: popular, limit: 5), [6])
     }
 
+    func testTypedPoseWordsFindTheirTemplates() {
+        let templates = [
+            TemplateRef(id: "87743020", name: "Two Buttons"),
+            TemplateRef(id: "247375501", name: "Buff Doge vs. Cheems"),
+            TemplateRef(id: "226297822", name: "Panik Kalm Panik"),
+        ]
+        XCTAssertEqual(MemeTemplateCatalog.pick(forTerms: ["flex"], from: templates, limit: 5), [1])
+        XCTAssertTrue(MemeTemplateCatalog.pick(forTerms: ["oh no"], from: templates, limit: 5).contains(2))
+        XCTAssertTrue(MemeTemplateCatalog.pick(forTerms: ["Oh,", "no!"], from: templates, limit: 5).contains(2))
+        // Whole words only.
+        XCTAssertFalse(MemeTemplateCatalog.pick(forTerms: ["oh nothing"], from: templates, limit: 5).contains(2))
+    }
+
     func testWordsThatMatchNothingFindNothing() {
         XCTAssertEqual(MemeTemplateCatalog.pick(forTerms: ["zzzz"], from: popular, limit: 5), [])
         XCTAssertEqual(MemeTemplateCatalog.pick(forTerms: ["x"], from: popular, limit: 5), [])
@@ -79,8 +92,9 @@ final class MemeTemplateCatalogTests: XCTestCase {
                 XCTAssertTrue(names.insert(MemeTemplateCatalog.normalized(name)).inserted, "duplicate name \(name)")
             }
         }
-        // Every mood a face can have has templates of its own.
-        for mood in Mood.allCases where mood != .reaction {
+        // Every mood a face can have has templates of its own; poses without a famous template get the popular ones.
+        let withoutTemplates: Set<Mood> = [.reaction, .tPose, .dab, .handsOnHips, .armsCrossed, .pickMe, .hello, .peace, .bow]
+        for mood in Mood.allCases where !withoutTemplates.contains(mood) {
             XCTAssertTrue(MemeTemplateCatalog.entries.contains { $0.moods.contains(mood) }, "\(mood)")
         }
     }
