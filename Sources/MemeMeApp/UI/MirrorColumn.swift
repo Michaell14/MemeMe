@@ -2,12 +2,15 @@ import AppKit
 import MemeMeCore
 import SwiftUI
 
-/// Left column of the compact strip: the 120 × 120 mirror and the hint under it.
+/// Left column of the compact strip: the 120 × 120 mirror; under it the word the camera's search went by (else the
+/// hint); and, until you have memes, "Find my memes".
 struct MirrorColumn: View {
     @ObservedObject var model: AppModel
 
     /// The green ring's opacity: 1 the moment a pose is caught, fading out.
     @State private var catchFlash: Double = 0
+    /// "Look in Documents…" was clicked: gone at once, before the indexer reports the folder.
+    @State private var documentsAdded = false
 
     private let mirrorSize: CGFloat = 120
     private let mirrorRadius: CGFloat = 18
@@ -19,7 +22,12 @@ struct MirrorColumn: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             mirror
-            hint
+            if let readout = model.readout {
+                ReadoutView(readout: readout, isDimmed: model.holdProgress >= 0.05)
+            } else {
+                hint
+            }
+            libraryAction
         }
         .frame(width: mirrorSize, alignment: .topLeading)
     }
@@ -33,11 +41,6 @@ struct MirrorColumn: View {
         }
         .frame(width: mirrorSize, height: mirrorSize)
         .clipShape(RoundedRectangle(cornerRadius: mirrorRadius, style: .continuous))
-        .overlay(alignment: .topLeading) {
-            if model.mode == .live, let pose = model.heldPose {
-                poseLabel(pose)
-            }
-        }
         .overlay(alignment: .bottomTrailing) {
             if model.canOpenCapture {
                 captureButton
@@ -82,19 +85,6 @@ struct MirrorColumn: View {
         }
     }
 
-    /// The held pose's name on the mirror's top-left corner (the camera button has the bottom right).
-    private func poseLabel(_ pose: PoseBadge) -> some View {
-        Text(verbatim: pose.label)
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundColor(.white)
-            .lineLimit(1)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(Capsule().fill(Color.black.opacity(0.55)))
-            .padding(6)
-            .allowsHitTesting(false)
-            .accessibilityLabel(Text(verbatim: "Your pose: \(pose.label)"))
-    }
 
     /// Opens the capture view (also ⇧Space). Above the mirror, so its clicks never reach the eye and mouth targets.
     private var captureButton: some View {
@@ -170,6 +160,80 @@ struct MirrorColumn: View {
     /// "Kept · Undo" reads as a confirmation.
     private var keptStyle: Bool {
         model.mode == .image && model.imageKept
+    }
+
+    // MARK: Library
+
+    /// Until you have memes: "Find my memes" (Downloads, Desktop and your screenshots; the menu has it too), or, when a
+    /// typed search found nothing and Documents isn't watched, "Look in Documents…".
+    @ViewBuilder
+    private var libraryAction: some View {
+        if model.ownRows == 0 {
+            if showsLookInDocuments {
+                Button("Look in Documents…") {
+                    guard let url = documentsURL else { return }
+                    documentsAdded = true
+                    model.indexer.addWatchedFolders([url])
+                }
+                .buttonStyle(PanelCapsuleButtonStyle(fontSize: 11, foreground: Theme.softText))
+            } else if model.offersFindMyMemes {
+                Button("Find my memes") {
+                    model.findMyMemes()
+                }
+                .buttonStyle(PanelCapsuleButtonStyle(fontSize: 12, foreground: Theme.text))
+                .help("Collect the memes in Downloads, Desktop and your screenshots")
+            }
+        }
+    }
+
+    private var documentsURL: URL? {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?.standardizedFileURL
+    }
+
+    private var showsLookInDocuments: Bool {
+        guard model.mode == .text, !documentsAdded, let url = documentsURL else { return false }
+        return !model.indexer.isWatching(url)
+    }
+}
+
+/// The word the camera's search went by, large, and what it was read from ("your face", "your pose"). Dims while a
+/// new expression is being held toward replacing it.
+private struct ReadoutView: View {
+    let readout: MoodReadout
+    let isDimmed: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(verbatim: readout.word)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundColor(Theme.text)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+                .contentTransition(.opacity)
+                .opacity(isDimmed ? 0.45 : 1)
+            HStack(spacing: 4) {
+                Image(systemName: readout.source == .face ? "face.smiling" : "figure.arms.open")
+                    .font(.system(size: 10))
+                    .accessibilityHidden(true)
+                Text(verbatim: caption)
+                    .font(.system(size: 11))
+                    .lineLimit(1)
+            }
+            .foregroundColor(Theme.mutedText)
+        }
+        .animation(.easeOut(duration: 0.15), value: readout)
+        .animation(.easeOut(duration: 0.15), value: isDimmed)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: "Reading \(readout.word) from \(caption)"))
+    }
+
+    private var caption: String {
+        switch readout.source {
+        case .face: return "your face"
+        case .pose: return "your pose"
+        case .faceAndPose: return "your face and pose"
+        }
     }
 }
 

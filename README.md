@@ -3,7 +3,7 @@
 A tiny macOS menu-bar app for reaction images. In any chat, press **⌃⌘M**, make a face, and pick a reaction. It is copied to the clipboard and you are back in the chat. Paste it with ⌘V. MemeMe never pastes or sends anything for you.
 
 - **Your face is the search box.** Hold an expression for a moment and results follow it: memes you already have on your Mac and friend stickers you made, plus (optionally) a row of GIPHY reactions for the mood your face shows.
-- **One commit.** ↵, a number key 1–9, or a click copies the result and closes the panel.
+- **One commit.** ↵, a number key 1–6, or a click copies the result and closes the panel.
 - **Small.** Swift and Apple frameworks only, no third-party packages, no bundled ML models. The camera runs only while the panel is open.
 
 Requires macOS 14 (Sonoma) or later, on Apple silicon or Intel.
@@ -83,11 +83,12 @@ Every change to the app on the default branch is released automatically. When `S
 |---|---|
 | ⌃⌘M | Open or close the panel (in any app, no permission needed) |
 | Make a face | Hold it for about 0.3 s; a different face needs about 1 s (the ring fills) |
-| Strike a pose | Arms up, a T-pose, a flex, a dab, hands on hips, arms crossed, one arm up, a wave, a bow, hands on your head, a facepalm, a shrug, clapping, a thumbs up, peace, pointing: memes with that pose come first, GIPHY and the classic memes are searched for it, and the mirror names the pose. Step back so your arms (and hips) are in view, and hold each pose for a second |
+| Strike a pose | Arms up, a T-pose, a flex, a dab, hands on hips, arms crossed, one arm up, a wave, a bow, hands on your head, a facepalm, a shrug, clapping, a thumbs up, peace, pointing: memes with that pose come first, GIPHY and the classic memes are searched for it, and the word under the mirror names the pose. Step back so your arms (and hips) are in view, and hold each pose for a second |
 | Space | Use the current face now, even a neutral one (only while the search field is empty) |
 | ⇧Space or the camera button on the mirror | Send yourself: tap the shutter (or Space) for a photo, hold it for a GIF of up to 3 s; ← → pick a filter (Noir, Comic, 8-bit, Deep fried, Deal with it, Heart eyes, Bug eyes, Crown). It's copied, ready to paste; **Save as sticker** on the notice keeps your face as a sticker |
-| ↵, 1–9, click | Copy the focused, numbered or clicked result and close (1–9 are your memes) |
-| Arrow keys | Move the focus; ↓ from your memes goes to the GIPHY row, then the classic memes |
+| ↵, 1–6, click | Copy the focused, numbered or clicked result and close (1–6 are your memes) |
+| Arrow keys | Move the focus; ↓ from your memes goes to the GIFs on the shelf, ↓ again to the classic memes (the shelf switches with the focus) |
+| **GIFs** / **Classic memes** | Show that row on the shelf under your memes |
 | Typing | Search by words: text in images, labels, file names, sources, friends' names. Filter words: `mine`, `gif`, `sticker`, a friend's name. The GIPHY row and the classic memes follow the words too ("sad", "guy looking back") |
 | ⌘V or drop an image on the panel | Search with that image. It is not saved unless you click **Keep it** |
 | Tab / Shift-Tab | More like the focused result / back to your face |
@@ -114,7 +115,7 @@ Every change to the app on the default branch is released automatically. When `S
 
 ## GIPHY API key
 
-Web Discover shows a row of GIPHY reaction GIFs for the face you make (or the words you type), under the memes you already have, headed "Powered by" with GIPHY's logo, and a row of classic memes (Distracted Boyfriend, Drake, Surprised Pikachu…) from Imgflip's list of popular templates. It is on by default. The classic memes need no key; the GIPHY row does nothing without an API key, and the menu item then reads **Web Discover (GIPHY): No API Key** (it still turns Web Discover, classic memes included, on and off).
+Web Discover adds a shelf under the memes you already have: a row of GIPHY reaction GIFs for the face you make (or the words you type), marked "Powered by" with GIPHY's logo, or, one click or ↓ away, a row of classic memes (Distracted Boyfriend, Drake, Surprised Pikachu…) from Imgflip's list of popular templates. It is on by default. The classic memes need no key; the GIPHY row does nothing without an API key, and the menu item then reads **Web Discover (GIPHY): No API Key** (it still turns Web Discover, classic memes included, on and off).
 
 1. Create an app at [developers.giphy.com](https://developers.giphy.com) (choose **API**) and copy its API key. A new key is a beta key: 100 calls per hour. MemeMe stays under 90 per rolling hour on each Mac and reuses a mood's results for 10 minutes, but GIPHY counts calls per key, so every copy of a release shares the built-in key's limit. That's fine for you and a few friends; before sharing MemeMe widely, use **Upgrade to Production** on the key in GIPHY's dashboard.
 2. Choose one way to provide it:
@@ -151,7 +152,7 @@ Sources/MemeMeApp/            the macOS app (AppKit + SwiftUI)
   Web/                          GIPHY search and media for the GIPHY row
   Stickers/                     subject lifting into die-cut stickers, friend grouping
   System/                       clipboard, Low Power / network conditions
-  UI/                           panel, mirror, result grid, GIPHY row, footer, setup card, HUD, sticker popover
+  UI/                           panel, mirror, result grid, shelf (GIPHY and classic memes rows), footer, setup card, HUD, sticker popover
   Update/                       update checks, download and verification, one-click install
 Tests/MemeMeCoreTests/        XCTest suite for the core
 VERSION                       the marketing version; the build number is the commit count

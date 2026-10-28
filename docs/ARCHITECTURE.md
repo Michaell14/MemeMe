@@ -435,11 +435,14 @@ public struct TileGrid: Equatable, Sendable {
     public var giphyStart: Int { get }               // columns × ownRows: the GIPHY row's first slot, however many memes there are
     public var templateStart: Int { get }            // giphyStart + columns: the classic memes row's first slot
     public var firstSlot: Int? { get }               // the first meme, else the first GIPHY tile, else the first classic meme
+    public enum Section: Equatable, Sendable { case own, giphy, template }
+    public func section(of slot: Int) -> Section
+    public func startSlot(showing web: Section) -> Int   // the first meme, else the first slot of that web row (filled or not)
     public func isFilled(_ slot: Int) -> Bool
     public func move(from slot: Int, dx: Int, dy: Int) -> Int?   // arrow keys: along the row, or to the nearest row with tiles (column kept when it can)
 }
 ```
-Keyboard focus over your memes (`ownRows` rows of 5: 2, 1 with five or fewer memes, 0 with none), the GIPHY row below them and the classic memes row below that. Each row fills from the left; empty rows are skipped.
+Keyboard focus over your memes (`ownRows` rows of 6: 1, or 0 with none), the GIPHY row below them and the classic memes row below that (the panel's shelf shows one of the two: the one the focus is in). Each row fills from the left; empty rows are skipped.
 
 ### MemeTemplateCatalog.swift
 
@@ -992,7 +995,7 @@ Copy writes one `NSPasteboardItem` with `.fileURL` of a temp copy named by `neut
 
 ```swift
 enum Theme {
-    static let panelWidth: CGFloat          // 640
+    static let panelWidth: CGFloat          // 736: 16 + mirror 120 + 16 + 6 × 88 + 5 × 8 + 16
     static let background: Color            // #1E1F24
     static let surface: Color               // #26282E
     static let border: Color                // #3A3C44
@@ -1001,8 +1004,8 @@ enum Theme {
     static let accent: Color                // #7AA2FF
     static let amber: Color                 // #F5C451
     static let green: Color                 // #5FD38D
-    static let columns: Int                 // 5
-    static let rows: Int                    // 2
+    static let columns: Int                 // 6
+    static let rows: Int                    // 1
     static var resultLimit: Int { get }     // columns * rows
 }
 ```
@@ -1035,10 +1038,12 @@ Key handling:
 
 ```swift
 struct PanelView: View { @ObservedObject var model: AppModel }                       // compact layout per DESIGN.md
-struct MirrorColumn: View { @ObservedObject var model: AppModel }                    // mirror (CameraPreviewView / silhouette / image / drop well) + hint
-struct ResultGrid: View { @ObservedObject var model: AppModel }                      // your memes: ownRows × 5 LazyVGrid of ResultTile, or one dashed line with none
-struct GiphyRow: View { @ObservedObject var model: AppModel }                        // "Powered by" + GIPHY logo, mood word or typed words, then 5 GIPHY tiles in GIPHY's order
-struct TemplateRow: View { @ObservedObject var model: AppModel }                     // "Classic memes · Imgflip", the query's label, then 5 templates shown whole (aspect fit)
+struct MirrorColumn: View { init(model: AppModel) }                                  // mirror (CameraPreviewView / silhouette / image / drop well), readout or hint, Find my memes
+struct ResultGrid: View { @ObservedObject var model: AppModel }                      // your memes: ownRows × 6 LazyVGrid of ResultTile; nothing with none
+struct WebShelf: View { init(model: AppModel) }                                      // pills "GIFs" / "Classic memes" + attribution, then GiphyRow or TemplateRow (model.visibleShelf)
+struct GiphyRow: View { @ObservedObject var model: AppModel }                        // 6 GIPHY tiles in GIPHY's order (no header: the shelf's)
+struct TemplateRow: View { @ObservedObject var model: AppModel }                     // 6 templates shown whole (aspect fit; no header: the shelf's)
+struct PoweredByGiphyMark: View                                                      // "Powered by" + GIPHY's logo
 struct ResultTile: View { let result: RankedResult; let number: Int?; let isFocused: Bool; let isNew: Bool; @ObservedObject var model: AppModel }
 struct FooterView: View { @ObservedObject var model: AppModel }                     // only while footer != .hidden: indexing, added, update
 struct SetupCardView: View { @ObservedObject var model: AppModel }
@@ -1052,9 +1057,9 @@ struct CaptureView: View { init(model: AppModel) }                              
 - Drops on the whole panel: `.onDrop(of: [.fileURL, .image], …)` → `model.search(withImageAt:)`.
 - Tiles: `.onHover { if $0 { model.hover(index:) } }`, `.onTapGesture { model.commit(index:) }`, `.onDrag { model.dragItemProvider(index:) ?? NSItemProvider() }`, with slots from `TileGrid` (GIPHY tiles: `model.giphySlot(offset)`, classic memes: `model.templateSlot(offset)`).
 - Your memes' thumbnails via `ThumbnailCache.shared`; the focused GIF tile shows `AnimatedImageView(url:)`. GIPHY tiles load `model.web.still(for:)` and, while focused, `AnimatedImageView(image: await model.web.preview(for:))`.
-- The classic memes row shows when `model.showsTemplateRow`; its tiles load `model.templates.image(for:)`.
-- `ResultGrid`'s dashed empty line carries a "Find my memes" capsule while `model.offersFindMyMemes` (no folders collected, not indexing).
-- The GIPHY row shows when `model.showsGiphyRow`; its mark is "Powered by" + `Bundle.main.image(forResource: "GIPHYLogo")` (Resources/GIPHY/GIPHYLogo.png, copied by build-app.sh), else the words "Powered by GIPHY".
+- The shelf shows when `model.showsGiphyRow || model.showsTemplateRow`: pills (both rows on) call `model.showShelf(_:)`; the row on show crossfades (150 ms); the header's right side is `PoweredByGiphyMark` for GIFs ("Powered by" + `Bundle.main.image(forResource: "GIPHYLogo")`, Resources/GIPHY/GIPHYLogo.png, copied by build-app.sh, else the words "Powered by GIPHY") or "from Imgflip". Classic memes' tiles load `model.templates.image(for:)`.
+- The right column: search field, NamingRow, then `ResultGrid` (only while `model.ownRows > 0`) and `WebShelf` 14 px apart; with neither rows nor shelf, an 88 px "Your memes will show here" well. While a drag is over the panel (`isDropTargeted`) a dashed accent `DropCard` covers them ("Drop to search with it").
+- `MirrorColumn` shows `model.readout` (word 17 pt semibold, then a symbol and "your face" / "your pose" / "your face and pose"; 45 % while `holdProgress ≥ 0.05`) instead of the hint, and, while `model.ownRows == 0`, "Look in Documents…" (text mode, Documents not watched) or "Find my memes" (`model.offersFindMyMemes`: no folders collected, not indexing). A green ring flashes on the mirror when `model.poseCatches` changes.
 
 ### UI/HUDController.swift
 
@@ -1248,8 +1253,11 @@ enum DropOutcome { case kept(IndexBatch), stickers(StickerBatch), nothing }
     @Published private(set) var mode: PanelMode
     @Published private(set) var results: [RankedResult]        // ≤ Theme.resultLimit
     @Published private(set) var newResultIDs: Set<UUID>         // amber ring for 600 ms
-    @Published private(set) var ownRows: Int                     // rows of your memes: 2, 1 (≤ 5 memes), 0 (none: one dashed line); enough for what is shown
-    @Published var focusedIndex: Int                             // a TileGrid slot: your memes, then the GIPHY row, then classic memes
+    @Published private(set) var ownRows: Int                     // rows of your memes: 1, or 0 (none, nothing drawn); enough for what is shown
+    @Published var focusedIndex: Int                             // a TileGrid slot: your memes, then the GIPHY row, then classic memes; moving into a web row puts it on the shelf
+    @Published private(set) var shelf: WebShelf                  // .gifs / .classic: the web row last picked or focused (.gifs each time the panel opens)
+    var visibleShelf: WebShelf { get }                           // shelf, or the only web row there is
+    func showShelf(_ target: WebShelf)                           // a pill: that row on the shelf, its first tile focused
     @Published private(set) var giphyResults: [WebGIF]           // ≤ Theme.columns, GIPHY's order
     @Published private(set) var giphyQuery: WebQuery?            // the face's mood, or typed words
     @Published private(set) var isGiphyLoading: Bool
@@ -1270,7 +1278,8 @@ enum DropOutcome { case kept(IndexBatch), stickers(StickerBatch), nothing }
     @Published private(set) var showsFaceToken: Bool
     @Published private(set) var naming: NamingPrompt?
     @Published private(set) var holdProgress: Double
-    @Published private(set) var heldPose: PoseBadge?     // PoseBadge.of(tracker.query) for a face search, nil otherwise; the mirror's label
+    @Published private(set) var heldPose: PoseBadge?     // PoseBadge.of(tracker.query) for a face search, nil otherwise
+    @Published private(set) var readout: MoodReadout?     // the face search's word (mood label) and source (.face / .pose / .faceAndPose) while live; nil with pins, or for a face word while the face is missing or standing back
     @Published private(set) var poseCatches: Int         // +1 when a held pose becomes the query (or Space snaps one), at most every 1.5 s: the mirror's green flash
     @Published private(set) var hotKeyAvailable: Bool
     @Published private(set) var isPanelVisible: Bool
@@ -1347,8 +1356,8 @@ enum DropOutcome { case kept(IndexBatch), stickers(StickerBatch), nothing }
 Other internal helpers that exist outside the contract: `StickerBatchSources` (App/StickerPopoverModel.swift) and `TileDragEvents` (UI/PanelController.swift).
 Behavior summary (details in DESIGN.md):
 - `panelWillShow`: remember previous app + bundle id; reset query state; mode = `.cameraBusy` if `camera.isInUseByAnotherApplication`, `.prompt` if authorization is `.notDetermined`, `.cameraOff` if denied/restricted, else `.warming` (start camera); results = recent for that app (or the newest own memes); with none at all, or when no face can be read (`.cameraOff`, `.cameraBusy`, `.prompt`), the GIPHY row shows `.mood(.reaction)` and the classic memes row the most popular templates; footer per rules; on first run (`!settings.hasCompletedFirstRun`) request camera access 0.6 s after show (activate the app just for the prompt).
-- `camera.onSample` → `tracker.ingest`; the mood of `tracker.candidate` (the expression being held) goes through `EarlyMoodTrigger` (same mood for 0.2 s) → `web.warm(mood)`; publish `holdProgress`; on query change: mood → weights (`automatic(...).pinning(pins)`) → your memes ranked at once (`store.items` without `.web`); the GIPHY row shows `web.cachedGIFs(for: .mood(mood))` at once, else placeholders until `await web.gifs(for:)` (its own task and generation), and the classic memes row `pickTemplates(for: .mood(mood), …)` from `templates.cachedList` at once, else after `await templates.templates()` (its own task and generation). Image and more-like searches leave both rows alone. `normalizeFocus` keeps the focus on a tile: until the user moves it, the first one for Recent and the face (so ↵ copies a GIPHY GIF when there are no memes), and nothing for a typed, image or more-like search that finds no meme. `newResultIDs` for ids not shown before (cleared after 600 ms). The row's first GIF and a focused GIF prefetch their full GIF. No face for 1.5 s → hint "Can’t see your face". `camera.bodyWidth` feeds a `StandingBackDetector`; while it says standing back, the hint is "Reading your pose" instead.
-- Text changes (debounced 80 ms) → text mode; camera stops if typing began within 1 s of show, otherwise `showsFaceToken = true`; naming prompt when `TextQuery.possibleName` is set, no results, and `friends.unnamedPeople` is non-empty. The typed terms (`TextQuery.parse(…).terms`: no filter words or people's names) → `WebQuery.words(from:)`: the classic memes row shows its templates at once; the GIPHY row shows GIPHY's results once typing has paused 0.6 s (any edit restarts the wait; at once when cached; while the naming prompt shows, nothing when `possibleName` isn't `MemeTemplateCatalog.isMemeWord` (mood words, mood labels, the table's search words, minus names such as "jordan" or "kermit"); a nil query leaves both rows alone). Until the user moves the focus, `normalizeFocus` keeps it on `startSlot` as rows fill in, so with no memes GIPHY's GIFs take it from the classic memes when they arrive. Empty text → back to live (restart camera if it was stopped); leaving typed words clears a GIPHY row showing them and puts the classic memes back to the popular ones.
+- `camera.onSample` → `tracker.ingest`; the mood of `tracker.candidate` (the expression being held) goes through `EarlyMoodTrigger` (same mood for 0.2 s) → `web.warm(mood)`; publish `holdProgress`; on query change: mood → weights (`automatic(...).pinning(pins)`) → your memes ranked at once (`store.items` without `.web`); the GIPHY row shows `web.cachedGIFs(for: .mood(mood))` at once, else placeholders until `await web.gifs(for:)` (its own task and generation), and the classic memes row `pickTemplates(for: .mood(mood), …)` from `templates.cachedList` at once, else after `await templates.templates()` (its own task and generation). Image and more-like searches leave both rows alone. `normalizeFocus` keeps the focus on a tile: until the user moves it, `startSlot` (`TileGrid.startSlot(showing:)` for the shelf's row: the first meme, else that row's first slot, so ↵ copies a GIPHY GIF when there are no memes and never a classic meme out of sight) for Recent and the face, and nothing for a typed, image or more-like search that finds no meme. The search's word goes to the readout (`MoodReadout`: `.pose` for a pose word, `.faceAndPose` for a pose without one over a face, else `.face`; none for "reaction" without a pose). `newResultIDs` for ids not shown before (cleared after 600 ms). The row's first GIF and a focused GIF prefetch their full GIF. No face for 1.5 s → hint "Can’t see your face". `camera.bodyWidth` feeds a `StandingBackDetector`; while it says standing back, the hint is "Reading your pose" instead.
+- Text changes (debounced 80 ms) → text mode; camera stops if typing began within 1 s of show, otherwise `showsFaceToken = true`; naming prompt when `TextQuery.possibleName` is set, no results, and `friends.unnamedPeople` is non-empty. The typed terms (`TextQuery.parse(…).terms`: no filter words or people's names) → `WebQuery.words(from:)`: the classic memes row shows its templates at once; the GIPHY row shows GIPHY's results once typing has paused 0.6 s (any edit restarts the wait; at once when cached; while the naming prompt shows, nothing when `possibleName` isn't `MemeTemplateCatalog.isMemeWord` (mood words, mood labels, the table's search words, minus names such as "jordan" or "kermit"); a nil query leaves both rows alone). Until the user moves the focus, `normalizeFocus` keeps it on `startSlot` as rows fill in, so with no memes the first GIF takes it when GIPHY answers. Empty text → back to live (restart camera if it was stopped); leaving typed words clears a GIPHY row showing them and puts the classic memes back to the popular ones.
 - `commit`: resolve file (a GIPHY GIF → `await web.prepareForCopy`, a classic meme → `await templates.prepareForCopy`, HUD "Copying…" if it takes > 150 ms); `Clipboard.copy` (a GIPHY GIF as "reaction.gif", a classic meme as "reaction.png": kind `.web`, source "Imgflip", hash "imgflip:<id>"); for your memes only: increment `timesSent`, set `lastSentAt`, `recents.record` (GIPHY GIFs are never kept or listed as recent); first run → `showSetupCard = true` and `hasCompletedFirstRun = true` (panel stays open); otherwise close and HUD "Copied “<title>” · ⌘V — not sent" with the copied file as thumbnail. ↵ is ignored within 300 ms of the last text edit.
 - A capture (`capture.onCaptured`): `commitToken += 1`; `Clipboard.copy(data:fileName:)` as "reaction.gif" / "reaction.png"; the sticker source is that PNG (photo) or the clip's best frame written as `capture.png` in a fresh clipboard folder; close the capture view and the panel; HUD "Copied your photo · ⌘V — not sent" (or GIF) with the copy as thumbnail and the action "Save as sticker" → HUD "Making your sticker…", `friends.makeOwnSticker(fromCapture:)`, then "Saved “<name>” as a sticker" with the action "Undo" (`friends.removeOwnSticker`, then "Sticker removed"), "Already one of your stickers" when it was kept before (both skipped when the panel was reopened meanwhile: they would cover it), or "Couldn’t find you in that one." (shown regardless). Captures are not recorded as sent and don't count as the first pick.
 - Persist the store (debounced 2 s) after changes; persist `tracker.baseline` into settings on hide.

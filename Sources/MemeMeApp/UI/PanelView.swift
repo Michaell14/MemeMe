@@ -3,8 +3,9 @@ import MemeMeCore
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The compact strip: mirror + hint on the left; search field, your memes (5 × 2), the GIPHY row and the classic
-/// memes row on the right; a footer below only while there is something to act on.
+/// The compact strip: the mirror on the left, with the word it read (else the hint) under it; on the right the search
+/// field, one row of your memes, and the shelf with one row of GIFs or classic memes; a footer below only while there
+/// is something to act on.
 struct PanelView: View {
     @ObservedObject var model: AppModel
 
@@ -75,7 +76,7 @@ struct PanelView: View {
 
     // MARK: Search field
 
-    /// Mirror + hint, your memes and the GIPHY row, footer.
+    /// Mirror + readout or hint, your memes and the shelf, footer.
     @ViewBuilder
     private var strip: some View {
         if model.showSetupCard {
@@ -94,21 +95,39 @@ struct PanelView: View {
                         }
                     }
                 }
-                ResultGrid(model: model)
+                results
                     .opacity(model.showSetupCard ? 0.55 : 1)
-                if model.showsGiphyRow {
-                    GiphyRow(model: model)
-                        .opacity(model.showSetupCard ? 0.55 : 1)
-                }
-                if model.showsTemplateRow {
-                    TemplateRow(model: model)
-                        .opacity(model.showSetupCard ? 0.55 : 1)
-                }
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         if model.footer != .hidden {
             FooterView(model: model)
+        }
+    }
+
+    /// One row of your memes (none until you have some), then the shelf; a dashed "Drop to search" card over them
+    /// while an image is dragged over the panel (the whole panel takes the drop).
+    private var results: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if model.ownRows > 0 {
+                ResultGrid(model: model)
+            }
+            WebShelf(model: model)
+            if model.ownRows == 0 && !model.showsGiphyRow && !model.showsTemplateRow {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Theme.surface.opacity(0.45))
+                    .frame(height: 88)
+                    .overlay {
+                        Text("Your memes will show here")
+                            .font(.system(size: 12))
+                            .foregroundColor(Theme.mutedText)
+                    }
+            }
+        }
+        .overlay {
+            if isDropTargeted {
+                DropCard()
+            }
         }
     }
 
@@ -202,6 +221,33 @@ private func copyDroppedImageToTemporaryFile(_ url: URL) -> URL? {
         return destination
     } catch {
         return nil
+    }
+}
+
+/// Shown over the results while an image is dragged over the panel.
+private struct DropCard: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .fill(Theme.background.opacity(0.92))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Theme.accent, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+            )
+            .overlay {
+                VStack(spacing: 4) {
+                    Image(systemName: "tray.and.arrow.down")
+                        .font(.system(size: 20))
+                        .foregroundColor(Theme.accent)
+                    Text("Drop to search with it")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(Theme.text)
+                    Text("It isn’t saved unless you keep it.")
+                        .font(.system(size: 11))
+                        .foregroundColor(Theme.mutedText)
+                }
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }
 
