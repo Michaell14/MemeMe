@@ -18,7 +18,7 @@ The canvas with every screen lives at https://claude.ai/artifact/T9nxHbX2DHg5Chh
 - Dark surface: background `#1E1F24`, 1 px border `#3A3C44`, radius 14, shadow. Text `#ECECEF`, muted text `#A9ACB5`, accent `#7AA2FF`, focus-highlight amber `#F5C451`, success green `#5FD38D`. Font: system (SF Pro).
 - Padding 16. Layout: left column 120 px wide, right column fills the rest, 16 px gap; footer below.
   - **Left column:** the mirror (live camera, mirrored, 120×120, radius 18, 3 px ring: accent when live, grey otherwise). Under it the hint: title 13 pt semibold, subtitle 11 pt muted, optional small capsule action button.
-  - **Right column:** search field (36 px tall, radius 9, background `#26282E`, magnifier icon, placeholder "Type, or drop / ⌘V an image", ⌃⌘M keycaps at the right). Under it your memes: **5 columns × 2 rows**, square tiles, 8 px gaps, radius 10. Under them, when Web Discover is on and has a key, the **GIPHY row** (see Web discover).
+  - **Right column:** search field (36 px tall, radius 9, background `#26282E`, magnifier icon, placeholder "Type, or drop / ⌘V an image", ⌃⌘M keycaps at the right). Under it your memes: **5 columns × 2 rows** (1 row when you have five or fewer memes; with none, a single dashed line "Drop memes here, or find the ones on this Mac" instead of empty tiles), square tiles, 8 px gaps, radius 10. The row count follows how many memes you have, not what a search found, so the panel keeps its height while you search. Under them, when Web Discover is on and has a key, the **GIPHY row** (see Web discover).
   - **Footer:** a 1 px separator, then a focus line ("↵ copies “Shocked cat” · Downloads · Mar 2026" + a "More like this" capsule button on the right) and the legend "↵ copy · 1–9 pick · drag into chat · esc". The footer can instead show one quiet library line (see Library).
 - **Tiles:** thumbnail (first frame, aspect-fill). Number badge 1–9 top-left (dark 72% chip). Own items: 9 px accent dot top-right. Friend stickers: 11 px amber ring top-right. GIFs: "GIF" micro-badge bottom-left. The focused tile has a 2 px accent ring (with a 2 px gap). Tiles that just arrived get a 2 px amber ring for 600 ms. Only the focused tile animates if it is a GIF.
 - No percentages, weights, sliders, scope filters or mode toggles are ever shown.
@@ -29,9 +29,9 @@ The canvas with every screen lives at https://claude.ai/artifact/T9nxHbX2DHg5Chh
 |---|---|---|---|---|
 | prompt (first run, camera not decided) | silhouette | Make a face. | That’s the search. There’s no button to press. | — |
 | warming (camera starting) | silhouette | Starting camera… | Your recent picks are ready below. | — |
-| live | live camera | Make a face. Results follow it. (pose active: “Matching your face and pose”) | Click your eyes or mouth to focus on them. | — |
-| live, new expression being held | live + ring filling | (same) | New face? Keep holding… | — |
-| live, no face for 1.5 s | live camera | Can’t see your face | Try more light, or just type. | — |
+| live | live camera | Make a face. Results follow it. | Click your eyes or mouth to focus on them. | — |
+| live, an expression being held | live + ring filling | (same: the words never change while the camera reads you) | (same) | — |
+| live, no face for 1.5 s (clears once the face is back for 1 s) | live camera | Can’t see your face | Try more light, or just type. | — |
 | live, pins set | live, pinned region glows amber | Focusing on your mouth (or “your eyes”, “your eyes and mouth”) | — | Clear |
 | text | silhouette (camera stopped) or dimmed live when a face token is kept | Searching by words | The camera is off while you type. | — |
 | image (dropped / ⌘V) | the image | Searching with your image | It isn’t saved unless you keep it. | Keep it / Kept · Undo |
@@ -49,7 +49,7 @@ On open, before a face is captured, the grid shows **Recent in this app** (per f
 
 - The camera starts on show and stops on hide (within 1 s). About 10 analyzed frames per second.
 - **Peak-hold:** a face held for 0.3 s becomes the query (the sharpest/most intense frame from the last 0.5 s). Relaxing or talking does nothing.
-- A **stronger version of the same expression** (≥ 15 % more intense, same direction) replaces the query after 0.3 s. A **different expression** must be held for **1 s** (the ring fills; subtitle "New face? Keep holding…").
+- A **stronger version of the same expression** (≥ 15 % more intense, same direction) replaces the query after 0.3 s. A **different expression** must be held for **1 s** (the ring around the mirror fills).
 - **Space** (with an empty search field) snaps the current face immediately, even a neutral one (deadpan, unimpressed).
 - Feature weights are inferred, never shown: regions that moved most from the user's own resting face count most (1×–3×). The resting face is learned silently from calm frames (about 20 numbers, never an image) and can be reset from the menu.
 - **Pins:** clicking the eyes or mouth on the mirror pins that region (counts most; amber glow). Clicking again unpins; "Clear" or the first Esc clears pins. Hovering the mirror shows dashed outlines on the clickable regions.

@@ -45,9 +45,7 @@ private enum HintCopy {
     static let warmingTitle = "Starting camera…"
     static let warmingSubtitle = "Your recent picks are ready below."
     static let liveTitle = "Make a face. Results follow it."
-    static let livePoseTitle = "Matching your face and pose"
     static let liveSubtitle = "Click your eyes or mouth to focus on them."
-    static let holdingSubtitle = "New face? Keep holding…"
     static let noFaceTitle = "Can’t see your face"
     static let noFaceSubtitle = "Try more light, or just type."
     static let clearAction = "Clear"
@@ -125,8 +123,10 @@ enum Pick: Equatable {
     }
     @Published private(set) var mode: PanelMode = .prompt
     @Published private(set) var results: [RankedResult] = []         // ≤ Theme.resultLimit
+    /// Rows of the grid of your memes: 2, 1 when you have five or fewer, 0 (one line) when you have none.
+    @Published private(set) var ownRows: Int = Theme.rows
     @Published private(set) var newResultIDs: Set<UUID> = []          // amber ring for 600 ms
-    /// A slot of the tile grid (`TileGrid`): 0..<10 your memes, then the GIPHY row.
+    /// A slot of the tile grid (`TileGrid`): your memes (`ownRows` × 5), then the GIPHY row.
     @Published var focusedIndex: Int = 0
     /// The GIPHY row: GIPHY's results for `giphyMood` in GIPHY's order, never ranked or mixed with your memes.
     @Published private(set) var giphyResults: [WebGIF] = []          // ≤ Theme.columns
@@ -172,11 +172,14 @@ enum Pick: Equatable {
     private static let saveDelayNanoseconds: UInt64 = 2_000_000_000
     private static let cameraPromptDelay: TimeInterval = 0.6
     private static let faceMissingDelay: TimeInterval = 1.5
+    /// "Can't see your face" stays until the face has been back this long, so a flickering detection can't flicker it.
+    private static let faceBackDelay: TimeInterval = 1.0
+    /// Shorter gaps in face detection are dropped frames, not the face leaving.
+    private static let faceGap: TimeInterval = 0.3
     /// Typing that starts this soon after opening stops the camera instead of keeping the face token.
     private static let typingStopsCameraWindow: TimeInterval = 1.0
     /// A HUD says "Copying…" when fetching a web GIF takes longer than this.
     private static let slowCopyNanoseconds: UInt64 = 150_000_000
-    private static let poseActiveThreshold = 0.3
     private static let keptSource = "Kept"
 
     // MARK: Private state
@@ -186,6 +189,8 @@ enum Pick: Equatable {
     private var shownAt: TimeInterval = 0
     private var liveSince: TimeInterval?
     private var faceMissing = false
+    /// When the face came back while "Can't see your face" shows.
+    private var faceBackSince: TimeInterval?
     private var userInteracted = false
     private var useCameraDespiteOtherApp = false
     private var resultSource: ResultSource = .recent
@@ -384,7 +389,7 @@ enum Pick: Equatable {
 
     /// Number keys pick your memes, 1–9.
     func commitNumbered(index: Int) {
-        guard index < limit else { return }
+        guard index < tileGrid.giphyStart else { return }
         commit(index: index)
     }
 
@@ -750,14 +755,34 @@ enum Pick: Equatable {
         let progress = queryChanged ? 0 : tracker.holdProgress
         if holdProgress != progress { holdProgress = progress }
 
-        let lastSeen = max(tracker.lastFaceTimestamp ?? 0, liveSince ?? sample.timestamp)
-        let missing = sample.face == nil && sample.timestamp - lastSeen >= AppModel.faceMissingDelay
-        if missing != faceMissing { faceMissing = missing }
+        updateFaceMissing(with: sample)
 
         if queryChanged {
             runExpressionSearch(animate: true)
         }
         refreshHint()
+    }
+
+    /// "Can't see your face" after 1.5 s without a face; it clears once the face has been back for 1 s.
+    private func updateFaceMissing(with sample: ExpressionSample) {
+        guard sample.face != nil else {
+            let lastSeen = max(tracker.lastFaceTimestamp ?? 0, liveSince ?? sample.timestamp)
+            // A real gap starts the 1 s over; a frame or two without a detection (dim light) doesn't.
+            if sample.timestamp - lastSeen >= AppModel.faceGap {
+                faceBackSince = nil
+            }
+            if !faceMissing && sample.timestamp - lastSeen >= AppModel.faceMissingDelay {
+                faceMissing = true
+            }
+            return
+        }
+        guard faceMissing else { return }
+        let since = faceBackSince ?? sample.timestamp
+        faceBackSince = since
+        if sample.timestamp - since >= AppModel.faceBackDelay {
+            faceMissing = false
+            faceBackSince = nil
+        }
     }
 
     /// Picks the camera-driven mode (in use elsewhere → busy, undecided → prompt, denied → off, else warming)
@@ -936,7 +961,19 @@ enum Pick: Equatable {
     }
 
     private var tileGrid: TileGrid {
-        TileGrid(columns: Theme.columns, ownRows: Theme.rows, ownCount: results.count, giphyCount: giphyResults.count)
+        TileGrid(columns: Theme.columns, ownRows: ownRows, ownCount: results.count, giphyCount: giphyResults.count)
+    }
+
+    /// Follows how many memes you have, not what a search found, so the panel keeps its height as you search; but
+    /// always enough rows for what is shown (a typed search can find personal photos when you have no memes).
+    private func refreshOwnRows(showing shown: Int) {
+        let memes = ownItems.lazy.filter { $0.tier != .skipped }.count
+        let libraryRows = memes == 0 ? 0 : (memes <= Theme.columns ? 1 : Theme.rows)
+        let neededRows = (shown + Theme.columns - 1) / Theme.columns
+        let rows = min(Theme.rows, max(libraryRows, neededRows))
+        if ownRows != rows {
+            ownRows = rows
+        }
     }
 
     /// Where the focus starts: the first meme, or the first GIPHY GIF when the row answers what is shown (the face,
@@ -1043,6 +1080,17 @@ enum Pick: Equatable {
 
     private func setResults(_ newResults: [RankedResult], animateNew: Bool, resetFocus: Bool) {
         let limited = Array(newResults.prefix(limit))
+        // The GIPHY row's slots move with the number of meme rows; a focused GIF keeps its place in the row.
+        let oldGiphyStart = tileGrid.giphyStart
+        refreshOwnRows(showing: limited.count)
+        let newGiphyStart = tileGrid.giphyStart
+        if !resetFocus && newGiphyStart != oldGiphyStart {
+            if focusedIndex >= oldGiphyStart {
+                focusedIndex = newGiphyStart + (focusedIndex - oldGiphyStart)
+            } else if focusedIndex >= newGiphyStart {
+                focusedIndex = max(0, newGiphyStart - 1)
+            }
+        }
         if animateNew && !results.isEmpty {
             let previous = Set(results.map { $0.id })
             let arrived = Set(limited.map { $0.id }).subtracting(previous)
@@ -1359,7 +1407,7 @@ enum Pick: Equatable {
         if resultSource == .recent {
             // Fill the recent grid as memes arrive (amber ring, focus kept), but never reshuffle tiles
             // the user is pointing at.
-            if showsRemovedItem || !userInteracted {
+            if showsRemovedItem || !userInteracted || results.isEmpty {
                 showRecentResults(animateNew: true, resetFocus: false)
             }
         } else if showsRemovedItem {
@@ -1430,12 +1478,8 @@ enum Pick: Equatable {
             if !pins.isEmpty {
                 return PanelHint(title: "Focusing on " + pinDescription, subtitle: nil, actionTitle: HintCopy.clearAction, action: .clearPins)
             }
-            let poseActive = (tracker.query?.pose?.activity ?? 0) >= AppModel.poseActiveThreshold
-            let title = poseActive ? HintCopy.livePoseTitle : HintCopy.liveTitle
-            if holdProgress > 0 && tracker.candidateIsNewExpression {
-                return PanelHint(title: title, subtitle: HintCopy.holdingSubtitle, actionTitle: nil, action: nil)
-            }
-            return PanelHint(title: title, subtitle: HintCopy.liveSubtitle, actionTitle: nil, action: nil)
+            // The same words the whole time the camera reads you: the ring around the mirror shows a face being held.
+            return PanelHint(title: HintCopy.liveTitle, subtitle: HintCopy.liveSubtitle, actionTitle: nil, action: nil)
         case .text:
             return PanelHint(title: HintCopy.textTitle, subtitle: HintCopy.textSubtitle, actionTitle: nil, action: nil)
         case .image:

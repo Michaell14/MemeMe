@@ -2,8 +2,8 @@ import AppKit
 import MemeMeCore
 import SwiftUI
 
-/// The 5 × 2 grid of your memes (GIPHY's results have their own row). Empty slots keep their place so the
-/// panel never jumps.
+/// The grid of your memes, 5 wide (GIPHY's results have their own row): two rows, one when you have five or fewer,
+/// and a single line when you have none. Empty slots keep their place so the panel doesn't jump as results change.
 struct ResultGrid: View {
     @ObservedObject var model: AppModel
 
@@ -16,11 +16,48 @@ struct ResultGrid: View {
     }
 
     var body: some View {
-        let entries = gridEntries
-        let showsDocuments = showsDocumentsTile(resultCount: entries.count)
-        let placeholderCount = max(0, Theme.resultLimit - entries.count - (showsDocuments ? 1 : 0))
+        if model.ownRows == 0 {
+            emptyStrip
+        } else {
+            grid
+        }
+    }
 
-        LazyVGrid(columns: gridColumns, alignment: .leading, spacing: spacing) {
+    /// No memes saved yet: one quiet line instead of rows of empty tiles.
+    private var emptyStrip: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "photo.on.rectangle.angled")
+                .font(.system(size: 13))
+                .foregroundColor(Theme.mutedText)
+                .accessibilityHidden(true)
+            Text(emptyMessage)
+                .font(.system(size: 12))
+                .foregroundColor(Theme.mutedText)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 0)
+            if showsDocumentsTile(resultCount: 0, capacity: 1) {
+                Button("Look in Documents…") {
+                    addDocumentsFolder()
+                }
+                .buttonStyle(PanelCapsuleButtonStyle(fontSize: 11, foreground: Theme.softText))
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(Theme.keycapBorder, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+        )
+    }
+
+    private var grid: some View {
+        let entries = gridEntries
+        let capacity = model.ownRows * Theme.columns
+        let showsDocuments = showsDocumentsTile(resultCount: entries.count, capacity: capacity)
+        let placeholderCount = max(0, capacity - entries.count - (showsDocuments ? 1 : 0))
+
+        return LazyVGrid(columns: gridColumns, alignment: .leading, spacing: spacing) {
             ForEach(entries) { entry in
                 ResultTile(
                     result: entry.result,
@@ -63,7 +100,7 @@ struct ResultGrid: View {
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
                     .padding(.horizontal, 12)
-                    .padding(.bottom, 34)
+                    .padding(.bottom, model.ownRows > 1 ? 34 : 12)
                     .frame(maxWidth: .infinity)
                     .allowsHitTesting(false)
             }
@@ -83,7 +120,7 @@ struct ResultGrid: View {
     }
 
     private var gridEntries: [GridEntry] {
-        model.results.prefix(Theme.resultLimit).enumerated().map { pair in
+        model.results.prefix(model.ownRows * Theme.columns).enumerated().map { pair in
             GridEntry(index: pair.offset, result: pair.element)
         }
     }
@@ -101,8 +138,8 @@ struct ResultGrid: View {
     }
 
     /// "Not here? Look in Documents…" after too few typed-search results, until Documents is watched.
-    private func showsDocumentsTile(resultCount: Int) -> Bool {
-        guard model.mode == .text, !documentsAdded, resultCount < Theme.resultLimit,
+    private func showsDocumentsTile(resultCount: Int, capacity: Int) -> Bool {
+        guard model.mode == .text, !documentsAdded, resultCount < capacity,
               let url = documentsURL else {
             return false
         }

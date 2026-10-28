@@ -342,7 +342,7 @@ public struct TileGrid: Equatable, Sendable {
     public func move(from slot: Int, dx: Int, dy: Int) -> Int?   // arrow keys: along the row, or to the nearest row with tiles (column kept when it can)
 }
 ```
-Keyboard focus over your memes (slots 0..<10, 5 × 2) and the GIPHY row below (slots 10..<15). Each row fills from the left; empty rows are skipped.
+Keyboard focus over your memes (`ownRows` rows of 5: 2, 1 with five or fewer memes, 0 with none) and the GIPHY row below them. Each row fills from the left; empty rows are skipped.
 
 ### Classifier.swift
 
@@ -833,7 +833,7 @@ Key handling:
 ```swift
 struct PanelView: View { @ObservedObject var model: AppModel }                       // compact layout per DESIGN.md
 struct MirrorColumn: View { @ObservedObject var model: AppModel }                    // mirror (CameraPreviewView / silhouette / image / drop well) + hint
-struct ResultGrid: View { @ObservedObject var model: AppModel }                      // 5 × 2 LazyVGrid of ResultTile (your memes)
+struct ResultGrid: View { @ObservedObject var model: AppModel }                      // your memes: ownRows × 5 LazyVGrid of ResultTile, or one dashed line with none
 struct GiphyRow: View { @ObservedObject var model: AppModel }                        // "Powered by GIPHY" mark + mood word, then 5 GIPHY tiles in GIPHY's order
 struct ResultTile: View { let result: RankedResult; let number: Int?; let isFocused: Bool; let isNew: Bool; @ObservedObject var model: AppModel }
 struct FooterView: View { @ObservedObject var model: AppModel }
@@ -1010,7 +1010,8 @@ enum DropOutcome { case kept(IndexBatch), stickers(StickerBatch), nothing }
     @Published private(set) var mode: PanelMode
     @Published private(set) var results: [RankedResult]        // ≤ Theme.resultLimit
     @Published private(set) var newResultIDs: Set<UUID>         // amber ring for 600 ms
-    @Published var focusedIndex: Int                             // a TileGrid slot: 0..<10 your memes, 10..<15 the GIPHY row
+    @Published private(set) var ownRows: Int                     // rows of your memes: 2, 1 (≤ 5 memes), 0 (none: one dashed line); enough for what is shown
+    @Published var focusedIndex: Int                             // a TileGrid slot: your memes, then the GIPHY row
     @Published private(set) var giphyResults: [WebGIF]           // ≤ Theme.columns, GIPHY's order
     @Published private(set) var giphyMood: Mood?
     @Published private(set) var isGiphyLoading: Bool
