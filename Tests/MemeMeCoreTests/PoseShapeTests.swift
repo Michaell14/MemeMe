@@ -390,6 +390,21 @@ final class PoseShapeTrackingTests: XCTestCase {
         XCTAssertEqual(tracker.query?.face, TestFaces.smile)
     }
 
+    func testAMildFaceCanReplaceAShapeHeldWithACalmFace() {
+        // Arms crossed with a calm face became the search; a smile weaker than the shape's strength still replaces it.
+        let tracker = makeTracker()
+        let crossed = TestPoses.body(left: FullBodyPoses.crossedLeft, right: FullBodyPoses.crossedRight)
+        for step in 1...10 {
+            XCTAssertFalse(tracker.ingest(frame(TestFaces.neutral, step, crossed)), "step \(step)")
+        }
+        XCTAssertTrue(tracker.ingest(frame(TestFaces.neutral, 11, crossed)))
+        for step in 12...21 {
+            XCTAssertFalse(tracker.ingest(frame(TestFaces.smile, step, crossed)), "step \(step)")
+        }
+        XCTAssertTrue(tracker.ingest(frame(TestFaces.smile, 22, crossed)))
+        XCTAssertEqual(tracker.query?.face, TestFaces.smile)
+    }
+
     func testArmsCaughtRisingTakeTheWordTheyArriveAt() {
         // Straight arms rising in front (strong, no word yet) for three frames, then up: the hold ends on "celebrate".
         let tracker = makeTracker()
