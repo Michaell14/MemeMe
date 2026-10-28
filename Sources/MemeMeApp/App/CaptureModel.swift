@@ -38,6 +38,9 @@ struct CaptureResult {
 
     private let camera: CameraController
     private var isPressed = false
+    /// A clip that stopped at 3 s while the shutter was still held: delivered on release, so the panel doesn't close
+    /// (and key repeats of a held Space don't reach the chat) until it's let go.
+    private var heldResult: CaptureResult?
     private var holdTask: Task<Void, Never>?
     private var recordTask: Task<Void, Never>?
     /// Bumped by `cancel`, so a capture that finishes after it is dropped.
@@ -97,6 +100,11 @@ struct CaptureResult {
     func release() {
         guard isPressed else { return }
         isPressed = false
+        if let result = heldResult {
+            heldResult = nil
+            onCaptured?(result)
+            return
+        }
         switch phase {
         case .pressing:
             holdTask?.cancel()
@@ -113,6 +121,7 @@ struct CaptureResult {
     func cancel() {
         generation += 1
         isPressed = false
+        heldResult = nil
         holdTask?.cancel()
         holdTask = nil
         recordTask?.cancel()
@@ -181,23 +190,36 @@ struct CaptureResult {
                 let delay = clip.frameDelay
                 let data = await Task.detached(priority: .userInitiated) { CaptureEncoder.gif(frames, frameDelay: delay) }.value
                 self.finish(data.map { CaptureResult(data: $0, isGIF: true, stickerFrame: clip.bestFrame) }, generation: current)
-            } else if let best = clip.bestFrame {
-                // Too short for a GIF (the camera stalled): a photo of its best frame.
-                let data = await Task.detached(priority: .userInitiated) { CaptureEncoder.png(best) }.value
-                self.finish(data.map { CaptureResult(data: $0, isGIF: false, stickerFrame: best) }, generation: current)
             } else {
-                self.finish(nil, generation: current)
+                // Too short for a GIF (let go just after the hold threshold, or the camera stalled): a photo.
+                var fallback = clip.bestFrame
+                if fallback == nil {
+                    fallback = await self.camera.captureStill()
+                    guard self.generation == current else { return }
+                }
+                guard let still = fallback else {
+                    self.finish(nil, generation: current)
+                    return
+                }
+                let data = await Task.detached(priority: .userInitiated) { CaptureEncoder.png(still) }.value
+                self.finish(data.map { CaptureResult(data: $0, isGIF: false, stickerFrame: still) }, generation: current)
             }
         }
     }
 
     private func finish(_ result: CaptureResult?, generation current: Int) {
         guard generation == current else { return }
-        phase = .idle
         guard let result else {
+            phase = .idle
             failed = true
             return
         }
+        if isPressed {
+            // Stopped at 3 s with the shutter still down: hand it over on release.
+            heldResult = result
+            return
+        }
+        phase = .idle
         onCaptured?(result)
     }
 }

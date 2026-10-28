@@ -150,3 +150,19 @@ final class CaptureGeometryTests: XCTestCase {
         return (color(atX: 2), color(atX: width - 3))
     }
 }
+
+final class ClipTimingTests: XCTestCase {
+    func testAGIFPlaysAtTheSpeedItWasRecorded() {
+        // A 30 fps camera keeps every third frame: 0.1 s apart.
+        XCTAssertEqual(CaptureRenderer.frameDelay(frameCount: 31, first: 10, last: 13), 0.1, accuracy: 1e-9)
+        // Dim light, 15 fps: every second frame, 0.133 s apart → 0.13.
+        XCTAssertEqual(CaptureRenderer.frameDelay(frameCount: 4, first: 0, last: 0.4), 0.13, accuracy: 1e-9)
+        XCTAssertEqual(CaptureRenderer.frameDelay(frameCount: 3, first: 1, last: 1.01), 0.02, accuracy: 1e-9)
+    }
+
+    func testTooFewFramesUseTheDefaultDelay() {
+        XCTAssertEqual(CaptureRenderer.frameDelay(frameCount: 1, first: 2, last: 2), CaptureRenderer.clipFrameDelay)
+        XCTAssertEqual(CaptureRenderer.frameDelay(frameCount: 0, first: nil, last: nil), CaptureRenderer.clipFrameDelay)
+        XCTAssertEqual(CaptureRenderer.frameDelay(frameCount: 5, first: 3, last: 3), CaptureRenderer.clipFrameDelay)
+    }
+}

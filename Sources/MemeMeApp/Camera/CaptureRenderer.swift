@@ -5,8 +5,8 @@ import Foundation
 import ImageIO
 import UniformTypeIdentifiers
 
-/// A recorded clip: frames in order, the time each one shows, and the frame with the strongest expression
-/// (for a sticker).
+/// A recorded clip: frames in order, the time each one shows (the average gap between them as recorded, so it
+/// plays at real speed), and the frame with the strongest expression (for a sticker).
 struct CapturedClip {
     let frames: [CGImage]
     let frameDelay: Double
@@ -15,11 +15,11 @@ struct CapturedClip {
 
 /// The capture view's picture and captures. Every camera frame (while the view is open or a capture runs) is
 /// cropped to the centered square, mirrored like the mirror, filtered, and shown; a still is the next such frame,
-/// a clip keeps them at 12.5 per second, smaller.
+/// a clip keeps up to 12.5 of them a second (10 from a 30 fps camera), smaller.
 ///
 /// Confined to the camera's frame queue: every method must be called there.
 final class CaptureRenderer {
-    static let clipFrameDelay = 0.08                 // 12.5 frames a second (GIF delays are in 1/100 s)
+    static let clipFrameDelay = 0.08                 // at most 12.5 frames a second (GIF delays are in 1/100 s)
     static let clipSide = 320
     static let maximumClipDuration: TimeInterval = 3
 
@@ -41,6 +41,7 @@ final class CaptureRenderer {
     private struct ClipRecording {
         var frames: [CGImage] = []
         var start: Double?
+        var firstKept: Double?
         var lastKept: Double?
         var bestFrame: CGImage?
         var bestIntensity = -1.0
@@ -118,6 +119,9 @@ final class CaptureRenderer {
                 let target = CGRect(x: 0, y: 0, width: CaptureRenderer.clipSide, height: CaptureRenderer.clipSide)
                 if let smallFrame = makeImage(small.cropped(to: target), rect: target) {
                     recording.frames.append(smallFrame)
+                    if recording.firstKept == nil {
+                        recording.firstKept = time
+                    }
                     recording.lastKept = time
                 }
                 if recording.bestFrame == nil {
@@ -141,14 +145,27 @@ final class CaptureRenderer {
     }
 
     func beginClip() {
-        clip = ClipRecording()
+        var recording = ClipRecording()
+        // A clip ended before its first frame still has a picture to fall back to.
+        recording.bestFrame = lastFrame
+        clip = recording
     }
 
     /// The clip so far (nil when none was recording); recording stops.
     func endClip() -> CapturedClip? {
         guard let recording = clip else { return nil }
         clip = nil
-        return CapturedClip(frames: recording.frames, frameDelay: CaptureRenderer.clipFrameDelay, bestFrame: recording.bestFrame)
+        let delay = CaptureRenderer.frameDelay(frameCount: recording.frames.count, first: recording.firstKept, last: recording.lastKept)
+        return CapturedClip(frames: recording.frames, frameDelay: delay, bestFrame: recording.bestFrame)
+    }
+
+    /// The time each frame shows: the average gap between the frames kept (a 30 fps camera gives one every 0.1 s, a
+    /// dim one every 0.13 s), in GIF's 1/100 s and never under 0.02 s (players slow shorter delays down);
+    /// `clipFrameDelay` for fewer than two frames.
+    static func frameDelay(frameCount: Int, first: Double?, last: Double?) -> Double {
+        guard frameCount > 1, let first, let last, last > first else { return clipFrameDelay }
+        let average = (last - first) / Double(frameCount - 1)
+        return max(0.02, (average * 100).rounded() / 100)
     }
 
     func cancelClip() {

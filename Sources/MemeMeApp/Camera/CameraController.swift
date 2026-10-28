@@ -162,7 +162,7 @@ final class CameraController: NSObject, ObservableObject {
         }
     }
 
-    /// Starts keeping frames for a clip (12.5 a second, 320 px, at most 3 s).
+    /// Starts keeping frames for a clip (up to 12.5 a second, 320 px, at most 3 s).
     func beginClip() {
         let processor = self.processor
         frameQueue.async {

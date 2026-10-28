@@ -663,7 +663,7 @@ Requests per frame: `VNDetectFaceLandmarksRequest`, `VNDetectHumanBodyPoseReques
     var onCapturePreview: ((CGImage) -> Void)?    // every rendered frame while the capture view is open, on the main actor
     func setCaptureView(active: Bool, filter: CameraFilter)
     func captureStill() async -> CGImage?         // the next rendered frame; nil when none comes within 1 s
-    func beginClip()                              // 12.5 frames a second, 320 px, at most 3 s
+    func beginClip()                              // up to 12.5 frames a second, 320 px, at most 3 s
     func endClip() async -> CapturedClip?
     func cancelClip()
 }
@@ -690,7 +690,7 @@ enum CameraFilter: String, CaseIterable, Identifiable, Sendable {
     var followsFace: Bool { get }    // shades, hearts, bugEyes, crown: unchanged without a face
     func apply(to image: CIImage, face: FaceAnchors?, time: TimeInterval) -> CIImage   // cropped to image.extent
 }
-struct CapturedClip { let frames: [CGImage]; let frameDelay: Double; let bestFrame: CGImage? }
+struct CapturedClip { let frames: [CGImage]; let frameDelay: Double; let bestFrame: CGImage? }   // frameDelay = CaptureRenderer.frameDelay(…): the average gap of the kept frames, in 1/100 s, ≥ 0.02
 final class CaptureRenderer {        // confined to the camera's frame queue
     static let clipFrameDelay: Double            // 0.08
     static let clipSide: Int                     // 320
@@ -704,7 +704,7 @@ enum CaptureEncoder {
 }
 ```
 Filters (Core Image, `CIFilterBuiltins`): noir = photoEffectNoir + vignette (intensity 1, radius 2); comic = comicEffect; 8-bit = pixellate (scale side / 40) + colorPosterize (6); deep fried = colorControls (saturation 2.6, contrast 1.5, brightness 0.04) + sharpenLuminance (2) + unsharpMask (2.5, 1.5); bug eyes = bumpDistortion on each eye (radius 0.75·d, scale 0.55) and the mouth when open > 0.12 (0.9·d, 0.4); shades = pixel-art glasses (24 × 6 cells, nearest sampling) 2.4·d wide on the eyes; hearts = a heart 0.9·d wide on each eye, pulsing ±8 % at 2 Hz; crown = 2.3·d wide, 1.75·d above the eyes (d = eye distance, all turned with the eye line). The drawings are made once with Core Graphics (`FilterSprites`).
-Rendering: `CIImage(cvPixelBuffer:)` → centered square → mirrored → filter → `CIContext.createCGImage` (RGBA8, sRGB) at the square's size (480 at VGA); face anchors move halfway to each new reading per frame and are dropped 0.5 s after the last face. A still is the next rendered frame; a clip keeps a frame when 0.08 s (− 0.01) have passed since the last kept one, scaled to 320 px, for at most 3 s, and remembers the full-size frame whose analyzed face was most intense.
+Rendering: `CIImage(cvPixelBuffer:)` → centered square → mirrored → filter → `CIContext.createCGImage` (RGBA8, sRGB) at the square's size (480 at VGA); face anchors move halfway to each new reading per frame and are dropped 0.5 s after the last face. A still is the next rendered frame; a clip keeps a frame when 0.08 s (− 0.01) have passed since the last kept one, scaled to 320 px, for at most 3 s, and remembers the full-size frame whose analyzed face was most intense (starting from the latest frame, so a clip ended before its first frame still has one).
 
 ### Camera/CameraPreviewView.swift
 
@@ -1143,7 +1143,7 @@ struct CaptureResult { let data: Data; let isGIF: Bool; let stickerFrame: CGImag
     func press(); func release(); func cancel()
 }
 ```
-A press held 0.35 s starts a clip (`camera.beginClip`); the release (or 3 s) ends it. A release before that takes a photo (`camera.captureStill`, PNG). A clip under 4 frames becomes a photo of its best frame. Encoding runs detached at user-initiated priority; `cancel` (Esc, close) drops a capture in flight.
+A press held 0.35 s starts a clip (`camera.beginClip`); the release (or 3 s) ends it. A release before that takes a photo (`camera.captureStill`, PNG). A clip under 4 frames becomes a photo of its best frame (or of the next frame). A clip stopped at 3 s while the shutter is still down is handed over on release, so the panel stays (swallowing Space's key repeats) until then. Encoding runs detached at user-initiated priority; `cancel` (Esc, close) drops a capture in flight.
 
 ### App/AppModel.swift
 
