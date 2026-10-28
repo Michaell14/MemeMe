@@ -23,5 +23,10 @@ let package = Package(
             dependencies: ["MemeMeCore"],
             path: "Tests/MemeMeCoreTests"
         ),
+        .testTarget(
+            name: "MemeMeAppTests",
+            dependencies: ["MemeMeApp", "MemeMeCore"],
+            path: "Tests/MemeMeAppTests"
+        ),
     ]
 )

@@ -1,0 +1,1094 @@
+<title>MemeMe</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&text=OMGICAN%E2%80%99TSRYLDUFE%20&display=swap">
+<style>
+/* "Laptop lid": the promise on the left; on the right a lilac MacBook lid covered in stickers.
+   The face stickers are the face picker, and the big sticker is MemeMe's panel, working. */
+:root {
+  color-scheme: light;
+  --bg: #EDF1F7;
+  --ink: #161B2E;
+  --ink-2: #2A3150;
+  --ink-3: #3C4257;
+  --ink-4: #4A5270;
+  --white: #FFFFFF;
+  --link: #4330C9;
+  --link-hi: #2E1F99;
+  --dl-sub: #C9CFE6;
+  --dash: #CDD3E1;
+  --kbd-line: #C3C9DA;
+
+  /* The lid (lilac). The step numbers in Install pick it up too. */
+  --lid-top: #CBC3F3;
+  --lid-edge: #A99EDD;
+  --lid-shadow: rgba(52, 40, 120, .22);
+  --lid-gloss: rgba(255, 255, 255, .55);
+  --lid-peel: rgba(255, 255, 255, .28);
+
+  /* Stickers */
+  --logo-chip: #FF9A5C;
+  --key: #FFD95A;
+  --key-edge: #D2A526;
+  --mb-bg: #ECEEF4;
+  --mb-ink: #1D1D1F;
+  --mb-hi: rgba(0, 0, 0, .14);
+  --art-ink: #1D1B20;
+  --tear: #7CC4F5;
+  --skin-1: #E8A85C;
+  --skin-2: #F2C9A0;
+  --skin-3: #A86B45;
+  --skin-4: #C68B5E;
+  --skin-5: #B88A5A;
+  --skin-6: #F5C451;
+  --hair-1: #C98A4B;
+  --hair-2: #2A1A12;
+  --hair-3: #D9B26A;
+
+  --sh-chip: rgba(30, 40, 80, .16);
+  --sh-pill: rgba(30, 40, 80, .12);
+  --sh-dl: rgba(22, 27, 46, .22);
+  --sh-num: rgba(22, 27, 46, .2);
+  --sh-card-1: rgba(22, 27, 46, .06);
+  --sh-card-2: rgba(40, 50, 90, .1);
+
+  /* MemeMe's panel is always dark (the app's Theme). */
+  --p-bg: #1E1F24;
+  --p-surface: #26282E;
+  --p-border: #3A3C44;
+  --p-sep: #2E3037;
+  --p-chip: #45474F;
+  --p-text: #ECECEF;
+  --p-soft: #C9CCD4;
+  --p-muted: #A9ACB5;
+  --p-place: #9A9DA6;
+  --p-accent: #7AA2FF;
+  --p-accent-ink: #0E1324;
+  --p-amber: #F5C451;
+  --p-amber-soft: rgba(245, 196, 81, .28);
+  --p-amber-glow: rgba(245, 196, 81, .35);
+  --p-mirror: #0E0F12;
+  --p-badge: rgba(14, 15, 18, .72);
+  --p-badge-ink: #FFFFFF;
+  --p-pin-hover: rgba(255, 255, 255, .55);
+  --p-dot-ring: rgba(14, 15, 18, .5);
+  --p-check-a: #2C2E34;
+  --p-check-b: #222328;
+  --p-tile-shadow: rgba(0, 0, 0, .45);
+  --p-hud: rgba(30, 31, 36, .97);
+  --p-hud-shadow: rgba(0, 0, 0, .5);
+
+  --font: "Bricolage Grotesque", "Avenir Next", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --mac: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+  --ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --sym: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Symbol", "Segoe UI", "DejaVu Sans", sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: clip;
+}
+a { color: var(--link); }
+a:hover { color: var(--link-hi); }
+a:focus-visible, button:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
+button { font: inherit; color: inherit; }
+svg { display: block; }
+.sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+.wrap {
+  max-width: 1360px; margin: 0 auto;
+  padding-left: max(clamp(16px, 4vw, 56px), env(safe-area-inset-left, 0px));
+  padding-right: max(clamp(16px, 4vw, 56px), env(safe-area-inset-right, 0px));
+}
+
+/* ---------- Top bar ---------- */
+.top-in { min-height: 76px; padding-block: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: 10px; font-size: 22px; font-weight: 800; letter-spacing: -.02em; }
+.mark {
+  display: flex; align-items: center; justify-content: center; flex: none;
+  width: 34px; height: 34px; border-radius: 50%;
+  background: var(--white); color: var(--ink); transform: rotate(-8deg); box-shadow: 0 3px 6px var(--sh-chip);
+}
+.mark svg { width: 26px; height: 26px; }
+.nav { display: flex; align-items: center; gap: 4px; }
+.nav-gh, .nav-gh:hover { display: inline-flex; align-items: center; min-height: 44px; padding: 0 10px; color: var(--ink); font-size: 16px; font-weight: 600; text-decoration: none; }
+.nav-gh:hover { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 5px; }
+.pill, .pill:hover {
+  display: inline-flex; align-items: center; min-height: 44px; padding: 0 16px;
+  border: 2px solid var(--ink); border-radius: 999px; background: transparent;
+  color: var(--ink); font-size: 16px; font-weight: 700; text-decoration: none;
+}
+.pill:hover { background: var(--white); }
+
+/* ---------- Hero ---------- */
+.hero-in {
+  padding-block: clamp(20px, 3vw, 40px) clamp(56px, 7vw, 104px);
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 48px;
+}
+.copy { flex: 1 1 340px; max-width: 30rem; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; }
+.kicker {
+  margin: 0 0 22px; display: inline-flex; align-items: center; min-height: 32px; padding: 0 14px;
+  border-radius: 999px; background: var(--white); color: var(--ink);
+  font-size: 15px; line-height: 1.2; font-weight: 700;
+  box-shadow: 0 3px 8px var(--sh-pill); transform: rotate(-2deg);
+}
+h1 { margin: 0; font-size: clamp(2.5rem, 6.5vw - 1.85rem, 4rem); line-height: 1.02; font-weight: 800; letter-spacing: -.035em; }
+h1 span { display: block; }
+.lede { margin: 24px 0 0; max-width: 26rem; font-size: clamp(1.0625rem, .95rem + .4vw, 1.25rem); line-height: 1.5; font-weight: 500; color: var(--ink-2); text-wrap: pretty; }
+.nw { white-space: nowrap; }
+.dl, .dl:hover {
+  margin-top: 32px; display: inline-flex; align-items: center; gap: 14px; min-height: 64px;
+  padding: 11px 28px 11px 22px; border-radius: 18px;
+  background: var(--ink); color: var(--white); text-decoration: none;
+  box-shadow: 0 10px 22px var(--sh-dl);
+}
+.dl svg { width: 22px; height: 22px; flex: none; }
+.dl-t { display: flex; flex-direction: column; gap: 2px; line-height: 1.15; }
+.dl-t b { font-size: 19px; font-weight: 750; }
+.dl-t small { font-size: 13.5px; font-weight: 500; color: var(--dl-sub); }
+.req { margin: 14px 0 0; font-size: 14.5px; line-height: 1.5; font-weight: 500; color: var(--ink-4); }
+
+/* ---------- The lid ---------- */
+.lid {
+  position: relative; flex: none; width: 760px; max-width: 100%; height: 520px; margin-bottom: 8px; margin-left: auto;
+  border-radius: 30px; background: var(--lid-top);
+  box-shadow: inset 0 0 0 1.5px var(--lid-gloss), 0 8px 0 var(--lid-edge), 0 30px 48px var(--lid-shadow);
+}
+.hinge { position: absolute; left: 50%; bottom: 0; width: 96px; height: 8px; margin-left: -48px; border-radius: 48px 48px 0 0 / 8px 8px 0 0; background: var(--lid-edge); }
+
+/* Logo sticker */
+.lg { position: absolute; left: 58px; top: 124px; order: 1; z-index: 1; padding: 6px; border-radius: 999px; background: var(--white); transform: rotate(-5deg); box-shadow: 0 6px 12px var(--lid-shadow); }
+.lg-in { display: flex; align-items: center; gap: 10px; padding: 9px 22px 9px 10px; border-radius: 999px; background: var(--logo-chip); color: var(--ink); }
+.lgm { display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 50%; background: var(--white); }
+.lgm svg { width: 26px; height: 26px; }
+.lgt { font-size: 26px; line-height: 1; font-weight: 800; letter-spacing: -.02em; }
+
+/* Keycap sticker */
+.lk { position: absolute; left: 594px; top: 166px; order: 2; z-index: 1; display: flex; gap: 5px; padding: 8px; border-radius: 16px; background: var(--white); transform: rotate(6deg); box-shadow: 0 6px 12px var(--lid-shadow); }
+.lk > span {
+  display: flex; align-items: center; justify-content: center; width: 38px; height: 38px;
+  border-radius: 9px; border-bottom: 4px solid var(--key-edge); background: var(--key); color: var(--ink);
+  font-size: 19px; line-height: 1; font-weight: 800;
+}
+
+/* "Lives up here" speech bubble, with a sliver of menu bar */
+.lb { position: absolute; left: 272px; top: 18px; order: 3; z-index: 1; flex: none; width: 304px; height: 142px; transform: rotate(2.5deg); }
+.lb > svg { position: absolute; left: 0; top: 0; overflow: visible; filter: drop-shadow(0 6px 8px var(--lid-shadow)); }
+.b-cut { fill: var(--white); stroke: var(--white); stroke-width: 14; stroke-linejoin: round; }
+.b-line { fill: var(--white); stroke: var(--ink); stroke-width: 2.5; stroke-linejoin: round; }
+.lb-in { position: absolute; left: 36px; top: 21px; width: 246px; display: flex; flex-direction: column; align-items: flex-start; gap: 9px; }
+.mb {
+  display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px 0 4px; border-radius: 8px;
+  background: var(--mb-bg); color: var(--mb-ink); font-family: var(--mac); font-size: 12.5px; font-weight: 500; white-space: nowrap;
+}
+.mb-smiley { display: flex; align-items: center; justify-content: center; width: 30px; height: 22px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: inherit; cursor: pointer; }
+.mb-smiley svg { width: 15px; height: 15px; }
+/* Invisible 44px hit areas for the small controls; the look stays the same. */
+.mb-smiley, .cap, .btn-accent { position: relative; }
+.mb-smiley::after, .cap::after, .btn-accent::after { content: ""; position: absolute; }
+.mb-smiley::after { inset: -11px -7px; }
+.cap::after { inset: -12px -4px; }
+.btn-accent::after { inset: -9px -2px; }
+.mb-smiley:hover, .mb-smiley[aria-expanded="true"] { background: var(--mb-hi); }
+.mb-smiley:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+.mb-ic { display: flex; align-items: center; justify-content: center; }
+.mb-wifi { width: 24px; }
+.mb-batt { width: 28px; }
+.mb-time { padding-left: 2px; }
+.cue { display: flex; align-items: flex-start; gap: 6px; padding-left: 9px; }
+.cue svg { flex: none; margin-top: 1px; }
+.cue p { margin: 0; font-size: 14px; line-height: 1.35; font-weight: 600; color: var(--ink); text-wrap: pretty; }
+
+/* Face stickers: the face picker */
+.faces { order: 4; }
+.fs {
+  position: absolute; left: var(--x); top: var(--y); z-index: 2;
+  width: var(--s); height: var(--s); padding: 0; border: 0; border-radius: 50%;
+  background: none; cursor: pointer; transform: rotate(var(--r));
+  -webkit-tap-highlight-color: transparent;
+}
+.fs svg { width: 100%; height: 100%; overflow: visible; filter: drop-shadow(0 5px 6px var(--lid-shadow)); }
+.fs .ring { fill: var(--ink); stroke: var(--ink); stroke-width: 24; stroke-linejoin: round; opacity: 0; transition: opacity .15s; }
+.fs[aria-pressed="true"] .ring { opacity: 1; }
+.fs .cut { fill: var(--white); stroke: var(--white); stroke-width: 16; stroke-linejoin: round; }
+.fs .sk { fill: var(--sk); stroke: var(--art-ink); stroke-width: 2.5; stroke-linejoin: round; }
+.fs .hr { fill: var(--hr); stroke: var(--art-ink); stroke-width: 2.5; stroke-linejoin: round; }
+.fs .ln { fill: none; stroke: var(--art-ink); stroke-width: 2.5; stroke-linecap: round; }
+.fs .ey { stroke: var(--art-ink); stroke-width: 2.5; stroke-linecap: round; }
+.fs .pu { fill: var(--art-ink); }
+.fs .mo { stroke: var(--art-ink); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+.fs .f-white { fill: var(--white); }
+.fs .f-ink { fill: var(--art-ink); }
+.fs .f-none { fill: none; }
+.fs .tr { fill: var(--tear); }
+.fs-tag {
+  position: absolute; left: 50%; bottom: -3px; transform: translateX(-50%);
+  padding: 3px 9px 4px; border-radius: 999px; background: var(--ink); color: var(--white);
+  font-size: 12.5px; line-height: 1.15; font-weight: 700; white-space: nowrap;
+  opacity: 0; pointer-events: none; transition: opacity .15s;
+}
+.fs[aria-pressed="true"] .fs-tag { opacity: 1; }
+.faces-cap { position: absolute; left: 306px; top: 176px; z-index: 1; margin: 0; font-size: 14.5px; line-height: 1.2; font-weight: 700; color: var(--ink); transform: rotate(-2deg); white-space: nowrap; }
+
+/* The panel sticker */
+.lp {
+  position: absolute; left: 26px; top: 210px; order: 5; z-index: 1; max-width: 100%;
+  padding: 8px; border-radius: 22px; background: var(--white); transform: rotate(-1.5deg);
+  box-shadow: 0 16px 30px var(--lid-shadow);
+}
+/* Copied: the panel goes back to the menu bar and leaves the sticker's outline behind. */
+.lp.is-closed { background: var(--lid-peel); box-shadow: none; outline: 2px dashed var(--lid-edge); outline-offset: -2px; }
+.stage { position: relative; width: 525px; max-width: 100%; }
+
+/* ---------- The panel (demo) ---------- */
+.panel {
+  --m: 100px;
+  position: relative; width: 100%;
+  background: var(--p-bg); color: var(--p-text);
+  border: 1px solid var(--p-border); border-radius: 14px; padding: 12px;
+  font: 400 12.5px/1.35 var(--ui);
+  transform-origin: 50% 0;
+  transition: transform .24s cubic-bezier(.3, .8, .3, 1), opacity .2s;
+}
+.panel.closing { transform: translateY(-12px) scale(.97, .6); opacity: 0; }
+.panel button { font-family: var(--ui); }
+.p-main { display: grid; grid-template-columns: var(--m) minmax(0, 1fr); gap: 12px; }
+.mirror-box { position: relative; width: var(--m); height: var(--m); }
+.mirror { width: 100%; height: 100%; border-radius: 16px; overflow: hidden; background: var(--p-mirror); box-shadow: 0 0 0 3px var(--p-accent); }
+.mirror svg { width: 100%; height: 100%; }
+.ring { position: absolute; inset: -3px; width: calc(100% + 6px); height: calc(100% + 6px); pointer-events: none; overflow: visible; }
+.ring rect { fill: none; stroke: var(--p-amber); stroke-width: 3; stroke-dasharray: 100; stroke-dashoffset: 100; }
+.ring.filling rect { animation: fill 1s linear forwards; }
+@keyframes fill { to { stroke-dashoffset: 0; } }
+.pin { position: absolute; border: 1.5px dashed transparent; border-radius: 10px; background: none; padding: 0; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+.pin.eyes { left: 24%; top: 27%; width: 52%; height: 31%; }
+.pin.mouth { left: 33%; top: 58%; width: 34%; height: 24%; }
+.mirror-box:hover .pin { border-color: var(--p-pin-hover); }
+.pin[aria-pressed="true"] { border: 1.5px solid var(--p-amber); box-shadow: 0 0 0 3px var(--p-amber-soft), 0 0 18px var(--p-amber-glow); }
+.pin:focus-visible { outline: 2px solid var(--p-accent); outline-offset: 1px; }
+.hint { margin-top: 10px; display: grid; gap: 3px; justify-items: start; }
+.hint b { font-size: 12px; font-weight: 600; line-height: 1.3; }
+.hint span { font-size: 10.5px; color: var(--p-muted); line-height: 1.35; }
+.cap {
+  margin-top: 4px; padding: 3px 9px; border-radius: 99px; border: 1px solid var(--p-chip); background: none;
+  color: var(--p-text); font-size: 11px; line-height: 1.2; cursor: pointer; white-space: nowrap;
+}
+.cap:hover { background: var(--p-surface); }
+.cap:focus-visible, .btn-accent:focus-visible { outline: 2px solid var(--p-accent); outline-offset: 2px; }
+.search {
+  display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px;
+  background: var(--p-surface); border: 1px solid var(--p-sep); border-radius: 9px;
+}
+.search.has-text, .search:focus-within { border-color: var(--p-accent); }
+.search svg { width: 14px; height: 14px; color: var(--p-place); flex: none; }
+.search input { flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: none; padding: 0; color: var(--p-text); font: 400 12.5px/1 var(--ui); }
+.search input::placeholder { color: var(--p-place); opacity: 1; }
+.keys { display: flex; gap: 3px; flex: none; }
+.keys span { font: 500 10.5px/1.3 var(--sym); color: var(--p-muted); border: 1px solid var(--p-chip); border-radius: 4px; padding: 0 5px; }
+.grid { position: relative; list-style: none; margin: 8px 0 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 7px; }
+.grid li { aspect-ratio: 1; min-width: 0; max-width: 100%; }
+.tile { position: relative; display: block; width: 100%; height: 100%; padding: 0; border: 0; border-radius: 9px; background: var(--p-surface); cursor: pointer; transition: box-shadow .12s; }
+.tile .thumb { position: absolute; inset: 0; border-radius: 9px; overflow: hidden; }
+.tile .thumb svg { width: 100%; height: 100%; }
+.tile.sticker .thumb { background: repeating-conic-gradient(var(--p-check-a) 0 25%, var(--p-check-b) 0 50%) 0 0 / 14px 14px; }
+.tile.sticker .thumb svg { filter: drop-shadow(0 1px 1.5px var(--p-tile-shadow)); }
+.tile.is-focus, .tile:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--p-bg), 0 0 0 4px var(--p-accent); }
+.tile.arrived:not(.is-focus) { box-shadow: 0 0 0 2px var(--p-amber); }
+.tile:hover .thumb { filter: brightness(1.06); }
+.num { position: absolute; top: 4px; left: 4px; min-width: 15px; height: 15px; padding: 0 3px; border-radius: 5px; background: var(--p-badge); color: var(--p-badge-ink); font: 600 9.5px/15px var(--ui); text-align: center; }
+.own-dot { position: absolute; top: 5px; right: 5px; width: 8px; height: 8px; border-radius: 50%; background: var(--p-accent); box-shadow: 0 0 0 1.5px var(--p-dot-ring); }
+.friend-ring { position: absolute; top: 4px; right: 4px; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--p-amber); }
+.gif-badge { position: absolute; left: 4px; bottom: 4px; padding: 1px 3px; border-radius: 3px; background: var(--p-badge); color: var(--p-badge-ink); font: 800 7.5px/1.2 var(--ui); letter-spacing: .04em; }
+.tile.gif.is-focus .fg { animation: bob .42s ease-in-out infinite alternate; transform-origin: 50% 85%; transform-box: view-box; }
+@keyframes bob { from { transform: rotate(-3deg); } to { transform: rotate(3deg) translateY(-1.5px); } }
+.grid .ph { visibility: hidden; }
+.grid .empty {
+  position: absolute; inset: 0; aspect-ratio: auto; display: grid; place-items: center; text-align: center;
+  border: 1.5px dashed var(--p-chip); border-radius: 9px; color: var(--p-muted); padding: 12px; font-size: 12px;
+}
+.p-foot { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--p-sep); display: flex; align-items: baseline; justify-content: space-between; gap: 4px 14px; flex-wrap: wrap; }
+.focusline { font-size: 11.5px; color: var(--p-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; max-width: 100%; }
+.legend { font-size: 10.5px; color: var(--p-muted); white-space: nowrap; }
+
+.closed {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: min(380px, calc(100% - 32px)); display: grid; gap: 12px; padding: 12px;
+  background: var(--p-hud); color: var(--p-text); border: 1px solid var(--p-border); border-radius: 14px;
+  box-shadow: 0 24px 50px -24px var(--p-hud-shadow);
+  font: 400 12.5px/1.4 var(--ui);
+  animation: hudIn .24s ease-out;
+}
+@keyframes hudIn { from { opacity: 0; transform: translate(-50%, calc(-50% - 6px)); } }
+.closed-msg { display: flex; align-items: center; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--p-sep); }
+.closed-msg .thumb { width: 44px; height: 44px; border-radius: 9px; overflow: hidden; flex: none; }
+.closed-msg .thumb svg { width: 100%; height: 100%; }
+.closed-msg b { display: block; font-weight: 600; font-size: 13px; }
+.closed-msg span span { color: var(--p-muted); }
+.closed-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--p-soft); }
+.closed-foot > span { text-wrap: pretty; }
+.btn-accent { flex: none; border: 0; border-radius: 8px; padding: 6px 11px; background: var(--p-accent); color: var(--p-accent-ink); font: 600 12.5px/1.2 var(--ui); cursor: pointer; }
+
+/* ---------- Install ---------- */
+.sheet { container: sheet / inline-size; background: var(--white); color: var(--ink); border-radius: 28px; padding: clamp(24px, 4.5vw, 56px); box-shadow: 0 1px 0 var(--sh-card-1), 0 18px 40px var(--sh-card-2); }
+.sheet-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 12px 32px; margin-bottom: 40px; }
+h2 { margin: 0; font-size: clamp(2.25rem, 1.6rem + 2vw, 3.25rem); line-height: 1; font-weight: 800; letter-spacing: -.03em; }
+.once { margin: 0; display: flex; align-items: center; gap: 10px; font-size: 16px; line-height: 1.45; color: var(--ink-3); }
+.once svg, .privacy svg { flex: none; width: 18px; height: 18px; }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 20px; }
+/* Two columns (the sheet is 620-939px inside): stack steps 1 and 3 on the left, the tall step 2 on the right. */
+@container sheet (620px <= width < 940px) {
+  .steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .steps li:nth-child(2) { grid-column: 2; grid-row: 1 / span 2; }
+}
+.steps li { display: flex; flex-direction: column; gap: 10px; padding: 24px 26px 28px; border: 2px dashed var(--dash); border-radius: 22px; }
+.step-n {
+  align-self: flex-start; display: flex; align-items: center; justify-content: center; width: 46px; height: 46px;
+  border: 3px solid var(--white); border-radius: 50%; background: var(--lid-top); color: var(--ink);
+  font-size: 22px; line-height: 1; font-weight: 800; box-shadow: 0 4px 10px var(--sh-num); transform: rotate(var(--r));
+}
+h3 { margin: 4px 0 0; font-size: 24px; line-height: 1.2; font-weight: 750; letter-spacing: -.015em; }
+.st-p { margin: 0; font-size: 16.5px; line-height: 1.55; color: var(--ink-3); text-wrap: pretty; }
+.st-p a { font-weight: 600; }
+.kk { display: inline-flex; gap: 3px; vertical-align: 1px; }
+kbd {
+  display: inline-block; min-width: 1.5em; padding: 1px 6px;
+  border: 1px solid var(--kbd-line); border-bottom-width: 2px; border-radius: 6px;
+  background: var(--white); color: var(--ink); font-family: inherit; font-size: 14px; font-weight: 700; text-align: center;
+}
+.privacy { margin: 8px 0 0; display: flex; align-items: flex-start; gap: 10px; font-size: 14.5px; line-height: 1.5; color: var(--ink-3); text-wrap: pretty; }
+.privacy svg { margin-top: 2px; }
+
+/* ---------- Footer ---------- */
+.foot-in { padding-block: 28px 32px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 24px; font-size: 15px; }
+.foot-brand { display: flex; align-items: center; gap: 8px; font-weight: 700; }
+.foot-brand .mark { width: 24px; height: 24px; box-shadow: none; }
+.foot-brand .mark svg { width: 18px; height: 18px; }
+.foot-link, .foot-link:hover { display: inline-flex; align-items: center; min-height: 44px; color: var(--ink); font-weight: 600; text-decoration: underline; text-decoration-thickness: 1.5px; text-underline-offset: 4px; }
+.foot-link:hover { text-decoration-thickness: 3px; }
+
+/* ---------- Motion ---------- */
+@media (prefers-reduced-motion: no-preference) {
+  .stk, .fs { transition: transform .25s cubic-bezier(.2, .8, .2, 1); }
+  .dl { transition: transform .15s ease; }
+}
+@media (prefers-reduced-motion: no-preference) and (hover: hover) {
+  .stk:hover, .fs:hover { transform: rotate(0deg) scale(1.06); }
+  .dl:hover { transform: translateY(-2px); }
+}
+.fs:active { transform: rotate(var(--r)) scale(.96); }
+
+/* ---------- Responsive: below 860px the lid reflows into a tidy pile ---------- */
+@media (max-width: 859px) {
+  .lid { flex: 1 1 100%; width: auto; height: auto; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 18px 14px; padding: 26px 14px 34px; border-radius: 24px; }
+  .lg, .lk { position: static; }
+  .lb { position: relative; left: auto; top: auto; transform: rotate(-1.5deg); }
+  .faces { flex: 1 1 100%; display: grid; grid-template-columns: repeat(3, max-content); justify-content: center; gap: 22px 18px; padding-top: 4px; }
+  .fs { position: static; width: 84px; height: 84px; }
+  .faces-cap { position: static; grid-column: 1 / -1; justify-self: center; margin-top: -2px; transform: none; }
+  .lp { position: static; width: 100%; max-width: 541px; transform: rotate(-1deg); }
+  .stage { width: 100%; }
+}
+@media (min-width: 680px) and (max-width: 859px) {
+  .faces { grid-template-columns: repeat(6, max-content); }
+}
+@media (max-width: 600px) {
+  .panel { --m: 72px; padding: 10px; }
+  .p-main { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .p-left { display: grid; grid-template-columns: var(--m) minmax(0, 1fr); gap: 14px; align-items: center; }
+  .mirror { border-radius: 13px; }
+  .hint { margin-top: 0; }
+  .hint b { font-size: 12.5px; }
+  .hint span { font-size: 11px; }
+  .grid { gap: 6px; }
+  .tile, .tile .thumb { border-radius: 8px; }
+  .legend { display: none; }
+  /* Keep the pins at least 24px tall in the small mirror (WCAG 2.5.8). */
+  .pin.eyes { left: 14%; top: 22%; width: 72%; height: 36%; }
+  .pin.mouth { left: 22%; top: 58%; width: 56%; height: 36%; }
+}
+@media (max-width: 479px) {
+  .lp { padding: 6px; border-radius: 16px; }
+  .fs { width: 76px; height: 76px; }
+  .lgt { font-size: 21px; }
+  .lgm { width: 30px; height: 30px; }
+  .lk > span { width: 34px; height: 34px; font-size: 17px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
+}
+</style>
+
+<header class="top">
+  <div class="wrap top-in">
+    <span class="brand">
+      <span class="mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M9 9.3v.8M15 9.3v.8"/><path d="M8.3 14c1 1.4 2.2 2.1 3.7 2.1s2.7-.7 3.7-2.1"/></svg>
+      </span>
+      MemeMe
+    </span>
+    <nav class="nav" aria-label="Site">
+      <a class="nav-gh" href="https://github.com/Michaell14/MemeMe" target="_blank" rel="noopener">GitHub</a>
+      <a class="pill" href="https://github.com/Michaell14/MemeMe/releases/latest/download/MemeMe.dmg" target="_blank" rel="noopener">Download</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="hero" aria-labelledby="hero-h">
+    <div class="wrap hero-in">
+      <div class="copy">
+        <p class="kicker">A menu bar app for Mac</p>
+        <h1 id="hero-h"><span>Make a face.</span> <span>Get the meme.</span></h1>
+        <p class="lede">MemeMe lives in your menu bar, with no Dock icon and no window. Press <span class="nw">⌃⌘M</span> in any chat, make the face you mean, and copy the reaction that matches.</p>
+        <a class="dl" href="https://github.com/Michaell14/MemeMe/releases/latest/download/MemeMe.dmg" target="_blank" rel="noopener">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"/><path d="M7 10.5l5 5 5-5"/><path d="M5 19.5h14"/></svg>
+          <span class="dl-t"><b>Download for Mac</b><small>MemeMe.dmg · 2 MB</small></span>
+        </a>
+        <p class="req"><span class="nw">Version 1.0</span> · <span class="nw">macOS 14 Sonoma or later</span> · <span class="nw">Apple silicon and Intel</span></p>
+      </div>
+
+      <div class="lid" id="lid">
+        <div class="lg stk" aria-hidden="true">
+          <div class="lg-in">
+            <span class="lgm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M9 9.3v.8M15 9.3v.8"/><path d="M8.3 14c1 1.4 2.2 2.1 3.7 2.1s2.7-.7 3.7-2.1"/></svg></span>
+            <span class="lgt">MemeMe</span>
+          </div>
+        </div>
+
+        <div class="lk stk" aria-hidden="true"><span>⌃</span><span>⌘</span><span>M</span></div>
+
+        <div class="lb">
+          <svg aria-hidden="true" viewBox="0 0 304 142" width="304" height="142">
+            <path class="b-cut" d="M40 8 H278 Q296 8 296 26 V116 Q296 134 278 134 H40 Q22 134 22 116 L4 132 L22 94 V26 Q22 8 40 8 Z"/>
+            <path class="b-line" d="M40 8 H278 Q296 8 296 26 V116 Q296 134 278 134 H40 Q22 134 22 116 L4 132 L22 94 V26 Q22 8 40 8 Z"/>
+          </svg>
+          <div class="lb-in">
+            <div class="mb">
+              <button class="mb-smiley" id="smiley" type="button" aria-expanded="true" aria-controls="panel" aria-label="MemeMe in the menu bar">
+                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M9 9.3v.8M15 9.3v.8"/><path d="M8.3 14c1 1.4 2.2 2.1 3.7 2.1s2.7-.7 3.7-2.1"/></svg>
+              </button>
+              <span class="mb-ic mb-wifi" aria-hidden="true"><svg width="16" height="12" viewBox="0 0 16 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.2a9.5 9.5 0 0 1 13 0"/><path d="M4 7a6 6 0 0 1 8 0"/><path d="M6.5 9.7a2.4 2.4 0 0 1 3 0"/></svg></span>
+              <span class="mb-ic mb-batt" aria-hidden="true"><svg width="24" height="12" viewBox="0 0 24 12" fill="none"><rect x=".75" y=".75" width="19.5" height="10.5" rx="3" stroke="currentColor" stroke-opacity=".5" stroke-width="1.2"/><rect x="2.5" y="2.5" width="13" height="7" rx="1.6" fill="currentColor"/><path d="M22 4.3v3.4" stroke="currentColor" stroke-opacity=".5" stroke-width="1.5" stroke-linecap="round"/></svg></span>
+              <span class="mb-time" aria-hidden="true">Tue 9:41</span>
+            </div>
+            <div class="cue">
+              <svg aria-hidden="true" width="14" height="18" viewBox="0 0 14 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17V3"/><path d="M2 7.5L7 2.5l5 5"/></svg>
+              <p>Lives up here. No Dock icon, no window, not in ⌘-Tab.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="faces" role="group" aria-label="Try a face">
+          <button class="fs lf" type="button" data-face="shocked" aria-pressed="true" aria-label="Try Shocked" style="--x:38px;--y:20px;--s:100px;--r:-10deg;--sk:var(--skin-1)">
+            <svg viewBox="-4 -8 108 108" aria-hidden="true" focusable="false"><path class="ring" d="M18 54a32 32 0 1 0 64 0a32 32 0 1 0 -64 0 M22 40 L26 12 L46 28 Z M78 40 L74 12 L54 28 Z"/><path class="cut" d="M18 54a32 32 0 1 0 64 0a32 32 0 1 0 -64 0 M22 40 L26 12 L46 28 Z M78 40 L74 12 L54 28 Z"/><path class="sk" d="M22 40 L26 12 L46 28 Z M78 40 L74 12 L54 28 Z"/><circle class="sk" cx="50" cy="54" r="32"/><path class="ln" d="M30 36 Q38 29 45 34 M55 34 Q62 29 70 36"/><path class="ey f-white" d="M31 46a7 7 0 1 0 14 0a7 7 0 1 0 -14 0M55 46a7 7 0 1 0 14 0a7 7 0 1 0 -14 0"/><path class="pu" d="M35.4 46a2.6 2.6 0 1 0 5.2 0a2.6 2.6 0 1 0 -5.2 0M59.4 46a2.6 2.6 0 1 0 5.2 0a2.6 2.6 0 1 0 -5.2 0"/><path class="mo f-ink" d="M42.5 70a7.5 7.5 0 1 0 15 0a7.5 7.5 0 1 0 -15 0"/></svg>
+            <span class="fs-tag" aria-hidden="true">Shocked</span>
+          </button>
+          <button class="fs lf" type="button" data-face="unimpressed" aria-pressed="false" aria-label="Try Unimpressed" style="--x:166px;--y:30px;--s:76px;--r:8deg;--sk:var(--skin-2);--hr:var(--hair-1)">
+            <svg viewBox="-4 -8 108 108" aria-hidden="true" focusable="false"><path class="ring" d="M18 54a32 32 0 1 0 64 0a32 32 0 1 0 -64 0 M20 44 Q18 18 50 19 Q82 18 80 44 Q72 28 50 28 Q28 28 20 44 Z"/><path class="cut" d="M18 54a32 32 0 1 0 64 0a32 32 0 1 0 -64 0 M20 44 Q18 18 50 19 Q82 18 80 44 Q72 28 50 28 Q28 28 20 44 Z"/><circle class="sk" cx="50" cy="54" r="32"/><path class="hr" d="M20 44 Q18 18 50 19 Q82 18 80 44 Q72 28 50 28 Q28 28 20 44 Z"/><path class="ln" d="M30 40 L45 41.5 M55 41.5 L70 40"/><path class="ey f-white" d="M31 46 A7 7 0 0 0 45 46 Z M55 46 A7 7 0 0 0 69 46 Z"/><path class="pu" d="M35.6 49.2a2.4 2.4 0 1 0 4.8 0a2.4 2.4 0 1 0 -4.8 0M59.6 49.2a2.4 2.4 0 1 0 4.8 0a2.4 2.4 0 1 0 -4.8 0"/><path class="mo f-none" d="M40 70 Q50 66.5 60 70"/></svg>
+            <span class="fs-tag" aria-hidden="true">Unimpressed</span>
+          </button>
+          <button class="fs lf" type="button" data-face="laughing" aria-pressed="false" aria-label="Try Laughing" style="--x:618px;--y:14px;--s:110px;--r:9deg;--sk:var(--skin-3);--hr:var(--hair-2)">
+            <svg viewBox="-4 -8 108 108" aria-hidden="true" focusable="false"><path class="ring" d="M18 54a32 32 0 1 0 64 0a32 32 0 1 0 -64 0 M37 16a13 13 0 1 0 26 0a13 13 0 1 0 -26 0 M18 50 Q14 18 50 20 Q86 18 82 50 Q76 30 50 28 Q24 30 18 50 Z"/><path class="cut" d="M18 54a32 32 0 1 0 64 0a32 32 0 1 0 -64 0 M37 16a13 13 0 1 0 26 0a13 13 0 1 0 -26 0 M18 50 Q14 18 50 20 Q86 18 82 50 Q76 30 50 28 Q24 30 18 50 Z"/><circle class="sk" cx="50" cy="54" r="32"/><path class="hr" d="M37 16a13 13 0 1 0 26 0a13 13 0 1 0 -26 0 M18 50 Q14 18 50 20 Q86 18 82 50 Q76 30 50 28 Q24 30 18 50 Z"/><path class="ln" d="M30 36 Q37 32 45 35 M55 35 Q63 32 70 36"/><path class="ey f-none" d="M31 48 Q38 41 45 48 M55 48 Q62 41 69 48"/><path class="mo f-ink" d="M36 62 Q50 82 64 62 Z"/><path class="tr" d="M30 53 Q27 60 30 63 Q33 60 30 53 Z M70 53 Q67 60 70 63 Q73 60 70 53 Z"/></svg>
+            <span class="fs-tag" aria-hidden="true">Laughing</span>
+          </button>
+          <button class="fs lf" type="button" data-face="smug" aria-pressed="false" aria-label="Try Smug" style="--x:604px;--y:238px;--s:96px;--r:-7deg;--sk:var(--skin-4);--hr:var(--hair-3)">
+            <svg viewBox="-4 -8 108 108" aria-hidden="true" focusable="false"><path class="ring" d="M18 54a32 32 0 1 0 64 0a32 32 0 1 0 -64 0 M20 44 Q18 18 50 19 Q82 18 80 44 Q72 28 50 28 Q28 28 20 44 Z"/><path class="cut" d="M18 54a32 32 0 1 0 64 0a32 32 0 1 0 -64 0 M20 44 Q18 18 50 19 Q82 18 80 44 Q72 28 50 28 Q28 28 20 44 Z"/><circle class="sk" cx="50" cy="54" r="32"/><path class="hr" d="M20 44 Q18 18 50 19 Q82 18 80 44 Q72 28 50 28 Q28 28 20 44 Z"/><path class="ln" d="M30 39 L45 37 M55 35 Q62 31 70 35"/><path class="ey f-none" d="M31 47 L45 47 M55 47 L69 47"/><path class="pu" d="M38.6 49.5a2.4 2.4 0 1 0 4.8 0a2.4 2.4 0 1 0 -4.8 0M62.6 49.5a2.4 2.4 0 1 0 4.8 0a2.4 2.4 0 1 0 -4.8 0"/><path class="mo f-none" d="M39 68 Q52 72 63 62"/></svg>
+            <span class="fs-tag" aria-hidden="true">Smug</span>
+          </button>
+          <button class="fs lf" type="button" data-face="sideeye" aria-pressed="false" aria-label="Try Side eye" style="--x:660px;--y:326px;--s:84px;--r:12deg;--sk:var(--skin-5)">
+            <svg viewBox="-4 -8 108 108" aria-hidden="true" focusable="false"><path class="ring" d="M18 54a32 32 0 1 0 64 0a32 32 0 1 0 -64 0 M24 34 Q8 52 20 68 Q28 60 32 38 Z M76 34 Q92 52 80 68 Q72 60 68 38 Z"/><path class="cut" d="M18 54a32 32 0 1 0 64 0a32 32 0 1 0 -64 0 M24 34 Q8 52 20 68 Q28 60 32 38 Z M76 34 Q92 52 80 68 Q72 60 68 38 Z"/><path class="sk" d="M24 34 Q8 52 20 68 Q28 60 32 38 Z M76 34 Q92 52 80 68 Q72 60 68 38 Z"/><circle class="sk" cx="50" cy="54" r="32"/><path class="ln" d="M30 39 L45 39 M55 38 L70 36"/><path class="ey f-white" d="M32 47a6 6 0 1 0 12 0a6 6 0 1 0 -12 0M56 47a6 6 0 1 0 12 0a6 6 0 1 0 -12 0"/><path class="pu" d="M39.4 48a2.6 2.6 0 1 0 5.2 0a2.6 2.6 0 1 0 -5.2 0M63.4 48a2.6 2.6 0 1 0 5.2 0a2.6 2.6 0 1 0 -5.2 0"/><path class="mo f-none" d="M42 68 L58 67"/></svg>
+            <span class="fs-tag" aria-hidden="true">Side eye</span>
+          </button>
+          <button class="fs lf" type="button" data-face="confused" aria-pressed="false" aria-label="Try Confused" style="--x:598px;--y:414px;--s:88px;--r:-5deg;--sk:var(--skin-6)">
+            <svg viewBox="-4 -8 108 108" aria-hidden="true" focusable="false"><path class="ring" d="M18 54a32 32 0 1 0 64 0a32 32 0 1 0 -64 0"/><path class="cut" d="M18 54a32 32 0 1 0 64 0a32 32 0 1 0 -64 0"/><circle class="sk" cx="50" cy="54" r="32"/><path class="ln" d="M29 34 Q37 25 45 31 M55 41 L70 38"/><path class="ey f-white" d="M30.8 46a7.2 7.2 0 1 0 14.4 0a7.2 7.2 0 1 0 -14.4 0M56.8 47.5a5.2 5.2 0 1 0 10.4 0a5.2 5.2 0 1 0 -10.4 0"/><path class="pu" d="M33.8 44.2a2.6 2.6 0 1 0 5.2 0a2.6 2.6 0 1 0 -5.2 0M58.5 46.2a2.3 2.3 0 1 0 4.6 0a2.3 2.3 0 1 0 -4.6 0"/><path class="mo f-none" d="M39 70 Q44.5 65.5 50 70 Q55.5 74.5 61 68.5"/></svg>
+            <span class="fs-tag" aria-hidden="true">Confused</span>
+          </button>
+          <p class="faces-cap">Pick a face sticker to try it.</p>
+        </div>
+
+        <div class="lp" id="lp">
+          <div class="stage" id="stage">
+            <div class="panel" id="panel" role="group" aria-label="MemeMe panel, interactive demo">
+              <div class="p-main">
+                <div class="p-left">
+                  <div class="mirror-box" id="mirrorBox">
+                    <div class="mirror" id="mirror" role="img" aria-label="Your face"></div>
+                    <svg class="ring" id="ring" viewBox="0 0 126 126" aria-hidden="true"><rect x="1.5" y="1.5" width="123" height="123" rx="21" pathLength="100"/></svg>
+                    <button class="pin eyes" type="button" data-pin="eyes" aria-pressed="false" aria-label="Make your eyes count more"></button>
+                    <button class="pin mouth" type="button" data-pin="mouth" aria-pressed="false" aria-label="Make your mouth count more"></button>
+                  </div>
+                  <div class="hint">
+                    <b id="hintTitle">Make a face. Results follow it.</b>
+                    <span id="hintSub">Click your eyes or mouth to make them count more.</span>
+                    <button class="cap" id="hintAction" type="button" hidden>Clear</button>
+                  </div>
+                </div>
+                <div class="p-right">
+                  <label class="search" id="searchBox">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="6.8" cy="6.8" r="4.9"/><path d="m10.5 10.5 3.6 3.6"/></svg>
+                    <input id="q" type="text" autocomplete="off" spellcheck="false" placeholder="Or type: cat, gif, Maya…" aria-label="Search by typing">
+                    <span class="keys" aria-label="Control Command M"><span>⌃</span><span>⌘</span><span>M</span></span>
+                  </label>
+                  <ol class="grid" id="grid" aria-label="Results"></ol>
+                </div>
+              </div>
+              <div class="p-foot">
+                <span class="focusline" id="focusText"></span>
+                <span class="legend">↵ copy · 1–9 pick · drag into chat · esc</span>
+              </div>
+            </div>
+            <div class="closed" id="closed" hidden>
+              <div class="closed-msg" id="closedMsg"></div>
+              <div class="closed-foot">
+                <span>Back in the menu bar. Press ⌃⌘M or click <span class="nw">the smiley.</span></span>
+                <button class="btn-accent" id="reopen" type="button">Open</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <span class="hinge" aria-hidden="true"></span>
+        <p class="sr" id="live" aria-live="polite"></p>
+      </div>
+    </div>
+  </section>
+
+  <section id="install" aria-labelledby="install-h">
+    <div class="wrap">
+      <div class="sheet">
+        <div class="sheet-head">
+          <h2 id="install-h">Install</h2>
+          <p class="once">
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4v5h-5"/></svg>
+            You do this once. After that, MemeMe updates itself.
+          </p>
+        </div>
+
+        <ol class="steps">
+          <li>
+            <span class="step-n" aria-hidden="true" style="--r:-8deg">1</span>
+            <h3>Drag it to Applications</h3>
+            <p class="st-p">Open <a href="https://github.com/Michaell14/MemeMe/releases/latest/download/MemeMe.dmg" target="_blank" rel="noopener">MemeMe.dmg</a> and drag MemeMe to Applications.</p>
+          </li>
+          <li>
+            <span class="step-n" aria-hidden="true" style="--r:6deg">2</span>
+            <h3>Open it</h3>
+            <p class="st-p">The first time, macOS asks whether to open an app downloaded from the internet. Click Open.</p>
+          </li>
+          <li>
+            <span class="step-n" aria-hidden="true" style="--r:-4deg">3</span>
+            <h3>Allow the camera</h3>
+            <p class="st-p">Then press <span class="kk"><kbd>⌃</kbd><kbd>⌘</kbd><kbd>M</kbd></span> <span class="nw">in any chat.</span></p>
+            <p class="privacy">
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+              The camera is on only while the panel is open, and your face never leaves your Mac.
+            </p>
+          </li>
+        </ol>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-in">
+    <span class="foot-brand">
+      <span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M9 9.3v.8M15 9.3v.8"/><path d="M8.3 14c1 1.4 2.2 2.1 3.7 2.1s2.7-.7 3.7-2.1"/></svg></span>
+      MemeMe 1.0
+    </span>
+    <a class="foot-link" href="https://github.com/Michaell14/MemeMe" target="_blank" rel="noopener">Source code and releases on GitHub</a>
+  </div>
+</footer>
+
+<script>
+(() => {
+  "use strict";
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+  const n1 = v => Math.round(v * 10) / 10;
+  const ease = t => 1 - Math.pow(1 - t, 3);
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const finePointer = matchMedia("(pointer: fine)").matches;
+
+  // ---------- Faces ----------
+  // A face is seven numbers, the same kind of thing MemeMe measures on a real face.
+  const KEYS = ["brow", "tilt", "eye", "look", "mouth", "smile", "smirk"];
+  const REGION = { brow: "eyes", tilt: "eyes", eye: "eyes", look: "eyes", mouth: "mouth", smile: "mouth", smirk: "mouth" };
+  const face = p => ({ brow: 0, tilt: 0, eye: .55, look: 0, mouth: 0, smile: 0, smirk: 0, ...p });
+  const EXPR = {
+    shocked:     { label: "Shocked",     p: face({ brow: 1, eye: 1, mouth: 1 }) },
+    sideeye:     { label: "Side eye",    p: face({ brow: -.35, tilt: .25, eye: .42, look: 1, smile: -.25 }) },
+    laughing:    { label: "Laughing",    p: face({ brow: .35, eye: 0, mouth: .85, smile: 1 }) },
+    unimpressed: { label: "Unimpressed", p: face({ brow: -.2, eye: .38, smile: -.45 }) },
+    confused:    { label: "Confused",    p: face({ brow: .3, tilt: 1, eye: .72, look: -.3, mouth: .12, smile: -.3, smirk: .4 }) },
+    smug:        { label: "Smug",        p: face({ brow: -.1, tilt: .45, eye: .45, look: .35, smile: .55, smirk: .8 }) },
+  };
+  const lerpFace = (a, b, t) => { const o = {}; for (const k of KEYS) o[k] = a[k] + (b[k] - a[k]) * t; return o; };
+
+  const INK = "#1C1A22";
+  function shade(hex, amt) {
+    const v = parseInt(hex.slice(1), 16);
+    const t = amt < 0 ? 0 : 255, k = Math.abs(amt);
+    const ch = s => Math.round(((v >> s) & 255) + (t - ((v >> s) & 255)) * k);
+    return "#" + ((1 << 24) + (ch(16) << 16) + (ch(8) << 8) + ch(0)).toString(16).slice(1);
+  }
+  function silhouette(o) {
+    const s = [];
+    if (o.species === "person" && o.body !== false) s.push(["path", 'd="M10 106 C12 85 29 76 50 76 C71 76 88 85 90 106 Z"', o.shirt || "#3E4C70"]);
+    if (o.species === "cat") s.push(["path", 'd="M23 46 L26 15 L47 31 Z"', o.skin], ["path", 'd="M77 46 L74 15 L53 31 Z"', o.skin]);
+    s.push(o.species === "person" ? ["ellipse", 'cx="50" cy="51" rx="25" ry="28"', o.skin] : ["ellipse", 'cx="50" cy="56" rx="30" ry="26"', o.skin]);
+    if (o.species === "dog") {
+      const e = o.ear || shade(o.skin, -.3);
+      s.push(["ellipse", 'cx="23" cy="54" rx="9" ry="18" transform="rotate(14 23 54)"', e], ["ellipse", 'cx="77" cy="54" rx="9" ry="18" transform="rotate(-14 77 54)"', e]);
+    }
+    if (o.species === "person" && o.hair) s.push(["path", 'd="M25 50 C21 27 35 19 50 19 C65 19 79 27 75 50 C72 37 62 30 50 30 C38 30 28 37 25 50 Z"', o.hair]);
+    return s;
+  }
+  function eyesMarkup(p, cx, cy, dx, skin, lookY) {
+    const e = clamp(p.eye, 0, 1);
+    let s = "";
+    for (const side of [-1, 1]) {
+      const x = cx + side * dx;
+      if (e < .12) {
+        s += p.smile > .3
+          ? `<path d="M${x - 5.5} ${cy + 1.5} Q${x} ${cy - 5} ${x + 5.5} ${cy + 1.5}" fill="none" stroke="${INK}" stroke-width="2.6" stroke-linecap="round"/>`
+          : `<path d="M${x - 5} ${cy} L${x + 5} ${cy}" stroke="${INK}" stroke-width="2.6" stroke-linecap="round"/>`;
+        continue;
+      }
+      const ry = 1.8 + 5.4 * e, rx = 5.2 + 1.3 * e;
+      const pr = Math.min(e > .88 ? 2.3 : 3, ry - .3);
+      const px = clamp(p.look * 3.4, -(rx - pr - .6), rx - pr - .6);
+      const py = clamp(lookY * 1.8, -(ry - pr - .2), Math.max(0, ry - pr - .2));
+      s += `<ellipse cx="${x}" cy="${cy}" rx="${n1(rx)}" ry="${n1(ry)}" fill="#fff" stroke="${INK}" stroke-width="2"/>`;
+      s += `<circle cx="${n1(x + px)}" cy="${n1(cy + py)}" r="${n1(pr)}" fill="${INK}"/>`;
+      if (e < .55) {
+        const lid = cy - ry * .25;
+        s += `<rect x="${n1(x - rx - 1.6)}" y="${n1(cy - ry - 1.8)}" width="${n1(2 * rx + 3.2)}" height="${n1(lid - (cy - ry - 1.8))}" fill="${skin}"/>`;
+        s += `<path d="M${n1(x - rx - .4)} ${n1(lid)} L${n1(x + rx + .4)} ${n1(lid)}" stroke="${INK}" stroke-width="2.2" stroke-linecap="round"/>`;
+      }
+    }
+    return s;
+  }
+  function mouthMarkup(p, cx, cy) {
+    const m = p.mouth, s = p.smile, k = p.smirk;
+    if (m > .22) {
+      const sp = Math.max(s, 0);
+      const wx = 5.5 + 7 * sp + 2.5 * m;
+      const yl = cy - sp * 1.5, yr = yl - k * 2.5;
+      const top = cy - (1 - sp) * 4.5 * m - 1;
+      const bot = cy + 4 + 11 * m - (s < 0 ? s * 2 : 0);
+      let out = `<path d="M${n1(cx - wx)} ${n1(yl)} Q${cx} ${n1(top)} ${n1(cx + wx)} ${n1(yr)} Q${cx} ${n1(bot + 3)} ${n1(cx - wx)} ${n1(yl)} Z" fill="#4A1C22" stroke="${INK}" stroke-width="2.2" stroke-linejoin="round"/>`;
+      if (sp > .5) out += `<ellipse cx="${cx}" cy="${n1((cy + bot + 3) / 2 - 2.6)}" rx="${n1(wx * .42)}" ry="${n1(1.8 + 1.6 * m)}" fill="#E0707A"/>`;
+      return out;
+    }
+    const w = 7.5 + 3 * Math.abs(s);
+    const yl = cy - s * 2.5, yr = yl - k * 4;
+    return `<path d="M${n1(cx - w)} ${n1(yl)} Q${cx} ${n1(cy + s * 6)} ${n1(cx + w)} ${n1(yr)}" fill="none" stroke="${INK}" stroke-width="2.6" stroke-linecap="round"/>`;
+  }
+  function features(p, o) {
+    const person = o.species === "person";
+    const ey = person ? 50 : 53, dx = person ? 10.5 : 11.5;
+    const by = (person ? 38 : 41) - p.brow * 4.5;
+    const my = person ? 65 : o.species === "dog" ? 73 : 70;
+    let s = "";
+    if (o.species === "dog") s += `<ellipse cx="50" cy="68" rx="14" ry="10" fill="${shade(o.skin, .35)}"/><ellipse cx="50" cy="62.5" rx="5" ry="3.6" fill="${INK}"/>`;
+    if (o.species === "cat") s += `<path d="M46.5 62 L53.5 62 L50 65.5 Z" fill="#E58A93" stroke="${INK}" stroke-width="1.2" stroke-linejoin="round"/><path d="M31 64 L16 61 M31 68 L16 71 M69 64 L84 61 M69 68 L84 71" stroke="${INK}" stroke-width="1.3" stroke-linecap="round" opacity=".6"/>`;
+    s += eyesMarkup(p, 50, ey, dx, o.skin, o.lookY || 0);
+    const inner = p.brow < 0 ? -p.brow * 5 : 0, tl = -p.tilt * 4.5, tr = p.tilt * 2.5;
+    s += `<path d="M${50 - dx - 8} ${n1(by + tl)} L${50 - dx + 5} ${n1(by + tl + inner)} M${50 + dx - 5} ${n1(by + tr + inner)} L${50 + dx + 8} ${n1(by + tr)}" stroke="${INK}" stroke-width="2.6" stroke-linecap="round" fill="none"/>`;
+    s += mouthMarkup(p, 50, my);
+    if (o.blush) s += `<ellipse cx="${50 - dx - 4}" cy="${ey + 9}" rx="4.5" ry="2.4" fill="#F0806E" opacity=".4"/><ellipse cx="${50 + dx + 4}" cy="${ey + 9}" rx="4.5" ry="2.4" fill="#F0806E" opacity=".4"/>`;
+    if (o.tears) for (const x of [50 - dx - 7, 50 + dx + 7]) s += `<path d="M${x} ${ey + 2} c-2.4 4 -2.8 6.4 0 7.4 c2.8 -1 2.4 -3.4 0 -7.4z" fill="#8EC5F0" stroke="${INK}" stroke-width="1"/>`;
+    if (o.sweat) s += `<path d="M76 27 c-2.6 4.4 -3.2 7 0 8.2 c3.2 -1.2 2.6 -3.8 0 -8.2z" fill="#8EC5F0" stroke="${INK}" stroke-width="1.1"/>`;
+    return s;
+  }
+  function faceSVG(p, o = {}) {
+    o = { species: "person", skin: "#F5C451", ...o };
+    const parts = silhouette(o);
+    let s = '<svg viewBox="0 0 100 100" aria-hidden="true" focusable="false">';
+    if (o.bg) s += `<rect width="100" height="100" fill="${o.bg[0]}"/><rect y="80" width="100" height="20" fill="${o.bg[1]}"/>`;
+    s += '<g class="fg">';
+    if (o.cut) s += '<g class="cut">' + parts.map(([t, a]) => `<${t} ${a} fill="#fff" stroke="#fff" stroke-width="9" stroke-linejoin="round"/>`).join("") + "</g>";
+    s += parts.map(([t, a, fill]) => `<${t} ${a} fill="${fill}" stroke="${INK}" stroke-width="2.4" stroke-linejoin="round"/>`).join("");
+    s += features(p, o) + "</g>";
+    if (o.cap) s += `<text x="50" y="${o.capPos === "bottom" ? 95 : 17}" text-anchor="middle" font-family="Anton, Impact, 'Arial Narrow', sans-serif" font-size="${o.capSize || 15}" fill="#fff" stroke="#000" stroke-width="3.2" stroke-linejoin="round" paint-order="stroke" letter-spacing=".4">${o.cap}</text>`;
+    return s + "</svg>";
+  }
+
+  // ---------- Library (made-up examples, drawn here) ----------
+  const T = (id, title, kind, src, tags, p, o, friend) => ({ id, title, kind, src, tags, p: face(p), o, friend });
+  const TILES = [
+    T("t1", "Shocked cat", "own", "Downloads · Mar 2026", "cat shocked omg surprised", { brow: .9, eye: 1, mouth: .9 }, { species: "cat", skin: "#C9C3BA", bg: ["#9DB5E2", "#7E96C4"] }),
+    T("t2", "OMG", "gif", "GIPHY", "omg shocked wow gasp", { brow: 1, eye: .95, mouth: 1, smile: .1 }, { skin: "#F0C29E", hair: "#5A3A22", shirt: "#2F6F6A", bg: ["#F2A79F", "#D98A82"], cap: "OMG" }),
+    T("t3", "Jaw on the floor", "gif", "GIPHY", "dog shocked jaw drop", { brow: .75, eye: .9, mouth: 1, smile: -.15 }, { species: "dog", skin: "#D9B88C", bg: ["#B6DCB1", "#93C08D"] }),
+    T("t4", "Maya, mid-gasp", "sticker", "Sticker · Maya", "maya gasp shocked", { brow: .85, eye: .85, mouth: .7, smile: .15 }, { skin: "#A86E4A", hair: "#1F1A1C", shirt: "#E2725B", cut: true }, "Maya"),
+    T("t5", "Side eye", "own", "Desktop · Feb 2026", "side eye suspicious judging", { brow: -.4, tilt: .2, eye: .4, look: 1, smile: -.2 }, { skin: "#F5D0B5", hair: "#B5542E", shirt: "#4B5A8A", bg: ["#D5C6F0", "#B8A5DE"] }),
+    T("t6", "Hmm, suspicious", "gif", "GIPHY", "cat side eye suspicious", { brow: -.3, tilt: .4, eye: .48, look: .9, smile: -.35 }, { species: "cat", skin: "#E8A15A", bg: ["#F3D58C", "#E0BA62"] }),
+    T("t7", "Crying laughing", "own", "Screenshots · Jan 2026", "laughing crying lol dead", { brow: .4, eye: 0, mouth: .9, smile: 1 }, { skin: "#6E4630", hair: "#141014", shirt: "#C9A227", bg: ["#A7DAE2", "#85C2CB"], tears: true, cap: "I CAN’T", capPos: "bottom", capSize: 14 }),
+    T("t8", "Wheeze", "gif", "GIPHY", "dog laughing wheeze lol", { brow: .3, eye: .05, mouth: .75, smile: .95 }, { species: "dog", skin: "#E6C9A0", ear: "#9C7048", bg: ["#F2B88E", "#DF996B"] }),
+    T("t9", "Jordan, losing it", "sticker", "Sticker · Jordan", "jordan laughing lol", { brow: .25, eye: .08, mouth: .65, smile: .9 }, { skin: "#F2C7A5", hair: "#D9A84A", shirt: "#3E7A5A", cut: true }, "Jordan"),
+    T("t10", "Unimpressed dog", "own", "Downloads · Dec 2025", "dog unimpressed meh bored", { brow: -.25, eye: .34, smile: -.5 }, { species: "dog", skin: "#B98A62", ear: "#6E4A30", bg: ["#C7D2DF", "#A8B5C6"] }),
+    T("t11", "Cool story", "gif", "GIPHY", "unimpressed cool story bored", { brow: -.1, eye: .4, look: .2, smile: -.35 }, { skin: "#D9A47E", hair: "#2B2B2B", shirt: "#8A4F7D", bg: ["#B6C3A0", "#97A57F"], cap: "COOL STORY", capSize: 12 }),
+    T("t12", "Head tilt", "own", "Downloads · Feb 2026", "dog confused huh what", { brow: .35, tilt: .9, eye: .75, look: -.4, mouth: .1, smile: -.2, smirk: .3 }, { species: "dog", skin: "#EAD3B0", ear: "#B07F4E", bg: ["#EFC7D6", "#DBA6BB"] }),
+    T("t13", "Doing the math", "gif", "GIPHY", "confused math thinking", { brow: .4, tilt: 1, eye: .7, look: -.25, mouth: .18, smile: -.35, smirk: .5 }, { skin: "#F5D0B5", hair: "#3B2A20", shirt: "#2F4A7A", bg: ["#BDD5F4", "#9BBBE6"] }),
+    T("t14", "Smug cat", "own", "Desktop · Mar 2026", "cat smug proud", { brow: -.15, tilt: .4, eye: .38, look: .4, smile: .6, smirk: .9 }, { species: "cat", skin: "#55555F", bg: ["#E6D6A4", "#D0BC80"] }),
+    T("t15", "Told you so", "gif", "GIPHY", "smug told you so", { tilt: .5, eye: .5, look: .3, smile: .5, smirk: .7 }, { skin: "#A86E4A", hair: "#2A1C16", shirt: "#D9A03A", bg: ["#CDE6C7", "#ACD1A4"], cap: "TOLD YOU", capSize: 13 }),
+    T("t16", "Totally fine", "own", "Screenshots · Nov 2025", "nervous fine sweating", { brow: .5, eye: .8, mouth: .12, smile: .45 }, { skin: "#F2C7A5", hair: "#6B4A2E", shirt: "#C2563F", bg: ["#F6C49E", "#EAA57A"], sweat: true, cap: "IT’S FINE", capPos: "bottom", capSize: 14 }),
+    T("t17", "Deadpan", "own", "Downloads · Oct 2025", "deadpan blank neutral", { eye: .55 }, { skin: "#6E4630", hair: "#0F0D10", shirt: "#5A6472", bg: ["#D2D5DA", "#B4B9C1"] }),
+    T("t18", "Scream", "gif", "GIPHY", "cat scream shocked", { brow: .9, eye: .62, mouth: 1, smile: -.45 }, { species: "cat", skin: "#F1EEE9", bg: ["#F3A2A2", "#DF7E7E"] }),
+  ];
+  const KIND_WORDS = { own: "mine saved", gif: "gif giphy", sticker: "sticker friend" };
+  for (const t of TILES) t.hay = `${t.title} ${t.tags} ${KIND_WORDS[t.kind]} ${t.friend || ""}`.toLowerCase();
+  const byId = Object.fromEntries(TILES.map(t => [t.id, t]));
+  const tileSVG = t => faceSVG(t.p, t.o);
+
+  // ---------- Demo state ----------
+  const lid = $("#lid"), lp = $("#lp"), stage = $("#stage"), panel = $("#panel"), grid = $("#grid"), input = $("#q");
+  const mirror = $("#mirror"), ring = $("#ring"), searchBox = $("#searchBox"), focusText = $("#focusText");
+  const hintTitle = $("#hintTitle"), hintSub = $("#hintSub"), hintAction = $("#hintAction");
+  const closed = $("#closed"), closedMsg = $("#closedMsg"), smiley = $("#smiley"), live = $("#live");
+  const faceBtns = $$(".fs");
+  const S = { open: true, mode: "live", committed: "shocked", holding: null, pins: new Set(), shown: [], focus: 0, cur: { ...EXPR.shocked.p }, lookX: 0, lookY: 0, blink: false, lastType: 0 };
+
+  function dist(a, b) {
+    let d = 0;
+    for (const k of KEYS) { const w = S.pins.has(REGION[k]) ? 3 : 1, x = a[k] - b[k]; d += w * x * x; }
+    return d;
+  }
+  const rankFace = q => TILES.map(t => ({ t, d: dist(q, t.p) + (t.kind === "gif" ? .04 : 0) })).sort((a, b) => a.d - b.d).slice(0, 10).map(x => x.t);
+  function rankText(text) {
+    const words = text.toLowerCase().split(/\s+/).filter(Boolean);
+    const order = { own: 0, sticker: 1, gif: 2 };
+    return TILES.filter(t => words.every(w => t.hay.includes(w))).sort((a, b) => order[a.kind] - order[b.kind]).slice(0, 10);
+  }
+
+  // Tiles keep their DOM node, so re-ranking can slide them (FLIP) instead of redrawing.
+  const nodes = new Map();
+  function tileNode(t) {
+    if (nodes.has(t.id)) return nodes.get(t.id);
+    const li = document.createElement("li");
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = `tile ${t.kind}`;
+    b.dataset.id = t.id;
+    b.draggable = true;
+    const kindLabel = t.kind === "gif" ? "GIF from GIPHY" : t.kind === "sticker" ? `sticker of ${t.friend}` : "from your saved memes";
+    b.setAttribute("aria-label", `${t.title}, ${kindLabel}`);
+    b.innerHTML = `<span class="thumb">${tileSVG(t)}</span><span class="num" aria-hidden="true"></span>` +
+      (t.kind === "own" ? '<span class="own-dot" aria-hidden="true"></span>' : "") +
+      (t.kind === "sticker" ? '<span class="friend-ring" aria-hidden="true"></span>' : "") +
+      (t.kind === "gif" ? '<span class="gif-badge" aria-hidden="true">GIF</span>' : "");
+    li.append(b);
+    nodes.set(t.id, li);
+    return li;
+  }
+  function renderGrid(list, emptyText) {
+    const before = new Map();
+    for (const li of grid.children) if (li.firstChild && li.firstChild.dataset) before.set(li.firstChild.dataset.id, li.getBoundingClientRect());
+    S.shown = list;
+    S.focus = 0;
+    // Always ten slots, so the panel keeps its height while results change.
+    const items = list.map(tileNode);
+    for (let i = list.length; i < 10; i++) {
+      const ph = document.createElement("li");
+      ph.className = "ph";
+      ph.setAttribute("aria-hidden", "true");
+      items.push(ph);
+    }
+    if (!list.length) {
+      const li = document.createElement("li");
+      li.className = "empty";
+      li.textContent = emptyText;
+      items.unshift(li);
+    }
+    // Re-ranking moves the tile nodes; a tile that had keyboard focus keeps it.
+    const fid = grid.contains(document.activeElement) && document.activeElement.dataset ? document.activeElement.dataset.id : null;
+    grid.replaceChildren(...items);
+    if (fid) {
+      const i = list.findIndex(t => t.id === fid);
+      if (i >= 0) { nodes.get(fid).firstChild.focus({ preventScroll: true }); S.focus = i; }
+      else input.focus({ preventScroll: true });
+    }
+    list.forEach((t, i) => {
+      const li = nodes.get(t.id), num = li.querySelector(".num"), b = li.firstChild;
+      num.textContent = i < 9 ? String(i + 1) : "";
+      num.hidden = i >= 9;
+      const prev = before.get(t.id);
+      if (prev && !reduced) {
+        const now = li.getBoundingClientRect();
+        const dx = prev.left - now.left, dy = prev.top - now.top;
+        if (dx || dy) li.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }], { duration: 320, easing: "cubic-bezier(.3,.8,.3,1)" });
+      } else if (!prev && before.size) {
+        b.classList.add("arrived");
+        setTimeout(() => b.classList.remove("arrived"), 600);
+        if (!reduced) li.animate([{ opacity: 0, transform: "scale(.85)" }, { opacity: 1, transform: "none" }], { duration: 260, easing: "ease-out" });
+      }
+    });
+    renderFocus();
+  }
+  function renderFocus() {
+    S.shown.forEach((t, i) => nodes.get(t.id).firstChild.classList.toggle("is-focus", i === S.focus));
+    const t = S.shown[S.focus];
+    focusText.textContent = t ? `↵ copies “${t.title}” · ${t.src}` : "Nothing to copy yet";
+  }
+
+  function renderMirror() {
+    const p = { ...S.cur, look: clamp(S.cur.look + S.lookX, -1.3, 1.3) };
+    if (S.blink && p.eye > .12) p.eye = .02;
+    mirror.innerHTML = faceSVG(p, { skin: "#F5C451", shirt: "#7AA2FF", lookY: S.lookY, blush: true });
+  }
+  let mirrorQueued = false;
+  const queueMirror = () => { if (!mirrorQueued) { mirrorQueued = true; requestAnimationFrame(() => { mirrorQueued = false; renderMirror(); }); } };
+
+  function setHint() {
+    let title = "Make a face. Results follow it.", sub = "Click your eyes or mouth to make them count more.", action = null;
+    if (S.mode === "text") { title = "Searching by words"; sub = "Clear the box to go back to your face."; }
+    else if (S.pins.size) {
+      title = "Focusing on " + (S.pins.size === 2 ? "your eyes and mouth" : S.pins.has("eyes") ? "your eyes" : "your mouth");
+      sub = ""; action = "Clear";
+    } else if (S.holding) sub = "New face? Hold it for a beat.";
+    hintTitle.textContent = title;
+    hintSub.textContent = sub;
+    hintSub.hidden = !sub;
+    hintAction.hidden = !action;
+    if (action) hintAction.textContent = action;
+  }
+
+  // Morph the mirror toward a face over a quarter second.
+  let morphRaf = 0;
+  function morphTo(target) {
+    cancelAnimationFrame(morphRaf);
+    if (reduced) { S.cur = { ...target }; renderMirror(); return; }
+    const from = { ...S.cur }, t0 = performance.now();
+    const step = now => {
+      const k = Math.min(1, (now - t0) / 260);
+      S.cur = lerpFace(from, target, ease(k));
+      renderMirror();
+      if (k < 1) morphRaf = requestAnimationFrame(step);
+    };
+    morphRaf = requestAnimationFrame(step);
+  }
+
+  // A new expression has to be held for a beat before it becomes the search.
+  let holdTimer = 0;
+  function setFace(key, user = true) {
+    if (user) stopAuto();
+    if (!S.open) openPanel(false);
+    if (S.mode === "text") { input.value = ""; searchBox.classList.remove("has-text"); S.mode = "live"; }
+    faceBtns.forEach(c => c.setAttribute("aria-pressed", String(c.dataset.face === key)));
+    morphTo(EXPR[key].p);
+    clearTimeout(holdTimer);
+    ring.classList.remove("filling");
+    if (key === S.committed) { S.holding = null; setHint(); renderGrid(rankFace(EXPR[key].p)); return; }
+    S.holding = key;
+    setHint();
+    if (reduced) { commitFace(key); return; }
+    void ring.getBoundingClientRect();
+    ring.classList.add("filling");
+    holdTimer = setTimeout(() => commitFace(key), 1000);
+  }
+  function commitFace(key) {
+    clearTimeout(holdTimer);
+    ring.classList.remove("filling");
+    S.holding = null;
+    S.committed = key;
+    setHint();
+    renderGrid(rankFace(EXPR[key].p));
+  }
+  function refreshResults() {
+    if (S.mode === "text") { const q = input.value.trim(); renderGrid(rankText(q), `Nothing called “${q}”. Try cat, dog, gif or Maya.`); }
+    else renderGrid(rankFace(EXPR[S.committed].p));
+  }
+  function togglePin(region) {
+    stopAuto();
+    if (S.pins.has(region)) S.pins.delete(region); else S.pins.add(region);
+    $$(".pin").forEach(b => b.setAttribute("aria-pressed", String(S.pins.has(b.dataset.pin))));
+    setHint();
+    refreshResults();
+  }
+  function clearPins() {
+    S.pins.clear();
+    $$(".pin").forEach(b => b.setAttribute("aria-pressed", "false"));
+    setHint();
+    refreshResults();
+  }
+  function escape() {
+    if (S.mode === "text") { input.value = ""; onType(); return; }
+    if (S.pins.size) { clearPins(); return; }
+    closePanel(null);
+  }
+  function onType() {
+    stopAuto();
+    S.lastType = performance.now();
+    const q = input.value.trim();
+    searchBox.classList.toggle("has-text", !!q);
+    if (q) {
+      if (S.mode !== "text") { S.mode = "text"; clearTimeout(holdTimer); ring.classList.remove("filling"); if (S.holding) S.committed = S.holding; S.holding = null; }
+    } else if (S.mode === "text") S.mode = "live";
+    setHint();
+    refreshResults();
+  }
+
+  // ---------- Copy, close and open ----------
+  function commit(t) {
+    if (!t) return;
+    stopAuto();
+    closePanel(t);
+  }
+  function closePanel(copied) {
+    if (!S.open) return;
+    S.open = false;
+    clearTimeout(holdTimer);
+    ring.classList.remove("filling");
+    // A face still being held counts once the visitor moves on, so the sticker and the results agree.
+    if (S.holding) S.committed = S.holding;
+    S.holding = null;
+    const hadFocus = panel.contains(document.activeElement);
+    stage.style.minHeight = stage.offsetHeight + "px";
+    smiley.setAttribute("aria-expanded", "false");
+    const done = () => {
+      panel.hidden = true;
+      panel.classList.remove("closing");
+      lp.classList.add("is-closed");
+      closedMsg.hidden = !copied;
+      if (copied) closedMsg.innerHTML = `<span class="thumb">${tileSVG(copied)}</span><span><b>Copied “${copied.title}”</b><span>Paste it with ⌘V. MemeMe never sends it for you.</span></span>`;
+      live.textContent = copied ? `Copied “${copied.title}”. Paste it with ⌘V.` : "Panel closed.";
+      closed.hidden = false;
+      if (hadFocus) $("#reopen").focus({ preventScroll: true });
+    };
+    if (reduced) done(); else { panel.classList.add("closing"); setTimeout(done, 230); }
+    setHint();
+  }
+  function openPanel(focus = true) {
+    if (S.open) { if (focus && finePointer) input.focus({ preventScroll: true }); return; }
+    S.open = true;
+    closed.hidden = true;
+    lp.classList.remove("is-closed");
+    live.textContent = "";
+    panel.hidden = false;
+    stage.style.minHeight = "";
+    smiley.setAttribute("aria-expanded", "true");
+    if (!reduced) panel.animate([{ transform: "translateY(-12px) scale(.97,.6)", opacity: 0 }, { transform: "none", opacity: 1 }], { duration: 260, easing: "cubic-bezier(.3,.8,.3,1)" });
+    input.value = "";
+    searchBox.classList.remove("has-text");
+    S.mode = "live";
+    setHint();
+    renderMirror();
+    refreshResults();
+    if (focus && finePointer) input.focus({ preventScroll: true });
+  }
+  $("#reopen").addEventListener("click", () => openPanel());
+  smiley.addEventListener("click", () => { stopAuto(); if (S.open) closePanel(null); else openPanel(); });
+
+  // ---------- Panel input ----------
+  panel.addEventListener("pointerdown", stopAuto);
+  lid.addEventListener("focusin", stopAuto);
+  input.addEventListener("input", onType);
+  hintAction.addEventListener("click", clearPins);
+  $$(".pin").forEach(b => b.addEventListener("click", () => togglePin(b.dataset.pin)));
+  grid.addEventListener("click", e => { const b = e.target.closest(".tile"); if (b) commit(byId[b.dataset.id]); });
+  grid.addEventListener("dragstart", e => {
+    const b = e.target.closest(".tile");
+    if (!b) return;
+    e.dataTransfer.setData("text/plain", byId[b.dataset.id].title);
+    e.dataTransfer.effectAllowed = "copy";
+  });
+  panel.addEventListener("keydown", e => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const k = e.key, n = S.shown.length;
+    if (/^[1-9]$/.test(k)) { e.preventDefault(); commit(S.shown[+k - 1]); return; }
+    if (k === "Escape") { e.preventDefault(); escape(); return; }
+    if (k === "Enter" && e.target === input) {
+      e.preventDefault();
+      if (performance.now() - S.lastType > 300) commit(S.shown[S.focus]);
+      return;
+    }
+    if (k === " " && e.target === input && !input.value) {
+      e.preventDefault();
+      if (S.holding) commitFace(S.holding);
+      return;
+    }
+    if (!n || e.target.classList.contains("pin")) return;
+    const typing = e.target === input && input.value;
+    let f = S.focus;
+    if (k === "ArrowRight" && !typing) f = Math.min(n - 1, f + 1);
+    else if (k === "ArrowLeft" && !typing) f = Math.max(0, f - 1);
+    else if (k === "ArrowDown") f = Math.min(n - 1, f + 5);
+    else if (k === "ArrowUp") f = Math.max(0, f - 5);
+    else return;
+    e.preventDefault();
+    stopAuto();
+    S.focus = f;
+    renderFocus();
+    if (e.target.classList.contains("tile")) nodes.get(S.shown[f].id).firstChild.focus();
+  });
+  // Keyboard focus on a tile and the panel's highlighted tile are the same tile.
+  grid.addEventListener("focusin", e => {
+    const b = e.target.closest(".tile");
+    const i = b ? S.shown.findIndex(t => t.id === b.dataset.id) : -1;
+    if (i >= 0 && i !== S.focus) { S.focus = i; renderFocus(); }
+  });
+
+  // ⌃⌘M toggles the panel, like the real thing.
+  document.addEventListener("keydown", e => {
+    if (e.ctrlKey && e.metaKey && !e.altKey && e.code === "KeyM") {
+      e.preventDefault();
+      stopAuto();
+      if (S.open) closePanel(null); else openPanel();
+    }
+  });
+
+  // The face stickers on the lid pick the face.
+  faceBtns.forEach(b => b.addEventListener("click", () => setFace(b.dataset.face)));
+
+  // The mirror's eyes follow the pointer, and it blinks now and then.
+  let heroVisible = true;
+  if ("IntersectionObserver" in window) new IntersectionObserver(es => { heroVisible = es[0].isIntersecting; }).observe(lid);
+  if (!reduced) {
+    addEventListener("pointermove", e => {
+      if (!heroVisible || !S.open) return;
+      const r = mirror.getBoundingClientRect();
+      S.lookX = clamp((e.clientX - (r.left + r.width / 2)) / 260, -1, 1) * .7;
+      S.lookY = clamp((e.clientY - (r.top + r.height / 2)) / 220, -1, 1);
+      queueMirror();
+    }, { passive: true });
+    const blink = () => {
+      if (S.open && heroVisible) {
+        S.blink = true; renderMirror();
+        setTimeout(() => { S.blink = false; renderMirror(); }, 120);
+      }
+      setTimeout(blink, 2600 + Math.random() * 3400);
+    };
+    setTimeout(blink, 2200);
+  }
+
+  // Plays through the faces once, until the visitor touches anything.
+  const PLAYLIST = ["sideeye", "laughing", "smug", "confused", "unimpressed", "shocked"];
+  let autoOn = !reduced, autoIdx = 0, autoTimer = 0;
+  function stopAuto() { autoOn = false; clearTimeout(autoTimer); }
+  function autoStep() {
+    if (!autoOn) return;
+    if (heroVisible && S.open && S.mode === "live" && !document.hidden) {
+      setFace(PLAYLIST[autoIdx], false);
+      autoIdx += 1;
+      if (autoIdx >= PLAYLIST.length) { autoOn = false; return; }
+    }
+    autoTimer = setTimeout(autoStep, 4200);
+  }
+
+  // ---------- Start ----------
+  setHint();
+  renderMirror();
+  renderGrid(rankFace(EXPR[S.committed].p));
+  if (autoOn) autoTimer = setTimeout(autoStep, 2600);
+})();
+</script>

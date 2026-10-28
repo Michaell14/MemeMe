@@ -1,0 +1,371 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  # Run by hand on the default branch to publish a release even when the app didn't change.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  # Default-branch runs may be publishing a release, so they are never cancelled midway.
+  cancel-in-progress: ${{ github.ref_name != github.event.repository.default_branch }}
+
+jobs:
+  build:
+    name: Build, test and package
+    runs-on: macos-15
+    # Release builds wait for Apple's notary service twice.
+    timeout-minutes: 120
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      build: ${{ steps.version.outputs.build }}
+      min_macos: ${{ steps.version.outputs.min_macos }}
+      release: ${{ steps.decide.outputs.release }}
+    env:
+      # The Developer ID team that signs releases; the updater only takes builds from it.
+      DEVELOPER_TEAM_ID: XG6X9X3J6V
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          # Full history and tags: the build number is the commit count, and the release
+          # decision compares with the last v* tag.
+          fetch-depth: 0
+
+      - name: Toolchain
+        run: swift --version
+
+      - name: Version
+        id: version
+        run: |
+          version="$(tr -d '[:space:]' < VERSION)"
+          build="$(git rev-list --count HEAD)"
+          min_macos="$(plutil -extract LSMinimumSystemVersion raw -o - Resources/Info.plist)"
+          echo "MemeMe $version ($build), macOS $min_macos or later"
+          {
+            echo "version=$version"
+            echo "build=$build"
+            echo "min_macos=$min_macos"
+          } >> "$GITHUB_OUTPUT"
+
+      # A release for every change to the app on the default branch, and for every manual run there.
+      - name: Release decision
+        id: decide
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          release=false
+          if [[ "$EVENT_NAME" == "pull_request" || "$REF_NAME" != "$DEFAULT_BRANCH" ]]; then
+            echo "Not the default branch: no release"
+          elif [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            echo "Manual run on $DEFAULT_BRANCH: release"
+            release=true
+          elif ! prev="$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null)"; then
+            echo "No v* tag yet: first release"
+            release=true
+          elif git diff --quiet "$prev" HEAD -- Sources Resources Package.swift VERSION \
+              scripts/build-app.sh scripts/build-dmg.sh scripts/dmg-settings.py \
+              scripts/dmgbuild-requirements.txt; then
+            echo "The app is unchanged since $prev: no release"
+          else
+            echo "The app changed since $prev: release"
+            release=true
+          fi
+          echo "release=$release" >> "$GITHUB_OUTPUT"
+
+      # Releases are signed with the Developer ID and notarized; everything else is signed ad hoc and
+      # needs no secrets. Checked before the build so a missing secret fails in seconds.
+      - name: Check signing secrets
+        if: steps.decide.outputs.release == 'true'
+        env:
+          DEVELOPER_ID_P12: ${{ secrets.DEVELOPER_ID_P12 }}
+          DEVELOPER_ID_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+          NOTARY_KEY: ${{ secrets.NOTARY_KEY }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+          GIPHY_API_KEY: ${{ secrets.GIPHY_API_KEY }}
+        run: |
+          missing=""
+          for name in DEVELOPER_ID_P12 DEVELOPER_ID_P12_PASSWORD NOTARY_KEY NOTARY_KEY_ID NOTARY_ISSUER_ID; do
+            if [[ -z "${!name}" ]]; then
+              missing="$missing $name"
+            fi
+          done
+          if [[ -n "$missing" ]]; then
+            echo "::error::Release builds are signed with the Developer ID and notarized, but these repository secrets are empty or missing:$missing. Add them under Settings > Secrets and variables > Actions (see README > Releases and updates)."
+            exit 1
+          fi
+          echo "All five signing secrets are set"
+          # Without it a release can't find memes online. Checked the way build-app.sh reads it.
+          giphy_key="$(printf '%s' "$GIPHY_API_KEY" | tr -d '[:space:]')"
+          if [[ -z "$giphy_key" ]]; then
+            echo "::error::GIPHY_API_KEY is not set, so this release couldn't find memes online. Add it under Settings > Secrets and variables > Actions (see README > GIPHY API key)."
+            exit 1
+          fi
+          if [[ ! "$giphy_key" =~ ^[A-Za-z0-9_-]+$ ]]; then
+            echo "::error::GIPHY_API_KEY has characters an API key never has; paste just the key from developers.giphy.com."
+            exit 1
+          fi
+          echo "GIPHY_API_KEY is set"
+
+      - name: Build
+        run: swift build
+
+      - name: Test
+        run: swift test
+
+      # A temporary keychain that holds only the Developer ID identity; deleted by "Clean up keychain".
+      - name: Import Developer ID certificate
+        if: steps.decide.outputs.release == 'true'
+        env:
+          DEVELOPER_ID_P12: ${{ secrets.DEVELOPER_ID_P12 }}
+          DEVELOPER_ID_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+        run: |
+          keychain="$RUNNER_TEMP/mememe-signing.keychain-db"
+          p12="$RUNNER_TEMP/developer-id.p12"
+          trap 'rm -f "$p12"' EXIT
+          echo "SIGNING_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+
+          keychain_password="$(openssl rand -hex 32)"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+
+          umask 077
+          if ! printf '%s' "$DEVELOPER_ID_P12" | tr -d '[:space:]' | base64 --decode > "$p12" 2> /dev/null \
+              || [[ ! -s "$p12" ]]; then
+            echo "::error::DEVELOPER_ID_P12 is not base64 of a .p12 file"
+            exit 1
+          fi
+          if ! security import "$p12" -k "$keychain" -P "$DEVELOPER_ID_P12_PASSWORD" -A -t cert -f pkcs12; then
+            echo "::error::Could not import DEVELOPER_ID_P12; check that DEVELOPER_ID_P12_PASSWORD is the password it was exported with"
+            exit 1
+          fi
+          rm -f "$p12"
+
+          # The intermediate certificates complete the chain to Apple's root; the .p12 may not carry
+          # them. G2 issues current certificates; the original one (valid until 2027-02-01) older ones.
+          for intermediate in DeveloperIDG2CA.cer DeveloperIDCA.cer; do
+            if curl -fsSL --retry 3 --max-time 60 -o "$RUNNER_TEMP/$intermediate" \
+                "https://www.apple.com/certificateauthority/$intermediate"; then
+              security import "$RUNNER_TEMP/$intermediate" -k "$keychain" -t cert \
+                || echo "::warning::Could not import $intermediate (it may already be there)"
+            else
+              echo "::warning::Could not download $intermediate; relying on the .p12 and the system keychains"
+            fi
+          done
+
+          # Let codesign use the key without a prompt, and put the keychain first in the search list.
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain" > /dev/null
+          keychains=()
+          while IFS= read -r line; do
+            line="$(sed -e 's/^[[:space:]]*"//' -e 's/"[[:space:]]*$//' <<< "$line")"
+            if [[ -n "$line" && "$line" != "$keychain" ]]; then
+              keychains+=("$line")
+            fi
+          done < <(security list-keychains -d user)
+          security list-keychains -d user -s "$keychain" ${keychains[@]+"${keychains[@]}"}
+          security list-keychains -d user
+
+          identities="$(security find-identity -v -p codesigning "$keychain")"
+          echo "$identities"
+          identity_line="$(grep -F '"Developer ID Application:' <<< "$identities" | head -n 1 || true)"
+          identity_hash="$(awk '{ print $2 }' <<< "$identity_line")"
+          identity_name="$(sed -E 's/^[^"]*"(.*)"[^"]*$/\1/' <<< "$identity_line")"
+          if [[ ! "$identity_hash" =~ ^[0-9A-F]{40}$ ]]; then
+            echo "All identities, including invalid ones:"
+            security find-identity -p codesigning "$keychain" || true
+            echo "::error::DEVELOPER_ID_P12 holds no valid \"Developer ID Application\" identity (certificate and private key)"
+            exit 1
+          fi
+          if [[ "$identity_name" != *"($DEVELOPER_TEAM_ID)" ]]; then
+            echo "::error::The identity is \"$identity_name\", not one of team $DEVELOPER_TEAM_ID"
+            exit 1
+          fi
+          echo "Signing identity: $identity_name ($identity_hash)"
+          echo "CODESIGN_IDENTITY=$identity_hash" >> "$GITHUB_ENV"
+
+      - name: Write notary key
+        if: steps.decide.outputs.release == 'true'
+        env:
+          NOTARY_KEY: ${{ secrets.NOTARY_KEY }}
+        run: |
+          key_path="$RUNNER_TEMP/AuthKey.p8"
+          echo "NOTARY_KEY_PATH=$key_path" >> "$GITHUB_ENV"
+          umask 077
+          if [[ "$NOTARY_KEY" == *"-----BEGIN PRIVATE KEY-----"* ]]; then
+            # The .p8 itself rather than its base64: use it as is.
+            printf '%s\n' "$NOTARY_KEY" > "$key_path"
+          elif ! printf '%s' "$NOTARY_KEY" | tr -d '[:space:]' | base64 --decode > "$key_path" 2> /dev/null; then
+            echo "::error::NOTARY_KEY is not base64 of an App Store Connect API key (.p8)"
+            exit 1
+          fi
+          if ! grep -q -e '-----BEGIN PRIVATE KEY-----' "$key_path"; then
+            echo "::error::NOTARY_KEY does not hold an App Store Connect API key (.p8)"
+            exit 1
+          fi
+          echo "Notary key written"
+
+      # Release builds sign with CODESIGN_IDENTITY from "Import Developer ID certificate"; other builds
+      # leave it unset and the script signs ad hoc.
+      - name: Build MemeMe.app
+        env:
+          GIPHY_API_KEY: ${{ secrets.GIPHY_API_KEY }}
+          APP_VERSION: ${{ steps.version.outputs.version }}
+          APP_BUILD: ${{ steps.version.outputs.build }}
+          UPDATE_FEED_URL: https://github.com/${{ github.repository }}/releases/latest/download/latest.json
+          RELEASE: ${{ steps.decide.outputs.release }}
+        run: |
+          if [[ "$RELEASE" == "true" && -z "${CODESIGN_IDENTITY:-}" ]]; then
+            echo "::error::Release builds must be signed with the Developer ID, but CODESIGN_IDENTITY is not set"
+            exit 1
+          fi
+          chmod +x scripts/build-app.sh
+          ./scripts/build-app.sh
+
+      # The app is notarized and stapled before it goes into the DMG, so it passes Gatekeeper offline
+      # wherever it is copied, including when the updater installs it.
+      - name: Notarize MemeMe.app
+        if: steps.decide.outputs.release == 'true'
+        env:
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          chmod +x scripts/notarize.sh
+          rm -f build/MemeMe-notarize.zip
+          ditto -c -k --keepParent build/MemeMe.app build/MemeMe-notarize.zip
+          ./scripts/notarize.sh build/MemeMe-notarize.zip build/MemeMe.app
+          rm -f build/MemeMe-notarize.zip
+
+      # For dmgbuild, which writes the DMG's drag-to-Applications window (needs Python 3.10+).
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Release builds also sign the DMG (CODESIGN_IDENTITY).
+      - name: Build MemeMe.dmg
+        run: |
+          chmod +x scripts/build-dmg.sh
+          ./scripts/build-dmg.sh
+
+      - name: Notarize MemeMe.dmg
+        if: steps.decide.outputs.release == 'true'
+        env:
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          chmod +x scripts/notarize.sh
+          ./scripts/notarize.sh build/MemeMe.dmg build/MemeMe.dmg
+
+      # What a Mac checks on first launch, and the requirement the updater puts on new builds.
+      - name: Check Gatekeeper
+        if: steps.decide.outputs.release == 'true'
+        run: |
+          assess() {
+            local label="$1"
+            shift
+            local result
+            if ! result="$(spctl "$@" 2>&1)"; then
+              printf '%s\n' "$result"
+              echo "::error::Gatekeeper rejects $label"
+              return 1
+            fi
+            printf '%s\n' "$result"
+            if [[ "$result" == *"override=security disabled"* ]]; then
+              echo "::warning::Gatekeeper assessments are off on this runner; $label was checked with stapler and codesign only"
+            elif [[ "$result" != *"source=Notarized Developer ID"* ]]; then
+              echo "::error::Gatekeeper does not see $label as a notarized Developer ID build"
+              return 1
+            fi
+          }
+          # stapler validate asks Apple's servers, which sometimes drop the connection.
+          validate_ticket() {
+            local attempt
+            for attempt in 1 2 3; do
+              if xcrun stapler validate "$1"; then
+                return 0
+              fi
+              if (( attempt < 3 )); then
+                echo "stapler validate failed for $1; retrying in 20 s"
+                sleep 20
+              fi
+            done
+            echo "::error::The notarization ticket stapled to $1 does not validate"
+            return 1
+          }
+          assess MemeMe.app -a -vvv build/MemeMe.app
+          assess MemeMe.dmg -a -vvv -t open --context context:primary-signature build/MemeMe.dmg
+          validate_ticket build/MemeMe.app
+          validate_ticket build/MemeMe.dmg
+
+          requirement="=anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = \"$DEVELOPER_TEAM_ID\""
+          if ! codesign --verify --deep --strict --verbose=2 -R "$requirement" build/MemeMe.app; then
+            echo "::error::MemeMe.app does not satisfy the updater's Developer ID requirement for team $DEVELOPER_TEAM_ID"
+            exit 1
+          fi
+          echo "MemeMe.app satisfies: $requirement"
+          # The updater checks the DMG against the same requirement before it mounts it.
+          if ! codesign --verify --strict --verbose=2 -R "$requirement" build/MemeMe.dmg; then
+            echo "::error::MemeMe.dmg does not satisfy the updater's Developer ID requirement for team $DEVELOPER_TEAM_ID"
+            exit 1
+          fi
+          echo "MemeMe.dmg satisfies the same requirement"
+          echo "MemeMe.dmg: $(wc -c < build/MemeMe.dmg | tr -d '[:space:]') bytes, SHA-256 $(shasum -a 256 build/MemeMe.dmg | awk '{ print $1 }')"
+
+      - name: Upload MemeMe.dmg
+        uses: actions/upload-artifact@v4
+        with:
+          name: MemeMe-app
+          path: build/MemeMe.dmg
+          if-no-files-found: error
+
+      - name: Clean up keychain
+        if: always() && steps.decide.outputs.release == 'true'
+        run: |
+          if [[ -n "${SIGNING_KEYCHAIN:-}" && -e "$SIGNING_KEYCHAIN" ]]; then
+            security delete-keychain "$SIGNING_KEYCHAIN" || echo "::warning::Could not delete $SIGNING_KEYCHAIN"
+          fi
+          rm -f "${NOTARY_KEY_PATH:-$RUNNER_TEMP/AuthKey.p8}" "$RUNNER_TEMP/developer-id.p12" build/MemeMe-notarize.zip || true
+          echo "Signing keychain and notary key removed"
+
+  release:
+    name: Publish release
+    needs: build
+    if: needs.build.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    concurrency:
+      group: release-${{ github.repository }}
+      cancel-in-progress: false
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          # History and tags for the release notes (commits since the previous v* tag).
+          fetch-depth: 0
+
+      - name: Fetch MemeMe.dmg
+        uses: actions/download-artifact@v4
+        with:
+          name: MemeMe-app
+          path: dist
+
+      - name: Publish v${{ needs.build.outputs.version }}-${{ needs.build.outputs.build }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APP_VERSION: ${{ needs.build.outputs.version }}
+          APP_BUILD: ${{ needs.build.outputs.build }}
+          MIN_MACOS: ${{ needs.build.outputs.min_macos }}
+        run: |
+          chmod +x scripts/publish-release.sh
+          ./scripts/publish-release.sh dist/MemeMe.dmg "$APP_VERSION" "$APP_BUILD" "$MIN_MACOS"
