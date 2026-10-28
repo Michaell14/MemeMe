@@ -15,13 +15,16 @@ struct WebShelf: View {
         if model.showsGiphyRow || model.showsTemplateRow {
             VStack(alignment: .leading, spacing: 6) {
                 header
-                switch model.visibleShelf {
-                case .gifs:
-                    GiphyRow(model: model)
-                        .transition(.opacity)
-                case .classic:
-                    TemplateRow(model: model)
-                        .transition(.opacity)
+                // Stacked, so the row going and the row coming crossfade in place rather than one under the other.
+                ZStack(alignment: .topLeading) {
+                    switch model.visibleShelf {
+                    case .gifs:
+                        GiphyRow(model: model)
+                            .transition(.opacity)
+                    case .classic:
+                        TemplateRow(model: model)
+                            .transition(.opacity)
+                    }
                 }
             }
             .animation(.easeOut(duration: 0.15), value: model.visibleShelf)

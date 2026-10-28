@@ -1,7 +1,8 @@
 import Foundation
 
-/// What the mirror says about the pose behind the search: its word ("t-pose", "hands on hips"), or "your pose" for a
-/// clear gesture without one.
+/// The pose behind the search: its word ("t-pose", "hands on hips"), or "your pose" for a clear gesture without one. It
+/// picks where the readout's word comes from (the pose, or the face with a pose) and sets off the mirror's green flash
+/// when a new one is caught.
 public enum PoseBadge: Equatable, Sendable {
     case word(Mood)
     case pose

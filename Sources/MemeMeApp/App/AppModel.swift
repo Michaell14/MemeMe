@@ -150,14 +150,7 @@ struct MoodReadout: Equatable {
     @Published var focusedIndex: Int = 0 {
         didSet {
             guard focusedIndex != oldValue else { return }
-            switch tileGrid.section(of: focusedIndex) {
-            case .giphy where showsGiphyRow:
-                if shelf != .gifs { shelf = .gifs }
-            case .template where showsTemplateRow:
-                if shelf != .classic { shelf = .classic }
-            default:
-                break
-            }
+            syncShelfToFocus()
         }
     }
     /// The web row on the shelf under your memes (the other one is a ↓ or a click away); see `visibleShelf`.
@@ -192,13 +185,17 @@ struct MoodReadout: Equatable {
     @Published private(set) var showsFaceToken: Bool = false
     @Published private(set) var naming: NamingPrompt?
     @Published private(set) var holdProgress: Double = 0
-    /// The pose behind the face search, named on the mirror: its word, or "your pose"; nil when the face alone made it.
+    /// The pose behind the face search: its word, or "your pose"; nil when the face alone made it. It picks the
+    /// readout's source and sets off the mirror's green flash (`poseCatches`).
     @Published private(set) var heldPose: PoseBadge?
     /// Counts each pose caught (a new pose word, or a pose after the face alone, behind the search): the mirror
     /// flashes green when it changes.
     @Published private(set) var poseCatches = 0
     @Published private(set) var hotKeyAvailable: Bool = true
     @Published private(set) var isPanelVisible: Bool = false
+    /// A tile of the panel is being dragged out: the panel takes no drop of its own tile (set and cleared by the
+    /// panel controller, which watches the drag).
+    @Published var isDraggingTile: Bool = false
     /// The capture view replaces the panel's contents: a big filtered mirror and a shutter.
     @Published private(set) var isCaptureOpen: Bool = false
 
@@ -1319,13 +1316,32 @@ struct MoodReadout: Equatable {
 
     /// Where the focus starts: the first meme, or the first tile of the shelf's row when it answers what is shown (the
     /// face, or Recent), even while it loads (the other row is out of sight). A typed, image or more-like search starts
-    /// on nothing when it finds no meme, so ↵ copies nothing.
+    /// on nothing when it finds no meme, so ↵ copies nothing; with no row of memes drawn, on the first tile of the
+    /// shelf's row (never the other web row, which would flip the shelf).
     private var startSlot: Int {
         switch resultSource {
         case .recent, .expression:
             return tileGrid.startSlot(showing: visibleShelf == .gifs ? .giphy : .template)
         case .text, .image, .moreLike:
-            return 0
+            return ownRows > 0 ? 0 : shelfStart(in: tileGrid)
+        }
+    }
+
+    /// The first slot of the shelf's row, filled or not.
+    private func shelfStart(in grid: TileGrid) -> Int {
+        visibleShelf == .gifs ? grid.giphyStart : grid.templateStart
+    }
+
+    /// Shows the web row the focus is in on the shelf. A focus left in a row that can't be shown (its source is off)
+    /// is `normalizeFocus`'s to move.
+    private func syncShelfToFocus() {
+        switch tileGrid.section(of: focusedIndex) {
+        case .giphy where showsGiphyRow:
+            if shelf != .gifs { shelf = .gifs }
+        case .template where showsTemplateRow:
+            if shelf != .classic { shelf = .classic }
+        default:
+            break
         }
     }
 
@@ -1341,8 +1357,8 @@ struct MoodReadout: Equatable {
         return .template(templateResults[slot - grid.templateStart])
     }
 
-    /// Keeps the focus on a tile: before the user moves it, on the first one (a GIPHY GIF when you have no memes
-    /// yet); after, on the nearest one in the same row.
+    /// Keeps the focus on a tile: before the user moves it, on the start slot (`startSlot`); after, on the nearest one
+    /// in the same row, never in the web row off the shelf.
     private func normalizeFocus() {
         let grid = tileGrid
         // Until the user points somewhere, the focus follows the start slot as rows fill in: with no memes, GIPHY's
@@ -1354,21 +1370,22 @@ struct MoodReadout: Equatable {
             }
             return
         }
-        guard !grid.isFilled(focusedIndex) else { return }
-        // The start of the shelf's row while it loads (or found nothing) keeps the focus: it shows what is coming.
-        let shelfStart = visibleShelf == .gifs ? grid.giphyStart : grid.templateStart
-        if focusedIndex == shelfStart && grid.section(of: focusedIndex) != .own {
-            return
-        }
+        let section = grid.section(of: focusedIndex)
+        let shelfSection: TileGrid.Section = visibleShelf == .gifs ? .giphy : .template
+        let start = shelfStart(in: grid)
+        let shelfCount = shelfSection == .giphy ? grid.giphyCount : grid.templateCount
         let target: Int
-        if focusedIndex >= grid.templateStart, grid.templateCount > 0 {
-            target = grid.templateStart + grid.templateCount - 1
-        } else if focusedIndex >= grid.giphyStart, focusedIndex < grid.templateStart, grid.giphyCount > 0 {
-            target = grid.giphyStart + grid.giphyCount - 1
-        } else if focusedIndex < grid.giphyStart, grid.ownCount > 0 {
-            target = grid.ownCount - 1
+        if section == .own {
+            guard !grid.isFilled(focusedIndex) else { return }
+            // Your memes went: the last one left, else the shelf's first tile (nothing while its row is empty).
+            target = grid.ownCount > 0 ? grid.ownCount - 1 : (shelfCount > 0 ? start : focusedIndex)
+        } else if section == shelfSection {
+            guard !grid.isFilled(focusedIndex) else { return }
+            // Its last tile; its start while it loads (or found nothing): it shows what is coming.
+            target = start + max(0, shelfCount - 1)
         } else {
-            target = grid.firstSlot ?? 0
+            // The web row off the shelf (its source just went off): the shelf's row.
+            target = start
         }
         if focusedIndex != target {
             focusedIndex = target
@@ -1458,7 +1475,9 @@ struct MoodReadout: Equatable {
             if focusedIndex >= oldGiphyStart {
                 focusedIndex = newGiphyStart + (focusedIndex - oldGiphyStart)
             } else if focusedIndex >= newGiphyStart {
-                focusedIndex = max(0, newGiphyStart - 1)
+                // A meme of yours whose row went: the last meme left, else the start of the shelf's row (never the
+                // web row off the shelf, which would flip it).
+                focusedIndex = newGiphyStart > 0 ? newGiphyStart - 1 : shelfStart(in: tileGrid)
             }
         }
         if animateNew && !results.isEmpty {
@@ -1482,6 +1501,8 @@ struct MoodReadout: Equatable {
         } else {
             normalizeFocus()
         }
+        // The rows above may have moved under a focus that stayed put.
+        syncShelfToFocus()
     }
 
     /// Amber ring on tiles that just arrived, for 600 ms.
@@ -1880,11 +1901,11 @@ struct MoodReadout: Equatable {
         }
     }
 
-    /// The search's word while live, unless pins (with their Clear) are set, or the face it came from is lost: then the
-    /// hint says so.
+    /// The search's word while live, unless pins (with their Clear) are set, or the face it came from (alone or with a
+    /// pose) is lost: then the hint says so.
     private func computeReadout() -> MoodReadout? {
         guard mode == .live, pins.isEmpty, let searchReadout else { return nil }
-        if searchReadout.source == .face && faceMissing {
+        if searchReadout.source != .pose && faceMissing {
             return nil
         }
         return searchReadout

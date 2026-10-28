@@ -35,7 +35,7 @@ struct PanelView: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .strokeBorder(isDropTargeted ? Theme.accent : Theme.border, lineWidth: isDropTargeted ? 2 : 1)
+                .strokeBorder(showsDrop ? Theme.accent : Theme.border, lineWidth: showsDrop ? 2 : 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .onDrop(of: [.fileURL, .image], isTargeted: $isDropTargeted) { providers in
@@ -125,10 +125,15 @@ struct PanelView: View {
             }
         }
         .overlay {
-            if isDropTargeted {
+            if showsDrop {
                 DropCard()
             }
         }
+    }
+
+    /// An image dragged over the panel, not one of its own tiles on its way out.
+    private var showsDrop: Bool {
+        isDropTargeted && !model.isDraggingTile
     }
 
     private var searchField: some View {
@@ -179,7 +184,8 @@ struct PanelView: View {
 
     /// Files and images dropped on the panel become an image query (never saved silently).
     private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
-        guard !model.isCaptureOpen else { return false }
+        // A tile dragged out and let go over the panel isn't a search for itself.
+        guard !model.isCaptureOpen, !model.isDraggingTile else { return false }
         let model = self.model
         let fileType = UTType.fileURL.identifier
         let imageType = UTType.image.identifier

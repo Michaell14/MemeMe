@@ -66,9 +66,10 @@ public final class PeakHoldTracker {
         let isGesture: Bool
         /// When the run last took a frame.
         var lastAccepted: TimeInterval
-        /// The first frame skipped since then for lying outside the run (its grace): a run started once the grace is
-        /// over counts from it, as those frames were most likely the new expression already.
-        var firstSkipped: TimeInterval?
+        /// The frames skipped since then for lying outside the run (its grace), oldest first: a run started once the
+        /// grace is over takes the newest of them that point its way and counts from the first of those, as they were
+        /// most likely the new expression already. A frame under a gate in between drops them.
+        var skipped: [Entry] = []
     }
 
     private var run: Run?
@@ -106,9 +107,7 @@ public final class PeakHoldTracker {
         }
         // No face: only a clear gesture (a facepalm hides the face) keeps the hold going.
         guard (sample.pose?.gestureStrength ?? 0) >= config.minimumGestureWithoutFace else {
-            if !bridgesGap(at: sample.timestamp) {
-                clearCandidate()
-            }
+            skipUnderGate(at: sample.timestamp)
             return false
         }
         lastSeenTimestamp = sample.timestamp
@@ -121,9 +120,7 @@ public final class PeakHoldTracker {
         let sample = entry.sample
 
         guard entry.intensity >= config.minimumIntensity else {
-            if !bridgesGap(at: sample.timestamp) {
-                clearCandidate()
-            }
+            skipUnderGate(at: sample.timestamp)
             return false
         }
 
@@ -138,17 +135,20 @@ public final class PeakHoldTracker {
             current = existing
             current.entries.append(entry)
             current.lastAccepted = sample.timestamp
-            current.firstSkipped = nil
+            current.skipped = []
             let oldest = sample.timestamp - config.bufferWindow
             current.entries.removeAll { $0.sample.timestamp < oldest }
         } else if bridgesGap(at: sample.timestamp) {
-            if run?.firstSkipped == nil {
-                run?.firstSkipped = sample.timestamp
-            }
+            run?.skipped.append(entry)
             return false
         } else {
-            current = Run(start: run?.firstSkipped ?? sample.timestamp, direction: entry.direction, first: sample,
-                          entries: [entry], isGesture: entry.strength >= PeakHoldTracker.minimumGesture,
+            // The skipped frames just before this one that point its way: frames that point elsewhere (a face
+            // flickering between two looks, say) give no head start.
+            let lead = Array((run?.skipped ?? []).reversed().prefix { skipped in
+                VectorMath.cosine(skipped.direction, entry.direction) >= config.sameDirectionCosine
+            }.reversed())
+            current = Run(start: lead.first?.sample.timestamp ?? sample.timestamp, direction: entry.direction, first: sample,
+                          entries: lead + [entry], isGesture: entry.strength >= PeakHoldTracker.minimumGesture,
                           lastAccepted: sample.timestamp)
         }
 
@@ -249,6 +249,16 @@ public final class PeakHoldTracker {
                 >= config.sameDirectionCosine
         default:
             return false
+        }
+    }
+
+    /// A frame under a gate (no face and no clear gesture, or too little intensity): bridged within a gesture run's
+    /// grace, though the frames skipped before it no longer lead into a new run; else the hold is over.
+    private func skipUnderGate(at timestamp: TimeInterval) {
+        if bridgesGap(at: timestamp) {
+            run?.skipped = []
+        } else {
+            clearCandidate()
         }
     }
 

@@ -223,6 +223,9 @@ final class PoseShapeMoodTests: XCTestCase {
         ]
         for (name, joints) in cases {
             XCTAssertNil(gestureWord(TestFaces.neutral, joints), name)
+            // Eyes shut or the face hidden, no hand is on the face: not a facepalm.
+            XCTAssertNil(gestureWord(makeFace(eye: 0.15), joints), name)
+            XCTAssertNil(gestureWord(nil, joints), name)
             XCTAssertNil(PoseDescriptor(joints)?.bodyShape, name)
             XCTAssertEqual(MoodClassifier.mood(for: TestFaces.neutral, pose: TestPoses.features(joints), baseline: RestingBaseline()),
                            .unimpressed, name)
@@ -425,6 +428,30 @@ final class PoseShapeTrackingTests: XCTestCase {
         XCTAssertFalse(tracker.ingest(ExpressionSample(face: TestFaces.neutral, timestamp: 0.3)))
         XCTAssertEqual(tracker.holdProgress, 0)
         XCTAssertNil(tracker.candidate)
+    }
+
+    func testFramesSkippedInAGraceLeadOnlyIntoTheirOwnLook() {
+        // A T-pose held 0.2 s, then a surprised face: the frames skipped in the pose's grace count toward its hold.
+        let tracker = makeTracker()
+        for step in 1...3 {
+            XCTAssertFalse(tracker.ingest(frame(nil, step, FullBodyPoses.tPose)))
+        }
+        for step in 4...6 {
+            XCTAssertFalse(tracker.ingest(ExpressionSample(face: TestFaces.surprise, timestamp: Double(step) / 10)), "step \(step)")
+        }
+        XCTAssertTrue(tracker.ingest(ExpressionSample(face: TestFaces.surprise, timestamp: 0.7)))
+        XCTAssertEqual(tracker.query?.face, TestFaces.surprise)
+
+        // A face flickering between two looks after it never becomes the search.
+        let flicker = makeTracker()
+        for step in 1...3 {
+            XCTAssertFalse(flicker.ingest(frame(nil, step, FullBodyPoses.tPose)))
+        }
+        for step in 4...12 {
+            let face = step % 2 == 0 ? TestFaces.surprise : TestFaces.smile
+            XCTAssertFalse(flicker.ingest(ExpressionSample(face: face, timestamp: Double(step) / 10)), "step \(step)")
+        }
+        XCTAssertNil(flicker.query)
     }
 }
 
