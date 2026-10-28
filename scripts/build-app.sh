@@ -113,6 +113,8 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BINARY" "$APP/Contents/MacOS/$PRODUCT"
 cp "$PLIST_SOURCE" "$PLIST"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
+# The app icon (Info.plist CFBundleIconFile = AppIcon); its sources are in Resources/AppIcon.
+cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 # GIPHY's logo for the GIPHY row's "Powered by" attribution (Resources/GIPHY/GIPHYLogo.png); without it the row
 # shows the word instead.
 GIPHY_MARKS=("$ROOT"/Resources/GIPHY/GIPHYLogo*.png)

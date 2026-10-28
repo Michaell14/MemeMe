@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="tileGrad" x1="0" y1="100" x2="0" y2="924" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFA468"/>
+      <stop offset="0.5" stop-color="#FF9A5C"/>
+      <stop offset="1" stop-color="#EE6530"/>
+    </linearGradient>
+    <radialGradient id="tileGlow" cx="512" cy="300" r="520" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="faceGrad" x1="0" y1="236" x2="0" y2="768" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFE27A"/>
+      <stop offset="0.55" stop-color="#FFD95A"/>
+      <stop offset="1" stop-color="#F5C451"/>
+    </linearGradient>
+    <linearGradient id="borderGrad" x1="0" y1="206" x2="0" y2="798" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#F3F0FA"/>
+    </linearGradient>
+    <linearGradient id="flapGrad" x1="681.71" y1="671.71" x2="642.11" y2="632.11" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#CFC8E6"/>
+      <stop offset="0.25" stop-color="#F4F2FB"/>
+      <stop offset="0.6" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#E9E5F5"/>
+    </linearGradient>
+    <radialGradient id="faceRim" cx="482" cy="452" r="296" gradientUnits="userSpaceOnUse">
+      <stop offset="0.72" stop-color="#E8A85C" stop-opacity="0"/>
+      <stop offset="1" stop-color="#E8A85C" stop-opacity="0.45"/>
+    </radialGradient>
+    <linearGradient id="edgeGrad" x1="0" y1="100" x2="0" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <clipPath id="keep"><path d="M-166.82,1520.23 L1530.23,-176.82 L116.02,-1591.04 L-1581.04,106.02 Z"/></clipPath>
+    <clipPath id="tileClip"><rect x="100" y="100" width="824" height="824" rx="185" ry="185"/></clipPath>
+    <clipPath id="bodyClip"><path d="M559.20,794.21 A296,296 0 1 1 804.21,549.20 Z"/></clipPath>
+    <filter id="tileShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="12"/>
+      <feOffset dx="0" dy="12" result="blur"/>
+      <feFlood flood-color="#000000" flood-opacity="0.30"/>
+      <feComposite in2="blur" operator="in" result="shadow"/>
+      <feMerge><feMergeNode in="shadow"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="sparkShadow" x="-60%" y="-60%" width="220%" height="240%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#C4501F" flood-opacity="0.25"/>
+    </filter>
+    <filter id="stickerShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="14"/>
+    </filter>
+    <filter id="flapShadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="10"/>
+    </filter>
+  </defs>
+
+  <!-- tile -->
+  <g filter="url(#tileShadow)">
+    <rect x="100" y="100" width="824" height="824" rx="185" ry="185" fill="url(#tileGrad)"/>
+  </g>
+  <g clip-path="url(#tileClip)">
+    <rect x="100" y="100" width="824" height="824" fill="url(#tileGlow)"/>
+    <!-- sticker drop shadow on tile -->
+    <path d="M559.20,794.21 A296,296 0 1 1 804.21,549.20 Z" transform="translate(0,14)" fill="#9A3A0E" opacity="0.45" filter="url(#stickerShadow)"/>
+  </g>
+
+  <!-- tile edge: faint darker hairline all round (crisp on light backgrounds) + light top edge inside it -->
+  <rect x="101" y="101" width="822" height="822" rx="184" ry="184" fill="none" stroke="#B3471A" stroke-opacity="0.14" stroke-width="2"/>
+  <rect x="103" y="103" width="818" height="818" rx="182" ry="182" fill="none" stroke="url(#edgeGrad)" stroke-width="2"/>
+  <!-- wink sparkles (warm shadow keeps them visible on the light top) -->
+  <g fill="#FFFFFF" filter="url(#sparkShadow)">
+    <path d="M797,186 Q807.12,221.88 843,232 Q807.12,242.12 797,278 Q786.88,242.12 751,232 Q786.88,221.88 797,186 Z"/>
+    <path d="M745,163 Q749.4,178.6 765,183 Q749.4,187.4 745,203 Q740.6,187.4 725,183 Q740.6,178.6 745,163 Z" opacity="0.9"/>
+  </g>
+
+  <!-- sticker body -->
+  <path d="M559.20,794.21 A296,296 0 1 1 804.21,549.20 Z" fill="url(#borderGrad)"/>
+  <g clip-path="url(#keep)">
+    <circle cx="512" cy="502" r="266" fill="url(#faceGrad)"/>
+    <circle cx="512" cy="502" r="266" fill="url(#faceRim)"/>
+  </g>
+
+  <!-- face features -->
+  <g transform="translate(-14,-8) rotate(-7 512 502)">
+  <g fill="#161B2E" stroke="#161B2E" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="378.0" y="356" width="68" height="116" rx="34.0" stroke="none"/>
+    <path d="M560,422 Q618,356 676,422" fill="none" stroke-width="40"/>
+    <path d="M362,524 Q512,552 662,524 C652,652 582,682 512,682 C442,682 372,652 362,524 Z" stroke-width="18"/>
+  </g>
+  <clipPath id="mouthClip"><path d="M362,524 Q512,552 662,524 C652,652 582,682 512,682 C442,682 372,652 362,524 Z"/></clipPath>
+  <g clip-path="url(#mouthClip)">
+    <ellipse cx="502" cy="692" rx="95" ry="70" fill="#FF7A66"/>
+  </g>
+  </g>
+
+  <!-- gloss -->
+  <path d="M332.38,345.86 A238,238 0 0 1 454.42,271.07" fill="none" stroke="#FFFFFF" stroke-opacity="0.5" stroke-width="20" stroke-linecap="round"/>
+  <!-- flap shadow on face -->
+  <g clip-path="url(#bodyClip)">
+    <path d="M559.20,794.21 A296,296 0 0 1 804.21,549.20 Z" transform="translate(-9.90,-9.90)" fill="#5A2A10" opacity="0.35" filter="url(#flapShadow)"/>
+  </g>
+  <!-- flap (back of sticker) -->
+  <path d="M559.20,794.21 A296,296 0 0 1 804.21,549.20 Z" fill="url(#flapGrad)"/>
+</svg>

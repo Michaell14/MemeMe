@@ -97,6 +97,10 @@ On open, before a face is captured, the grid shows **Recent in this app** (per f
 - The index stores ~4 KB per meme (features + a base64 Float32 image fingerprint + OCR text). User files are never copied, except images explicitly handed in (dropped on the menu-bar icon), which go to `~/Library/Application Support/MemeMe/Kept`.
 - Indexing runs at utility priority, at most 2 images at once, pauses in Low Power Mode or when the thermal state is serious, and can be paused for 1 hour from the menu.
 
+## App icon
+
+A winking smiley die-cut sticker, its corner peeling, on an orange tile (the website's logo chip, `#FF9A5C` to a deeper orange), with two small sparkles; macOS grid (824 px tile on a 1024 canvas). The face is the website's smiley made bold: an ink pill eye, a wink, an open grin with a coral tongue. The 16, 32 and 64 px sizes are drawn upright with features on whole pixels, and the 16 px one without the peel. Sources: `Resources/AppIcon`. It shows in Finder, Launchpad, the DMG window, System Settings and notices; the menu bar keeps its template icon.
+
 ## Menu-bar icon
 
 - Template icon (SF Symbol `face.smiling`). Clicking shows the menu.
