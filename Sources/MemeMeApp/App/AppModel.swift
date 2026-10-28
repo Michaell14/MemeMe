@@ -463,7 +463,7 @@ enum Pick: Equatable {
         return true
     }
 
-    /// Space with an empty search field: the current face becomes the query, even a neutral one.
+    /// Space with an empty search field: the current face (or a gesture hiding it) becomes the query, even a neutral one.
     func snap() {
         guard mode == .live, !showSetupCard, tracker.snap() else { return }
         if holdProgress != 0 { holdProgress = 0 }

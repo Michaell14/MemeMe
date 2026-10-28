@@ -530,6 +530,46 @@ final class PoseTrackingTests: XCTestCase {
         XCTAssertTrue(tracker.ingest(frame(TestFaces.neutral, 15, pose: otherSeen)))
     }
 
+    func testFinishingAGestureReplacesTheFrameCaughtOnTheWay() throws {
+        // A hand rising to the face over a second, the other hand below the frame. The hold catches the arm on its
+        // way up, already at full strength but with no word for it yet; the facepalm it ends in is no stronger, and
+        // still replaces it.
+        let tracker = PeakHoldTracker(baseline: RestingBaseline(sampleCount: 100))
+        func between(_ from: (x: Double, y: Double), _ to: (x: Double, y: Double), _ u: Double) -> (x: Double, y: Double) {
+            (x: from.x + (to.x - from.x) * u, y: from.y + (to.y - from.y) * u)
+        }
+        var step = 0
+        for tenth in 0...10 {
+            let u = Double(tenth) / 10
+            let arm = TestArm(elbow: between((x: 0.6, y: -0.8), (x: 0.45, y: -0.6), u),
+                              wrist: between((x: 0.3, y: -0.85), (x: 0.15, y: 0.45), u))
+            step += 1
+            tracker.ingest(frame(u >= 0.8 ? nil : TestFaces.neutral, step, pose: TestPoses.features(TestPoses.body(left: arm, right: nil))))
+        }
+        let onFace = TestPoses.features(TestPoses.body(left: TestPoses.onFace, right: nil))
+        for _ in 0..<20 {
+            step += 1
+            tracker.ingest(frame(nil, step, pose: onFace))
+        }
+        let query = try XCTUnwrap(tracker.query)
+        XCTAssertNil(query.face)
+        XCTAssertEqual(MoodClassifier.mood(for: nil, pose: query.pose, baseline: tracker.baseline), .facepalm)
+    }
+
+    func testSnapDuringAGestureHidingTheFaceKeepsTheGesture() {
+        let tracker = PeakHoldTracker(baseline: RestingBaseline(sampleCount: 100))
+        XCTAssertFalse(tracker.ingest(frame(TestFaces.surprise, 1, pose: nil)))
+        XCTAssertFalse(tracker.ingest(frame(nil, 2, pose: facepalm)))
+        XCTAssertTrue(tracker.snap())
+        XCTAssertNil(tracker.query?.face)
+        XCTAssertEqual(tracker.query?.timestamp, 0.2)
+        XCTAssertEqual(tracker.queryIntensity, 0.8, accuracy: 1e-9)
+        // A frame with neither a face nor a clear gesture isn't snapped.
+        XCTAssertFalse(tracker.ingest(frame(nil, 3, pose: nil)))
+        XCTAssertFalse(tracker.snap())
+        XCTAssertEqual(tracker.query?.timestamp, 0.2)
+    }
+
     func testSwitchingHandSignsIsANewExpression() {
         let tracker = PeakHoldTracker(baseline: RestingBaseline(sampleCount: 100))
         let thumbsUp = TestPoses.features(TestPoses.both(TestPoses.rest), hand: HandShape(thumbsUp: 1))

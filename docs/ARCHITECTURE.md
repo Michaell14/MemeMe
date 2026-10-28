@@ -193,7 +193,7 @@ public final class PeakHoldTracker {
     public init(baseline: RestingBaseline = RestingBaseline(), config: PeakHoldConfig = PeakHoldConfig())
     /// Feed every analyzed frame. Returns true when `query` changed.
     @discardableResult public func ingest(_ sample: ExpressionSample) -> Bool
-    /// Space: makes the last sample with a face the query, even if neutral. Returns true if it changed the query.
+    /// Space: makes the last sample with a face (or a gesture hiding it) the query, even if neutral. Returns true if it changed the query.
     @discardableResult public func snap() -> Bool
     /// Clears query and candidate (keeps the baseline).
     public func reset()
@@ -205,7 +205,7 @@ Algorithm (binding):
 - Effective intensity `e = max(baseline.intensity(of: face) (0 without), 0.8 × gesture strength when it is ≥ 0.4 (else 0))`: half-raised arms with a neutral face are not an expression. Direction vector = `signedDeviation(of: face)` (7 zeros without) + `0.5 × gestureStrength × descriptor.gestureDirection` (a pose without a descriptor: `[activity, 0, 0, 0, 0, 0, 0, 0, 0]`), 16 values, normalized. A different hand sign with the arm where it was is therefore a different expression.
 - A sample is a candidate if `e >= minimumIntensity`; otherwise clear the candidate, return false.
 - The candidate is a run of consecutive candidate samples whose direction cosine with the run's first sample is ≥ `sameDirectionCosine`; a sample outside that cone starts a new run. Within a run keep the best sample by `e * sharpness` among samples whose timestamp is within `bufferWindow` of the newest.
-- Required hold: no query → `holdDuration`. Same direction as the query (cosine ≥ `sameDirectionCosine`) → `holdDuration`, and only if `bestE >= queryIntensity * strongerRatio` (otherwise `holdProgress = 0`, no replacement). Different direction → `newExpressionHold` and `candidateIsNewExpression = true`.
+- Required hold: no query → `holdDuration`. Same direction as the query (cosine ≥ `sameDirectionCosine`) → `holdDuration`, and only if `bestE >= queryIntensity * strongerRatio`, or it completes a gesture: as strong as the query (`bestE >= queryIntensity`), its pose has a gesture mood (`MoodClassifier.gestureMood`) and the query's pose has none (a hand caught on its way to the face, at full strength already; or a face-only query) (otherwise `holdProgress = 0`, no replacement). Different direction → `newExpressionHold` and `candidateIsNewExpression = true`.
 - `holdProgress = min(1, (newest.timestamp - run.start) / required)`. When it reaches 1: `query = best`, `queryIntensity = bestE`, clear the run, `holdProgress = 0`, `candidateIsNewExpression = false`, return true.
 - `candidate` is the run's best sample while it is held toward the query; clearing the candidate (and the query being set) makes it nil.
 

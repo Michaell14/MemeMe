@@ -49,7 +49,8 @@ public final class PeakHoldTracker {
 
     private var run: Run?
     private var queryDirection: [Double]?
-    private var lastFaceSample: ExpressionSample?
+    /// The last sample with a face, or with a gesture strong enough to stand in for one: what `snap` takes.
+    private var lastSeenSample: ExpressionSample?
 
     /// A gesture weaker than this adds nothing to a frame's intensity (`Ranker.gestureWithoutFace`).
     private static let minimumGesture = Ranker.gestureWithoutFace
@@ -70,7 +71,7 @@ public final class PeakHoldTracker {
         if let face = sample.face {
             lastFaceTimestamp = sample.timestamp
             lastSeenTimestamp = sample.timestamp
-            lastFaceSample = sample
+            lastSeenSample = sample
             // Judge the frame against the baseline as it was when the frame arrived, then let calm frames refine it.
             let entry = makeEntry(for: sample)
             baseline.observe(face)
@@ -82,6 +83,7 @@ public final class PeakHoldTracker {
             return false
         }
         lastSeenTimestamp = sample.timestamp
+        lastSeenSample = sample
         return hold(makeEntry(for: sample))
     }
 
@@ -112,7 +114,7 @@ public final class PeakHoldTracker {
         let required: TimeInterval
         if let reference = queryDirection {
             if VectorMath.cosine(current.direction, reference) >= config.sameDirectionCosine {
-                guard best.intensity >= queryIntensity * config.strongerRatio else {
+                guard best.intensity >= queryIntensity * config.strongerRatio || completesGesture(best) else {
                     // Same expression, not clearly stronger: nothing to hold toward. Dropping the run means a
                     // later, stronger version is held for the full `holdDuration` from its first frame.
                     clearCandidate()
@@ -144,10 +146,11 @@ public final class PeakHoldTracker {
         return false
     }
 
-    /// Space: makes the last sample with a face the query, even if neutral. Returns true if it changed the query.
+    /// Space: makes the last sample with a face (or a gesture hiding it) the query, even if neutral. Returns true if it
+    /// changed the query.
     @discardableResult
     public func snap() -> Bool {
-        guard let sample = lastFaceSample, sample.face != nil else { return false }
+        guard let sample = lastSeenSample else { return false }
         if query == sample { return false }
         let entry = makeEntry(for: sample)
         query = sample
@@ -191,6 +194,17 @@ public final class PeakHoldTracker {
             direction += [sample.pose?.activity ?? 0, 0, 0, 0, 0, 0, 0, 0, 0]
         }
         return Entry(sample: sample, intensity: intensity, direction: VectorMath.normalized(direction))
+    }
+
+    /// As strong as the query, and the arms or hand have reached a pose with a word of its own (a facepalm, say) where
+    /// the query, caught on the way there, had none. Gesture strength saturates before the hand gets to the face, so
+    /// the finished gesture is rarely stronger than the frame the hold caught mid-motion; it still replaces it.
+    private func completesGesture(_ entry: Entry) -> Bool {
+        guard let query, entry.intensity >= queryIntensity - 1e-9,
+              let descriptor = entry.sample.pose?.descriptor,
+              MoodClassifier.gestureMood(descriptor, face: entry.sample.face, baseline: baseline) != nil else { return false }
+        guard let held = query.pose?.descriptor else { return true }
+        return MoodClassifier.gestureMood(held, face: query.face, baseline: baseline) == nil
     }
 
     /// Highest `intensity * sharpness`; the newest wins ties.
