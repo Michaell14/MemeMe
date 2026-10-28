@@ -51,6 +51,9 @@ public final class PeakHoldTracker {
     private var queryDirection: [Double]?
     private var lastFaceSample: ExpressionSample?
 
+    /// A gesture weaker than this adds nothing to a frame's intensity (`Ranker.gestureWithoutFace`).
+    private static let minimumGesture = Ranker.gestureWithoutFace
+
     /// Frame clocks are never exact: a hold that is short of its target by less than this
     /// fraction counts as complete, so a nominal 0.3 s hold does not cost an extra frame.
     private static let progressTolerance = 1e-9
@@ -171,12 +174,15 @@ public final class PeakHoldTracker {
         candidateIsNewExpression = false
     }
 
-    /// intensity = max(face intensity, 0.8 × gesture strength); direction = the face's signed deviations (zeros without
+    /// intensity = max(face intensity, 0.8 × gesture strength when ≥ 0.4); direction = the face's signed deviations (zeros without
     /// a face) + the pose's gesture numbers × 0.5 × its gesture strength, so arms at rest or on a desk coming into view
     /// don't turn the same face into a new expression (a pose measured the old way: [activity, 0, 0, 0, 0, 0, 0, 0, 0]).
     private func makeEntry(for sample: ExpressionSample) -> Entry {
         let faceIntensity = sample.face.map { baseline.intensity(of: $0) } ?? 0
-        let intensity = max(faceIntensity, 0.8 * (sample.pose?.gestureStrength ?? 0))
+        // Only a clear gesture stands in for a face: a neutral face with half-raised arms isn't an expression.
+        let strength = sample.pose?.gestureStrength ?? 0
+        let gesture = strength >= PeakHoldTracker.minimumGesture ? strength : 0
+        let intensity = max(faceIntensity, 0.8 * gesture)
         var direction = sample.face.map { baseline.signedDeviation(of: $0) } ?? [Double](repeating: 0, count: 7)
         if let descriptor = sample.pose?.descriptor {
             let strength = descriptor.gestureStrength

@@ -33,6 +33,8 @@ struct CaptureResult {
     @Published private(set) var flashCount = 0
     /// The last capture failed ("Couldn't capture that.").
     @Published private(set) var failed = false
+    /// A clip stopped at 3 s and waits for the shutter to be let go before it is copied.
+    @Published private(set) var awaitingRelease = false
 
     var onCaptured: ((CaptureResult) -> Void)?
 
@@ -112,6 +114,9 @@ struct CaptureResult {
         pressedBy = nil
         if let result = heldResult {
             heldResult = nil
+            awaitingRelease = false
+            // Back to idle first: if copying fails, the view stays open and the shutter works again.
+            phase = .idle
             onCaptured?(result)
             return
         }
@@ -132,6 +137,7 @@ struct CaptureResult {
         generation += 1
         pressedBy = nil
         heldResult = nil
+        awaitingRelease = false
         holdTask?.cancel()
         holdTask = nil
         recordTask?.cancel()
@@ -227,6 +233,7 @@ struct CaptureResult {
         if pressedBy != nil {
             // Stopped at 3 s with the shutter still down: hand it over on release.
             heldResult = result
+            awaitingRelease = true
             return
         }
         phase = .idle

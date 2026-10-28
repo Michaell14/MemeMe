@@ -124,9 +124,9 @@ Pose (binding):
 - Body frame: origin O = shoulder midpoint (else the neck); x along the shoulder line (oriented left to right in the image, so the tilt is taken out either way the person faces); unit S = shoulder distance, at least 0.8 × the head's estimate (2.6 × ear distance, else 6 × eye distance, else 3 × nose-to-ear distance seen from the side) and at least 0.7 × the longer upper arm. The shoulder line gives the tilt (and `shoulderTilt`) only when it is at least 0.5 S long; a body turned to the side keeps roll 0. Head H = mean of nose, eyes, ears. Points p' = rotate(p − O) / S.
 - Per arm (wrist w', elbow e', shoulder s'): `lift = (w'.y + 1.5) / 3.5`, `out = |w'.x| / 2.5`, `head = |w' − H'| / 2`, `elbowLift` = upper-arm angle from straight down / 180°, `elbowBend` = 1 − elbow angle / 180°. `wristGap = |wL − wR| / S / 3`, `shoulderTilt = |roll| / 30°`, `headRise = H'.y / 1.5`. All clamped to 0...1.
 - Hand: a finger is straight when |tip − wrist| / |PIP − wrist| ≥ 1.2 (ramp from 0.95) and curled when ≤ 0.8 (ramp to 1.05). thumbsUp = min(others curled, thumb tip−IP within ~35° of up, thumb tip above the other fingers by 0.1–0.35 palms); point = index straight, 3 others curled; peace = index and middle straight, ring and little curled; openPalm / fist = all straight / curled.
-- gestureStrength: weighted RMS distance from arms at rest (lift .03, out .2, head 1, elbowLift .05, elbowBend .1, gap .37; weights 1, .5, 1, .5, .25, .5) over the numbers seen, `clamp((rms − 0.1) / 0.3)`; a hand sign ≥ 0.7 raises it to the sign's strength.
+- gestureStrength: 0 when every wrist seen is low, in front and away from the head (lift ≤ 0.3, out ≤ 0.2, head ≥ 0.7: forearms on a desk or in the lap); else the weighted RMS distance from arms hanging at the sides (lift .03, out .2, head 1, elbowLift .05, elbowBend .1, gap .37; weights 1, .5, 1, .5, .25, .5) over the numbers seen, skipping an elbowLift whose wrist wasn't seen unless it is ≥ `elbowOnlyUp` (0.88, near vertical: hands out of the top of the frame, not clasped behind the head), `clamp((rms − 0.1) / 0.3)`; a hand sign ≥ 0.7 raises it to the sign's strength.
 - compare: weights per number lift 2, out 1, head 2, elbowLift 1, elbowBend 1, gap 1.5, tilt .5, headRise .5 (hand signs 1 each when both have a hand); per number `max(0, 1 − |Δ| / 0.25)`. similarity = over numbers both have; coverage = their weight / the weight of numbers either has.
-- `PoseFeatures.similarity(query:item:)`, g = gesture strength: the item's arms not seen → `1 − 0.7·g_query`; the query without a descriptor or the item measured the old way → level = `1 − |g_query − g_item|`; else the better of the item as-is and mirrored of `coverage × similarity × (0.5 + 0.5·level) + (1 − coverage) × level`.
+- `PoseFeatures.similarity(query:item:)`, g = gesture strength: the item's arms not seen → `1 − 0.7·g_query`; the query without a descriptor or the item measured the old way, or both at rest (g < 0.15) → level = `1 − |g_query − g_item|`; else the better of the item as-is and mirrored of `coverage × similarity × (0.5 + 0.5·level) + (1 − coverage) × level`.
 
 ### Baseline.swift
 
@@ -202,7 +202,7 @@ public final class PeakHoldTracker {
 
 Algorithm (binding):
 - `ingest`: set `lastSample`. No face and a gesture strength below `minimumGestureWithoutFace` (0.5) → clear the candidate, `holdProgress = 0`, return false (a facepalm hides the face: its gesture carries on). Calm frames with a face feed `baseline.observe`.
-- Effective intensity `e = max(baseline.intensity(of: face) (0 without), 0.8 * (pose?.gestureStrength ?? 0))`. Direction vector = `signedDeviation(of: face)` (7 zeros without) + `0.5 × gestureStrength × descriptor.gestureDirection` (a pose without a descriptor: `[activity, 0, 0, 0, 0, 0, 0, 0, 0]`), 16 values, normalized. A different hand sign with the arm where it was is therefore a different expression.
+- Effective intensity `e = max(baseline.intensity(of: face) (0 without), 0.8 × gesture strength when it is ≥ 0.4 (else 0))`: half-raised arms with a neutral face are not an expression. Direction vector = `signedDeviation(of: face)` (7 zeros without) + `0.5 × gestureStrength × descriptor.gestureDirection` (a pose without a descriptor: `[activity, 0, 0, 0, 0, 0, 0, 0, 0]`), 16 values, normalized. A different hand sign with the arm where it was is therefore a different expression.
 - A sample is a candidate if `e >= minimumIntensity`; otherwise clear the candidate, return false.
 - The candidate is a run of consecutive candidate samples whose direction cosine with the run's first sample is ≥ `sameDirectionCosine`; a sample outside that cone starts a new run. Within a run keep the best sample by `e * sharpness` among samples whose timestamp is within `bufferWindow` of the newest.
 - Required hold: no query → `holdDuration`. Same direction as the query (cosine ≥ `sameDirectionCosine`) → `holdDuration`, and only if `bestE >= queryIntensity * strongerRatio` (otherwise `holdProgress = 0`, no replacement). Different direction → `newExpressionHold` and `candidateIsNewExpression = true`.
@@ -252,7 +252,7 @@ public enum MoodClassifier {
     public static func mood(for face: FaceFeatures?, pose: PoseFeatures?, baseline: RestingBaseline) -> Mood
     /// Each rule needs the joints it reads; in this order:
     /// 1. hand: thumbsUp ≥ 0.7 → .thumbsUp; point ≥ 0.7 → .pointing
-    /// 2. both arms up (lift ≥ 0.7 with head ≥ 0.35, or no wrist and elbowLift ≥ 0.5) → o ≥ 0.35 && s ≤ 0.05 ? .screaming : .celebrate
+    /// 2. both arms up (lift ≥ 0.7 with head ≥ 0.35, or no wrist and elbowLift ≥ 0.88) → o ≥ 0.35 && s ≤ 0.05 ? .screaming : .celebrate
     /// 3. both hands beside the head (head ≤ 0.35, lift ≥ 0.5, out ≥ 0.09) → o ≥ 0.45 ? .screaming : .mindBlown
     /// 4. a hand on the face (head ≤ 0.22, ≤ 0.3 without a face; lift ≥ 0.5), face nil or d.eye ≤ −0.1, o < 0.35 → .facepalm
     /// 5. wristGap ≤ 0.12, both lifts 0.3...0.75 with head > 0.3, and open hands when read (openPalm ≥ 0.5) → .clapping
@@ -1133,6 +1133,7 @@ struct CaptureResult { let data: Data; let isGIF: Bool; let stickerFrame: CGImag
     @Published private(set) var phase: CapturePhase
     @Published private(set) var flashCount: Int        // bumped per photo
     @Published private(set) var failed: Bool
+    @Published private(set) var awaitingRelease: Bool  // a clip stopped at 3 s waits for the shutter to be let go ("Let go to copy it.")
     var onCaptured: ((CaptureResult) -> Void)?
     static let holdThreshold: TimeInterval             // 0.35
     static let minimumClipFrames: Int                  // 4
@@ -1201,7 +1202,7 @@ enum DropOutcome { case kept(IndexBatch), stickers(StickerBatch), nothing }
     func setHotKeyAvailable(_ available: Bool)
 
     // Panel lifecycle
-    func panelWillShow(previousApp: NSRunningApplication?)
+    func panelWillShow(previousApp: NSRunningApplication?)   // dismisses a HUD still showing first
     func panelDidHide()
 
     // Input (indices are TileGrid slots)

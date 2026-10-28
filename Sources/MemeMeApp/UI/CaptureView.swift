@@ -153,6 +153,9 @@ struct CaptureView: View {
         if capture.failed {
             return "Couldn’t capture that. Try again."
         }
+        if capture.awaitingRelease {
+            return "Let go to copy it."
+        }
         switch capture.phase {
         case .idle:
             return "Tap the button for a photo, hold it for a GIF (up to 3 s). It’s copied, ready to paste."

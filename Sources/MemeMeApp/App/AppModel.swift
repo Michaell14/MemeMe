@@ -326,6 +326,8 @@ enum Pick: Equatable {
     // MARK: - Panel lifecycle
 
     func panelWillShow(previousApp: NSRunningApplication?) {
+        // A notice still showing (e.g. "Save as sticker" from the last capture) sits where the panel opens.
+        HUDController.shared.dismiss()
         sessionID += 1
         let ownBundleID = Bundle.main.bundleIdentifier
         if let bundleID = previousApp?.bundleIdentifier, bundleID != ownBundleID {

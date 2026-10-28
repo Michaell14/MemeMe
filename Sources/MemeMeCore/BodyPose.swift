@@ -450,21 +450,41 @@ public struct PoseDescriptor: Codable, Hashable, Sendable {
         (.wristGap, 0.37, 0.5),
     ]
 
-    /// 0 for arms at rest (or not seen) … 1 for a clear gesture: the weighted RMS distance from rest over the arms seen,
-    /// minus a small dead zone (fidgeting, typing), or a clear hand sign.
-    public var gestureStrength: Double {
-        var sum = 0.0
-        var weights = 0.0
-        for entry in PoseDescriptor.rest {
-            guard let value = self[entry.dimension] else { continue }
-            let difference = value - entry.value
-            sum += entry.weight * difference * difference
-            weights += entry.weight
+    /// An upper arm seen without its wrist counts as raised only this close to vertical (hands out of the top of the
+    /// frame); elbows up and out with the wrists hidden are hands clasped behind the head, a resting pose.
+    public static let elbowOnlyUp = 0.88
+
+    /// Every wrist seen is low, in front and away from the head: forearms on a desk or in the lap, a resting pose.
+    var forearmsAtRest: Bool {
+        let wrists: [(lift: Double?, out: Double?, head: Double?)] = [
+            (self[.leftLift], self[.leftOut], self[.leftHead]),
+            (self[.rightLift], self[.rightOut], self[.rightHead]),
+        ].filter { $0.lift != nil }
+        return !wrists.isEmpty && wrists.allSatisfy { wrist in
+            (wrist.lift ?? 1) <= 0.3 && (wrist.out ?? 1) <= 0.2 && (wrist.head ?? 0) >= 0.7
         }
+    }
+
+    /// 0 for arms at rest (hanging, on a desk, behind the head, or not seen) … 1 for a clear gesture: the weighted RMS
+    /// distance from arms hanging at the sides over the arms seen, minus a small dead zone (fidgeting, typing), or a
+    /// clear hand sign.
+    public var gestureStrength: Double {
         var strength = 0.0
-        if weights > 0 {
-            let rms = (sum / weights).squareRoot()
-            strength = VectorMath.clampUnit((rms - 0.1) / 0.3)
+        if !forearmsAtRest {
+            var sum = 0.0
+            var weights = 0.0
+            for entry in PoseDescriptor.rest {
+                guard let value = self[entry.dimension] else { continue }
+                if entry.dimension == .leftElbowLift && self[.leftLift] == nil && value < PoseDescriptor.elbowOnlyUp { continue }
+                if entry.dimension == .rightElbowLift && self[.rightLift] == nil && value < PoseDescriptor.elbowOnlyUp { continue }
+                let difference = value - entry.value
+                sum += entry.weight * difference * difference
+                weights += entry.weight
+            }
+            if weights > 0 {
+                let rms = (sum / weights).squareRoot()
+                strength = VectorMath.clampUnit((rms - 0.1) / 0.3)
+            }
         }
         if let sign = hand?.signStrength, sign >= 0.7 {
             strength = max(strength, sign)

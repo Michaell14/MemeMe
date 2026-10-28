@@ -116,6 +116,21 @@ final class PoseDescriptorTests: XCTestCase {
         XCTAssertLessThan(try XCTUnwrap(side[.leftLift]), 0.1)
     }
 
+    func testForearmsOnADeskAndHandsBehindTheHeadAreRest() throws {
+        let onDesk = try descriptor(TestPoses.both(TestArm(elbow: (x: 0.6, y: -0.8), wrist: (x: 0.3, y: -0.85))))
+        XCTAssertEqual(onDesk.gestureStrength, 0)
+        // Wrists hidden behind the head, elbows up and out: not arms raised out of frame.
+        let behindHead = try descriptor(TestPoses.both(TestArm(elbow: (x: 0.95, y: 0.75), wrist: nil)))
+        XCTAssertLessThan(try XCTUnwrap(behindHead[.leftElbowLift]), PoseDescriptor.elbowOnlyUp)
+        XCTAssertEqual(behindHead.gestureStrength, 0)
+        // Upper arms near vertical with the hands out of the top of the frame still count.
+        XCTAssertEqual(try descriptor(TestPoses.both(TestPoses.elbowUp)).gestureStrength, 1, accuracy: 1e-9)
+        // Two resting poses match whatever their shape.
+        let desk = TestPoses.features(TestPoses.both(TestArm(elbow: (x: 0.6, y: -0.8), wrist: (x: 0.3, y: -0.85))))
+        let hanging = TestPoses.features(TestPoses.both(TestPoses.rest))
+        XCTAssertEqual(PoseFeatures.similarity(query: desk, item: hanging), 1, accuracy: 1e-9)
+    }
+
     func testAFaceWithShouldersShowsNoArms() throws {
         let shoulders = try descriptor(TestPoses.body(left: nil, right: nil))
         XCTAssertFalse(shoulders.showsArms)
@@ -281,6 +296,12 @@ final class PoseMoodTests: XCTestCase {
         XCTAssertEqual(classify(TestFaces.neutral, TestPoses.both(TestPoses.clap), hand: HandShape(openPalm: 1)), .clapping)
     }
 
+    func testHandsClaspedBehindTheHeadAreNotACelebration() {
+        let behindHead = TestArm(elbow: (x: 0.95, y: 0.75), wrist: nil)
+        XCTAssertEqual(classify(TestFaces.neutral, TestPoses.both(behindHead)), .unimpressed)
+        XCTAssertEqual(classify(makeFace(smile: 0.7), TestPoses.both(behindHead)), .happy)
+    }
+
     func testBentArmsOutLowIsAShrug() {
         XCTAssertEqual(classify(TestFaces.neutral, TestPoses.both(TestPoses.shrug)), .shrug)
     }
@@ -398,6 +419,33 @@ final class PoseTrackingTests: XCTestCase {
             XCTAssertFalse(tracker.ingest(frame(smile, step, pose: outOfFrame)), "step \(step)")
             XCTAssertFalse(tracker.candidateIsNewExpression, "step \(step)")
         }
+    }
+
+    func testANeutralFaceWithRestingArmsIsNeverHeld() {
+        let tracker = PeakHoldTracker(baseline: RestingBaseline(sampleCount: 100))
+        let onDesk = TestPoses.features(TestPoses.both(TestArm(elbow: (x: 0.6, y: -0.8), wrist: (x: 0.3, y: -0.85))))
+        // Arms a little out from the sides: a weak gesture (about 0.22), not a held expression.
+        let halfRaised = TestPoses.features(TestPoses.both(TestArm(elbow: (x: 0.75, y: -0.65), wrist: (x: 0.9, y: -0.7))))
+        XCTAssertGreaterThan(halfRaised.gestureStrength, 0.1)
+        XCTAssertLessThan(halfRaised.gestureStrength, Ranker.gestureWithoutFace)
+        for step in 1...20 {
+            XCTAssertFalse(tracker.ingest(frame(TestFaces.neutral, step, pose: step % 2 == 0 ? onDesk : halfRaised)), "step \(step)")
+            XCTAssertNil(tracker.candidate, "step \(step)")
+        }
+        XCTAssertNil(tracker.query)
+    }
+
+    func testRelaxingWithArmsOnTheDeskKeepsTheHeldFace() {
+        let tracker = PeakHoldTracker(baseline: RestingBaseline(sampleCount: 100))
+        let onDesk = TestPoses.features(TestPoses.both(TestArm(elbow: (x: 0.6, y: -0.8), wrist: (x: 0.3, y: -0.85))))
+        for step in 1...3 {
+            XCTAssertFalse(tracker.ingest(frame(TestFaces.surprise, step, pose: onDesk)))
+        }
+        XCTAssertTrue(tracker.ingest(frame(TestFaces.surprise, 4, pose: onDesk)))
+        for step in 5...25 {
+            XCTAssertFalse(tracker.ingest(frame(TestFaces.neutral, step, pose: onDesk)), "step \(step)")
+        }
+        XCTAssertEqual(tracker.query?.face, TestFaces.surprise)
     }
 
     func testSwitchingHandSignsIsANewExpression() {

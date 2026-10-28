@@ -93,8 +93,8 @@ public enum MoodClassifier {
     /// Body language that has its own word, or nil. Each rule needs the joints it reads (a missing one never matches);
     /// in this order:
     /// 1. hand sign: thumbs up ≥ 0.7 → .thumbsUp; pointing ≥ 0.7 → .pointing
-    /// 2. both arms up (wrist lift ≥ 0.7 and not at the head, or with the hands out of frame an upper arm above
-    ///    shoulder height) → mouth open ≥ 0.35 without a smile ? .screaming : .celebrate
+    /// 2. both arms up (wrist lift ≥ 0.7 and not at the head, or with the hands out of frame an upper arm near vertical,
+    ///    elbowLift ≥ `PoseDescriptor.elbowOnlyUp`) → mouth open ≥ 0.35 without a smile ? .screaming : .celebrate
     /// 3. both hands beside the head (head ≤ 0.35, lift ≥ 0.5, out ≥ 0.09: not under the chin or over the face)
     ///    → mouth open ≥ 0.45 ? .screaming : .mindBlown
     /// 4. a hand on the face (head ≤ 0.22, lift ≥ 0.5; ≤ 0.3 when the face is hidden) with the eyes shut or the face
@@ -130,7 +130,7 @@ public enum MoodClassifier {
             if let lift = arm.lift {
                 return lift >= 0.7 && (arm.head ?? 1) >= 0.35
             }
-            return (arm.elbowLift ?? 0) >= 0.5
+            return (arm.elbowLift ?? 0) >= PoseDescriptor.elbowOnlyUp
         }
         if both(armUp) {
             return open >= 0.35 && smile <= 0.05 ? .screaming : .celebrate
