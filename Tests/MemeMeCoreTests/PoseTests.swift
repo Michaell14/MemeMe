@@ -275,6 +275,9 @@ final class PoseMoodTests: XCTestCase {
         XCTAssertEqual(classify(nil, facepalm), .facepalm)
         // Eyes open: a hand near the face alone isn't a facepalm.
         XCTAssertEqual(classify(TestFaces.neutral, facepalm), .unimpressed)
+        // A smile narrows the eyes too: smug or laughing with the head propped on a hand stays smug or laughing.
+        XCTAssertEqual(classify(makeFace(eye: 0.3, smile: 0.7), facepalm), .smug)
+        XCTAssertEqual(classify(makeFace(eye: 0.3, mouth: 0.3, smile: 0.65), facepalm), .laughing)
     }
 
     func testHandsTogetherIsClapping() {
@@ -356,6 +359,19 @@ final class PoseRankingTests: XCTestCase {
         XCTAssertEqual(plainScore, 1, accuracy: 1e-9)
         XCTAssertLessThan(posingScore, plainScore)
         XCTAssertGreaterThan(posingScore, 0.96)    // at most 0.7 × 0.05 lower
+    }
+
+    func testMemesMeasuredTheOldWayAreUnknownToADetailedPose() {
+        let celebrating = TestPoses.features(TestPoses.both(TestPoses.up))
+        let legacy = PoseFeatures(handsRaised: 1, armsSpread: 0, bodyVisible: 0.9)
+        XCTAssertEqual(PoseFeatures.similarity(query: celebrating, item: legacy), 0.3, accuracy: 1e-9)   // 1 − 0.7 × 1
+        // Two old-style poses still compare by activity.
+        XCTAssertEqual(PoseFeatures.similarity(query: legacy, item: legacy), 1, accuracy: 1e-9)
+        // A faceless old-style meme doesn't take the hidden-face branch.
+        let query = ExpressionSample(face: nil, pose: celebrating, timestamp: 0)
+        let weights = FeatureWeights.automatic(deviation: [:], poseStrength: 1)
+        let faceless = makeItem(name: "old", kind: .pack, pose: legacy, intensity: 0.3)
+        XCTAssertEqual(ranker.expressionScore(item: faceless, sample: query, weights: weights), 0.55, accuracy: 1e-9)
     }
 
     func testAHiddenFaceIsMatchedByItsPose() {

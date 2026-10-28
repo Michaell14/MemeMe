@@ -131,8 +131,8 @@ public struct PoseFeatures: Codable, Hashable, Sendable {
     /// How well an item's pose matches the query's (0...1), g = gesture strength:
     /// - the item's arms weren't seen: unknown, so 1 − 0.7 × the query's g (neutral without a gesture, below a
     ///   matching pose when the user makes one);
-    /// - both at rest (g < 0.15), the query not described in detail, or the item measured the old way:
-    ///   1 − |g difference| ("level");
+    /// - the item measured the old way: unknown against a query described in detail, else as below;
+    /// - both at rest (g < 0.15), or the query not described in detail: 1 − |g difference| ("level");
     /// - both described: on the numbers both show, shape similarity × (0.5 + 0.5 × level), so a different gesture or
     ///   arms at rest don't pass for the user's gesture; what only one side shows counts as level (the query's arms
     ///   out of frame ≈ arms down). The better of the item as-is and mirrored.
@@ -144,7 +144,10 @@ public struct PoseFeatures: Codable, Hashable, Sendable {
         let level = 1 - abs(queryStrength - itemStrength)
         // Two poses at rest match, whatever their shape (arms hanging, on a desk, in the lap).
         if queryStrength < PoseFeatures.restingStrength && itemStrength < PoseFeatures.restingStrength { return level }
-        guard let queryPose = query?.descriptor, let itemPose = item.descriptor else { return level }
+        // An item measured the old way can't be compared with a pose described in detail (its "activity" only knew
+        // raised or spread wrists): unknown until the pose pass reads it again.
+        guard let itemPose = item.descriptor else { return query?.descriptor == nil ? level : unknown }
+        guard let queryPose = query?.descriptor else { return level }
         func blended(_ match: (similarity: Double, coverage: Double)) -> Double {
             match.coverage * match.similarity * (0.5 + 0.5 * level) + (1 - match.coverage) * level
         }

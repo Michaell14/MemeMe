@@ -760,6 +760,8 @@ enum Pick: Equatable {
 
     func openCapture() {
         guard canOpenCapture, !isCaptureOpen else { return }
+        // A GIPHY pick still downloading must not copy, show the You're-set card or close the panel under the capture view.
+        commitToken += 1
         isCaptureOpen = true
         capture.activate()
         if holdProgress != 0 { holdProgress = 0 }

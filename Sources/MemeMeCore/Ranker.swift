@@ -100,7 +100,7 @@ public struct Ranker: Sendable {
     }
 
     /// Both faces: 0.7 × ((1 − w) × face similarity + w × pose similarity) + 0.3 × intensity fit, w = weights.pose.
-    /// A face hidden behind a clear gesture (or a meme without a readable face) when the item's arms were seen: the
+    /// A face hidden behind a clear gesture (or a meme without a readable face) when the item's arms were measured: the
     /// face part counts 0.5 and the pose carries the match. Otherwise 0.25 + 0.3 × fit.
     public func expressionScore(item: LibraryItem, sample: ExpressionSample, weights: FeatureWeights) -> Double {
         let target = sample.face.map { baseline.intensity(of: $0) } ?? 0.3
@@ -114,7 +114,7 @@ public struct Ranker: Sendable {
             let poseSim = PoseFeatures.similarity(query: sample.pose, item: item.pose)
             let faceScore = (1 - poseWeight) * featureSim + poseWeight * poseSim
             score = 0.7 * faceScore + 0.3 * fit
-        } else if let queryPose = sample.pose, queryPose.gestureStrength >= Ranker.gestureWithoutFace, item.pose?.showsArms == true {
+        } else if let queryPose = sample.pose, queryPose.gestureStrength >= Ranker.gestureWithoutFace, item.pose?.descriptor?.showsArms == true {
             let poseSim = PoseFeatures.similarity(query: queryPose, item: item.pose)
             let faceScore = (1 - poseWeight) * 0.5 + poseWeight * poseSim
             score = 0.7 * faceScore + 0.3 * fit

@@ -126,7 +126,7 @@ Pose (binding):
 - Hand: a finger is straight when |tip − wrist| / |PIP − wrist| ≥ 1.2 (ramp from 0.95) and curled when ≤ 0.8 (ramp to 1.05). thumbsUp = min(others curled, thumb tip−IP within ~35° of up, thumb tip above the other fingers by 0.1–0.35 palms); point = index straight, 3 others curled; peace = index and middle straight, ring and little curled; openPalm / fist = all straight / curled.
 - gestureStrength: 0 when every wrist seen is low, in front and away from the head (lift ≤ 0.3, out ≤ 0.2, head ≥ 0.7: forearms on a desk or in the lap); else the weighted RMS distance from arms hanging at the sides (lift .03, out .2, head 1, elbowLift .05, elbowBend .1, gap .37; weights 1, .5, 1, .5, .25, .5) over the numbers seen, skipping an elbowLift whose wrist wasn't seen unless it is ≥ `elbowOnlyUp` (0.88, near vertical: hands out of the top of the frame, not clasped behind the head), `clamp((rms − 0.1) / 0.3)`; a hand sign ≥ 0.7 raises it to the sign's strength.
 - compare: weights per number lift 2, out 1, head 2, elbowLift 1, elbowBend 1, gap 1.5, tilt .5, headRise .5 (hand signs 1 each when both have a hand); per number `max(0, 1 − |Δ| / 0.25)`. similarity = over numbers both have; coverage = their weight / the weight of numbers either has.
-- `PoseFeatures.similarity(query:item:)`, g = gesture strength: the item's arms not seen → `1 − 0.7·g_query`; the query without a descriptor or the item measured the old way, or both at rest (g < 0.15) → level = `1 − |g_query − g_item|`; else the better of the item as-is and mirrored of `coverage × similarity × (0.5 + 0.5·level) + (1 − coverage) × level`.
+- `PoseFeatures.similarity(query:item:)`, g = gesture strength: the item's arms not seen → `1 − 0.7·g_query`; the query without a descriptor or both at rest (g < 0.15) → level = `1 − |g_query − g_item|`; an item measured the old way → unknown against a query with a descriptor, else level; else the better of the item as-is and mirrored of `coverage × similarity × (0.5 + 0.5·level) + (1 − coverage) × level`.
 
 ### Baseline.swift
 
@@ -254,7 +254,7 @@ public enum MoodClassifier {
     /// 1. hand: thumbsUp ≥ 0.7 → .thumbsUp; point ≥ 0.7 → .pointing
     /// 2. both arms up (lift ≥ 0.7 with head ≥ 0.35, or no wrist and elbowLift ≥ 0.88) → o ≥ 0.35 && s ≤ 0.05 ? .screaming : .celebrate
     /// 3. both hands beside the head (head ≤ 0.35, lift ≥ 0.5, out ≥ 0.09) → o ≥ 0.45 ? .screaming : .mindBlown
-    /// 4. a hand on the face (head ≤ 0.22, ≤ 0.3 without a face; lift ≥ 0.5), face nil or d.eye ≤ −0.1, o < 0.35 → .facepalm
+    /// 4. a hand on the face (head ≤ 0.22, ≤ 0.3 without a face; lift ≥ 0.5), face nil or d.eye ≤ −0.1, o < 0.35, s ≤ 0.05 → .facepalm
     /// 5. wristGap ≤ 0.12, both lifts 0.3...0.75 with head > 0.3, and open hands when read (openPalm ≥ 0.5) → .clapping
     /// 6. both elbowBend ≥ 0.3, out ≥ 0.3, lift 0.1...0.5 → .shrug
     /// 7. both out ≥ 0.45 and lift ≥ 0.35, s > 0.08 → .excited
@@ -391,7 +391,7 @@ public struct Ranker: Sendable {
 ```
 
 Scoring (binding):
-- **expressionScore**: target `t = sample.face.map { baseline.intensity(of: $0) } ?? 0.3`. If `item.face` and `sample.face` exist: `qDev = baseline.signedDeviation(of: sample.face)`, `iDev = item.face.vector - populationNeutral.vector`; per region `sim_r = max(0, 1 - meanAbsDiff(qDev[idx_r], iDev[idx_r]) / 0.5)`; `featureSim = Σ w_r·sim_r / Σ w_r`; `poseSim = PoseFeatures.similarity(query: sample.pose, item: item.pose)`; `faceScore = (1 - w.pose)·featureSim + w.pose·poseSim`; `fit = 1 - |item.intensity - t|`; `score = 0.7·faceScore + 0.3·fit`. Without item or sample face: when the sample's gesture strength is ≥ `Ranker.gestureWithoutFace` (0.4) and the item's arms were seen, the same with featureSim 0.5 (a facepalm hides the face; the pose carries the match); else `score = 0.25 + 0.3·fit`. Then `+0.02` if `isOwn`, `+0.01·min(timesSent,5)/5`, `-0.01` if `kind == .web`.
+- **expressionScore**: target `t = sample.face.map { baseline.intensity(of: $0) } ?? 0.3`. If `item.face` and `sample.face` exist: `qDev = baseline.signedDeviation(of: sample.face)`, `iDev = item.face.vector - populationNeutral.vector`; per region `sim_r = max(0, 1 - meanAbsDiff(qDev[idx_r], iDev[idx_r]) / 0.5)`; `featureSim = Σ w_r·sim_r / Σ w_r`; `poseSim = PoseFeatures.similarity(query: sample.pose, item: item.pose)`; `faceScore = (1 - w.pose)·featureSim + w.pose·poseSim`; `fit = 1 - |item.intensity - t|`; `score = 0.7·faceScore + 0.3·fit`. Without item or sample face: when the sample's gesture strength is ≥ `Ranker.gestureWithoutFace` (0.4) and the item's arms were measured (a descriptor that shows arms), the same with featureSim 0.5 (a facepalm hides the face; the pose carries the match); else `score = 0.25 + 0.3·fit`. Then `+0.02` if `isOwn`, `+0.01·min(timesSent,5)/5`, `-0.01` if `kind == .web`.
 - **expression** results: items with `tier == .meme` only; sort by score desc; keep at most 2 `kind == .friend` items within the first `limit` (extras are dropped from the window); return `limit`.
 - **text**: parse with `TextQuery.parse`. Pool: `tier` meme or maybe, matching filters; every term must be a substring of `lowercased(displayName + " " + text + " " + labels.joined(" ") + " " + source + " " + (sourceDetail ?? "") + " " + person name)`. Order inside groups: by `expressionScore` when `face` is non-nil, else newest first (`fileModifiedAt ?? addedAt`). Groups and `section`: own items grouped by `monthKey` (newest month first), then `.pack` ("Packs"), then `.web` ("From GIPHY"). If fewer than 3 hits, append matching `skipped` items with section "From your photos". Return up to `limit`.
 - **image**: meme tier; `fp = featurePrint != nil && item.featurePrint != nil ? (cosine + 1) / 2 : 0.5`; `fs = face sim with uniform weights using populationNeutral for both (0.5 when either is nil)`; `score = 0.7·fp + 0.3·fs`, then the same own/web adjustments.
@@ -1219,7 +1219,7 @@ enum DropOutcome { case kept(IndexBatch), stickers(StickerBatch), nothing }
     func snap()
     // Send yourself
     var canOpenCapture: Bool { get }                 // mode == .live, no setup card, camera running
-    func openCapture()                               // isCaptureOpen = true, capture.activate(); the search pauses (handleSample ignores samples)
+    func openCapture()                               // commitToken += 1 (a pick still downloading is dropped), isCaptureOpen = true, capture.activate(); the search pauses
     func closeCapture()                              // capture.deactivate(); also on hide and on a new session
     func moreLikeFocused()
     func backToFace()
