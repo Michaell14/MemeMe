@@ -8,6 +8,8 @@
 	<string>MemeMe</string>
 	<key>CFBundleExecutable</key>
 	<string>MemeMe</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.mememe.app</string>
 	<key>CFBundleInfoDictionaryVersion</key>

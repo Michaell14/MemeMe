@@ -27,7 +27,7 @@ public struct TextQuery: Equatable, Sendable {
     public var onlyMine: Bool            // "mine"
     public var onlyGIFs: Bool            // "gif" / "gifs"
     public var onlyStickers: Bool        // "sticker" / "stickers"
-    public var personIDs: Set<UUID>      // terms equal (case-insensitive) to a person's name are removed from terms and become filters
+    public var personIDs: Set<UUID>      // terms equal (case-insensitive) to a person's name, or its possessive ("sam's"), are removed from terms and become filters
 
     public static func parse(_ raw: String, people: [Person]) -> TextQuery {
         var query = TextQuery(terms: [], onlyMine: false, onlyGIFs: false, onlyStickers: false, personIDs: [])
@@ -50,7 +50,7 @@ public struct TextQuery: Equatable, Sendable {
             case "sticker", "stickers":
                 query.onlyStickers = true
             default:
-                if let ids = peopleByName[term] {
+                if let ids = peopleByName[term] ?? possessiveBase(of: term).flatMap({ peopleByName[$0] }) {
                     query.personIDs.formUnion(ids)
                 } else {
                     query.terms.append(term)
@@ -58,6 +58,14 @@ public struct TextQuery: Equatable, Sendable {
             }
         }
         return query
+    }
+
+    /// "sam's" / "sam’s" → "sam"; nil for any other word.
+    private static func possessiveBase(of term: String) -> String? {
+        for suffix in ["'s", "’s"] where term.hasSuffix(suffix) && term.count > suffix.count {
+            return String(term.dropLast(suffix.count))
+        }
+        return nil
     }
 
     /// The single remaining term when it is alphabetic, ≥ 3 letters and matched no person (used for "Is one of these Sam?").

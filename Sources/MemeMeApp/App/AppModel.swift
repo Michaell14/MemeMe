@@ -22,7 +22,8 @@ struct PanelHint: Equatable {
     var action: HintAction?
 }
 
-enum FooterState: Equatable { case legend, libraryOffer, indexing(count: Int), added(IndexBatch), update(UpdateManifest) }
+/// The footer only appears for something to act on: collecting memes, what was just added, an update.
+enum FooterState: Equatable { case hidden, indexing(count: Int), added(IndexBatch), update(UpdateManifest) }
 
 struct NamingCandidate: Identifiable, Equatable {
     let personID: UUID
@@ -45,7 +46,6 @@ private enum HintCopy {
     static let warmingTitle = "Starting camera…"
     static let warmingSubtitle = "Your recent picks are ready below."
     static let liveTitle = "Make a face or a pose. Results follow it."
-    static let liveSubtitle = "Click your eyes or mouth to focus on them."
     static let noFaceTitle = "Can’t see your face"
     static let noFaceSubtitle = "Try more light, or just type."
     static let clearAction = "Clear"
@@ -99,15 +99,17 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
 
 // MARK: - AppModel
 
-/// What a tile holds: one of your memes, or a GIF in the GIPHY row.
+/// What a tile holds: one of your memes, a GIF in the GIPHY row, or a classic meme template.
 enum Pick: Equatable {
     case meme(LibraryItem)
     case gif(WebGIF)
+    case template(MemeTemplate)
 
     var title: String {
         switch self {
         case let .meme(item): return item.displayName
         case let .gif(gif): return gif.title
+        case let .template(template): return template.name
         }
     }
 }
@@ -126,19 +128,28 @@ enum Pick: Equatable {
     /// Rows of the grid of your memes: 2, 1 when you have five or fewer, 0 (one line) when you have none.
     @Published private(set) var ownRows: Int = Theme.rows
     @Published private(set) var newResultIDs: Set<UUID> = []          // amber ring for 600 ms
-    /// A slot of the tile grid (`TileGrid`): your memes (`ownRows` × 5), then the GIPHY row.
+    /// A slot of the tile grid (`TileGrid`): your memes (`ownRows` × 5), then the GIPHY row, then classic memes.
     @Published var focusedIndex: Int = 0
-    /// The GIPHY row: GIPHY's results for `giphyMood` in GIPHY's order, never ranked or mixed with your memes.
+    /// The GIPHY row: GIPHY's results for `giphyQuery` (the face's mood, or typed words) in GIPHY's order, never
+    /// ranked or mixed with your memes.
     @Published private(set) var giphyResults: [WebGIF] = []          // ≤ Theme.columns
-    @Published private(set) var giphyMood: Mood?
+    @Published private(set) var giphyQuery: WebQuery?
     @Published private(set) var isGiphyLoading: Bool = false
     /// The row's search failed or GIPHY refused it.
     @Published private(set) var giphyUnavailable: Bool = false
     /// Web Discover is on and has a key (checked each time the panel opens).
     @Published private(set) var showsGiphyRow: Bool = false
+    /// The classic memes row: Imgflip templates picked on the Mac for `templateQuery` (popular ones before a face).
+    @Published private(set) var templateResults: [MemeTemplate] = []  // ≤ Theme.columns
+    @Published private(set) var templateQuery: WebQuery?
+    @Published private(set) var isTemplatesLoading: Bool = false
+    /// There is no list of templates: Imgflip didn't answer and none was kept.
+    @Published private(set) var templatesUnavailable: Bool = false
+    /// Web Discover is on (checked each time the panel opens); no key needed.
+    @Published private(set) var showsTemplateRow: Bool = false
     @Published private(set) var pins: Set<FaceRegion> = []
     @Published private(set) var hint = PanelHint(title: HintCopy.promptTitle, subtitle: HintCopy.promptSubtitle, actionTitle: nil, action: nil)
-    @Published private(set) var footer: FooterState = .legend
+    @Published private(set) var footer: FooterState = .hidden
     @Published private(set) var showSetupCard: Bool = false
     @Published private(set) var queryImageURL: URL?                   // image / moreLike mirror content
     @Published private(set) var moreLikeItem: LibraryItem?
@@ -156,6 +167,7 @@ enum Pick: Equatable {
     let capture: CaptureModel
     let indexer: LibraryIndexer
     let web: WebDiscover
+    let templates: MemeTemplates
     let friends: FriendService
     /// Update checks and the one-click install; disabled when the bundle has no feed URL (local builds, tests).
     let updates: UpdateChecker
@@ -171,6 +183,8 @@ enum Pick: Equatable {
     /// ↵ is ignored this soon after the last edit of the search field.
     private static let enterGuard: TimeInterval = 0.3
     private static let textDebounceNanoseconds: UInt64 = 80_000_000
+    /// Typed words go to GIPHY once typing pauses this long (each search counts against GIPHY's hourly limit).
+    private static let giphyTypingPauseNanoseconds: UInt64 = 600_000_000
     private static let newRingNanoseconds: UInt64 = 600_000_000
     private static let saveDelayNanoseconds: UInt64 = 2_000_000_000
     private static let cameraPromptDelay: TimeInterval = 0.6
@@ -216,13 +230,14 @@ enum Pick: Equatable {
     private var commitToken = 0
     /// The open whose pick is still being copied (one pick at a time per open).
     private var committingSession: Int?
-    private var setupCardShownThisSession = false
-    private var libraryOfferHiddenThisSession = false
     private var shownSummaryID: UUID?
 
     private var textDebounceTask: Task<Void, Never>?
     private var giphyTask: Task<Void, Never>?
     private var giphyGeneration = 0
+    private var giphyWordsTask: Task<Void, Never>?
+    private var templateTask: Task<Void, Never>?
+    private var templateGeneration = 0
     private var cleanupTask: Task<Void, Never>?
     private var imageTask: Task<Void, Never>?
     private var cameraAccessTask: Task<Void, Never>?
@@ -236,7 +251,8 @@ enum Pick: Equatable {
         self.init(store: store, webCacheRoot: nil)
     }
 
-    /// `webCacheRoot`: where web discovery keeps its cache (nil = ~/Library/Caches/MemeMe/Web); tests pass a temp folder.
+    /// `webCacheRoot`: where web discovery keeps its cache (nil = ~/Library/Caches/MemeMe/Web); tests pass a temp folder,
+    /// and the classic memes keep theirs next to it ("Templates").
     init(store: LibraryStore, webCacheRoot: URL?) {
         self.store = store
         let camera = CameraController()
@@ -244,6 +260,10 @@ enum Pick: Equatable {
         self.capture = CaptureModel(camera: camera)
         self.indexer = LibraryIndexer(store: store)
         self.web = WebDiscover(store: store, cacheRoot: webCacheRoot)
+        self.templates = MemeTemplates(
+            store: store,
+            cacheRoot: webCacheRoot.map { $0.deletingLastPathComponent().appendingPathComponent("Templates", isDirectory: true) }
+        )
         self.friends = FriendService(store: store)
         self.updates = UpdateChecker(bundle: .main)
         self.tracker = PeakHoldTracker(baseline: store.settings.baseline)
@@ -309,6 +329,7 @@ enum Pick: Equatable {
             while !Task.isCancelled {
                 guard let self else { return }
                 self.web.pruneCache()
+                self.templates.pruneCache()
                 let onPasteboard = Clipboard.directoryOnPasteboard
                 Task.detached(priority: .utility) {
                     Clipboard.removeStaleCopies(keeping: onPasteboard)
@@ -381,6 +402,11 @@ enum Pick: Equatable {
     /// The slot of the GIPHY row's `offset`-th tile.
     func giphySlot(_ offset: Int) -> Int {
         tileGrid.giphyStart + offset
+    }
+
+    /// The slot of the classic memes row's `offset`-th tile.
+    func templateSlot(_ offset: Int) -> Int {
+        tileGrid.templateStart + offset
     }
 
     func commit(index: Int) {
@@ -566,6 +592,8 @@ enum Pick: Equatable {
             return Clipboard.dragItemProvider(for: item, fileURL: item.fileURL)
         case let .gif(gif)?:
             return giphyDragProvider(for: gif)
+        case let .template(template)?:
+            return templateDragProvider(for: template)
         case nil:
             return nil
         }
@@ -592,13 +620,9 @@ enum Pick: Equatable {
         saveSoon()
     }
 
-    func dismissLibraryOffer() {
-        var settings = store.settings
-        settings.libraryOfferDismissals += 1
-        store.settings = settings
-        libraryOfferHiddenThisSession = true
-        refreshFooter()
-        saveSoon()
+    /// No folders collected yet: the empty grid offers "Find my memes".
+    var offersFindMyMemes: Bool {
+        store.settings.watchedFolders.isEmpty && !indexer.isIndexing
     }
 
     func undoAddedBatch() {
@@ -986,8 +1010,9 @@ enum Pick: Equatable {
     // MARK: - Searches
 
     /// Recent in this app; else the newest own memes. With none at all (first run), the GIPHY row shows GIPHY's
-    /// "reaction" GIFs so the panel is never empty. Library changes refresh it with `animateNew` (amber ring on
-    /// arrivals) and without moving the focus.
+    /// "reaction" GIFs so the panel is never empty; the classic memes row shows the most popular templates until a
+    /// face or words pick others. Library changes refresh it with `animateNew` (amber ring on arrivals) and without
+    /// moving the focus.
     private func showRecentResults(animateNew: Bool = false, resetFocus: Bool = true) {
         resultSource = .recent
         searchGeneration += 1
@@ -1004,13 +1029,16 @@ enum Pick: Equatable {
         // GIPHY's "reaction" GIFs when you have no memes yet, or when no face can be read (no camera, denied, in use,
         // not yet allowed) to ask GIPHY about.
         let readsFaces = mode != .cameraOff && mode != .cameraBusy && mode != .prompt
-        if (ranked.isEmpty || !readsFaces) && giphyMood == nil {
-            showGiphy(for: .reaction)
+        if (ranked.isEmpty || !readsFaces) && giphyQuery == nil {
+            showGiphy(for: .mood(.reaction))
+        }
+        if templateQuery == nil {
+            showTemplates(for: .mood(.reaction))
         }
     }
 
     /// Face query: mood → weights → your memes ranked at once; the GIPHY row shows GIPHY's results for the mood
-    /// (often already searched while the face was being held).
+    /// (often already searched while the face was being held), the classic memes row the templates for it.
     private func runExpressionSearch(animate: Bool) {
         guard let sample = tracker.query else {
             showRecentResults()
@@ -1026,33 +1054,34 @@ enum Pick: Equatable {
         let ranker = Ranker(baseline: tracker.baseline)
         let ranked = ranker.rank(ownItems, query: .expression(sample, weights: weights), people: store.people, limit: limit)
         setResults(ranked, animateNew: animate, resetFocus: true)
-        showGiphy(for: mood)
+        showGiphy(for: .mood(mood))
+        showTemplates(for: .mood(mood))
     }
 
     // MARK: - GIPHY row
 
-    /// Shows GIPHY's results for `mood` in the GIPHY row: at once when searched in the last 10 minutes, else when
-    /// the search answers. The same mood already showing (or loading) is left alone.
-    private func showGiphy(for mood: Mood) {
+    /// Shows GIPHY's results for `query` in the GIPHY row: at once when searched in the last 10 minutes, else when
+    /// the search answers. The same query already showing (or loading) is left alone.
+    private func showGiphy(for query: WebQuery) {
         guard showsGiphyRow else { return }
-        if mood == giphyMood && (isGiphyLoading || !giphyResults.isEmpty) { return }
+        if query == giphyQuery && (isGiphyLoading || !giphyResults.isEmpty) { return }
         giphyGeneration += 1
         let generation = giphyGeneration
         giphyTask?.cancel()
         giphyTask = nil
-        giphyMood = mood
+        giphyQuery = query
         if giphyUnavailable { giphyUnavailable = false }
-        if let cached = web.cachedGIFs(for: mood) {
+        if let cached = web.cachedGIFs(for: query) {
             if isGiphyLoading { isGiphyLoading = false }
             setGiphyResults(cached)
             return
         }
-        // Another mood's GIFs never sit under this one.
+        // Another query's GIFs never sit under this one.
         setGiphyResults([])
         isGiphyLoading = true
         giphyTask = Task { [weak self] in
             guard let self else { return }
-            let found = await self.web.gifs(for: mood)
+            let found = await self.web.gifs(for: query)
             guard !Task.isCancelled, generation == self.giphyGeneration else { return }
             self.isGiphyLoading = false
             self.giphyTask = nil
@@ -1080,14 +1109,109 @@ enum Pick: Equatable {
         giphyGeneration += 1
         giphyTask?.cancel()
         giphyTask = nil
+        giphyWordsTask?.cancel()
+        giphyWordsTask = nil
         if !giphyResults.isEmpty { giphyResults = [] }
-        if giphyMood != nil { giphyMood = nil }
+        if giphyQuery != nil { giphyQuery = nil }
         if isGiphyLoading { isGiphyLoading = false }
         if giphyUnavailable { giphyUnavailable = false }
     }
 
+    /// The GIPHY row follows typed words once typing pauses (at once when GIPHY answered them in the last 10
+    /// minutes). nil words (only filter words, names or a single letter) leave the row as it is.
+    private func scheduleGiphyWords(_ query: WebQuery?) {
+        giphyWordsTask?.cancel()
+        giphyWordsTask = nil
+        guard showsGiphyRow, let query, query != giphyQuery else { return }
+        if web.cachedGIFs(for: query) != nil {
+            showGiphy(for: query)
+            return
+        }
+        giphyWordsTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: AppModel.giphyTypingPauseNanoseconds)
+            guard !Task.isCancelled, let self, self.mode == .text else { return }
+            self.giphyWordsTask = nil
+            self.showGiphy(for: query)
+        }
+    }
+
+    // MARK: - Classic memes row
+
+    /// Shows the templates for `query` (picked on the Mac from Imgflip's list): at once from the list kept from
+    /// earlier, else once Imgflip answers. The same query already showing (or loading) is left alone.
+    private func showTemplates(for query: WebQuery) {
+        guard showsTemplateRow else { return }
+        if query == templateQuery && (isTemplatesLoading || !templateResults.isEmpty) { return }
+        templateGeneration += 1
+        let generation = templateGeneration
+        templateTask?.cancel()
+        templateTask = nil
+        templateQuery = query
+        if templatesUnavailable { templatesUnavailable = false }
+        if let list = templates.cachedList {
+            if isTemplatesLoading { isTemplatesLoading = false }
+            setTemplateResults(AppModel.pickTemplates(for: query, from: list))
+        } else {
+            setTemplateResults([])
+            isTemplatesLoading = true
+        }
+        // A list older than a day is refreshed (picked again if it changed); with none, this is the first fetch.
+        templateTask = Task { [weak self] in
+            guard let self else { return }
+            let list = await self.templates.templates()
+            guard !Task.isCancelled, generation == self.templateGeneration else { return }
+            self.templateTask = nil
+            if self.isTemplatesLoading { self.isTemplatesLoading = false }
+            guard let list else {
+                if self.templateResults.isEmpty { self.templatesUnavailable = true }
+                return
+            }
+            self.setTemplateResults(AppModel.pickTemplates(for: query, from: list))
+        }
+    }
+
+    static func pickTemplates(for query: WebQuery, from list: [MemeTemplate]) -> [MemeTemplate] {
+        let refs = list.map(\.ref)
+        let indexes: [Int]
+        switch query {
+        case let .mood(mood):
+            indexes = MemeTemplateCatalog.pick(for: mood, from: refs, limit: Theme.columns)
+        case let .words(text):
+            indexes = MemeTemplateCatalog.pick(forTerms: [text], from: refs, limit: Theme.columns)
+        }
+        return indexes.map { list[$0] }
+    }
+
+    private func setTemplateResults(_ picked: [MemeTemplate]) {
+        let row = Array(picked.prefix(Theme.columns))
+        if templateResults != row {
+            templateResults = row
+        }
+        normalizeFocus()
+    }
+
+    private func clearTemplateRow() {
+        templateGeneration += 1
+        templateTask?.cancel()
+        templateTask = nil
+        if !templateResults.isEmpty { templateResults = [] }
+        if templateQuery != nil { templateQuery = nil }
+        if isTemplatesLoading { isTemplatesLoading = false }
+        if templatesUnavailable { templatesUnavailable = false }
+    }
+
+    /// Leaving typed words: the GIPHY row stops showing results for them, the classic memes go back to the popular
+    /// ones (a face, if one is held, picks others right after).
+    private func dropTypedWebQueries() {
+        giphyWordsTask?.cancel()
+        giphyWordsTask = nil
+        if case .words? = giphyQuery { clearGiphyRow() }
+        if case .words? = templateQuery { showTemplates(for: .mood(.reaction)) }
+    }
+
     private var tileGrid: TileGrid {
-        TileGrid(columns: Theme.columns, ownRows: ownRows, ownCount: results.count, giphyCount: giphyResults.count)
+        TileGrid(columns: Theme.columns, ownRows: ownRows, ownCount: results.count, giphyCount: giphyResults.count,
+                 templateCount: templateResults.count)
     }
 
     /// Follows how many memes you have, not what a search found, so the panel keeps its height as you search; but
@@ -1119,18 +1243,30 @@ enum Pick: Equatable {
         if slot < grid.giphyStart {
             return .meme(results[slot].item)
         }
-        return .gif(giphyResults[slot - grid.giphyStart])
+        if slot < grid.templateStart {
+            return .gif(giphyResults[slot - grid.giphyStart])
+        }
+        return .template(templateResults[slot - grid.templateStart])
     }
 
     /// Keeps the focus on a tile: before the user moves it, on the first one (a GIPHY GIF when you have no memes
     /// yet); after, on the nearest one in the same row.
     private func normalizeFocus() {
         let grid = tileGrid
+        // Until the user points somewhere, the focus follows the start slot as rows fill in: with no memes, GIPHY's
+        // GIFs arriving after the classic memes still take it.
+        if !userInteracted {
+            let target = startSlot
+            if focusedIndex != target {
+                focusedIndex = target
+            }
+            return
+        }
         guard !grid.isFilled(focusedIndex) else { return }
         let target: Int
-        if !userInteracted {
-            target = startSlot
-        } else if focusedIndex >= grid.giphyStart, grid.giphyCount > 0 {
+        if focusedIndex >= grid.templateStart, grid.templateCount > 0 {
+            target = grid.templateStart + grid.templateCount - 1
+        } else if focusedIndex >= grid.giphyStart, focusedIndex < grid.templateStart, grid.giphyCount > 0 {
             target = grid.giphyStart + grid.giphyCount - 1
         } else if focusedIndex < grid.giphyStart, grid.ownCount > 0 {
             target = grid.ownCount - 1
@@ -1153,6 +1289,17 @@ enum Pick: Equatable {
         let ranked = ranker.rank(ownItems, query: .text(raw, face: face, weights: weights), people: store.people, limit: limit)
         setResults(ranked, animateNew: false, resetFocus: true)
         updateNamingPrompt(raw: raw, hasResults: !ranked.isEmpty)
+        // GIPHY and the classic memes follow the words too (without filter words or your people's names). A name
+        // being set up ("Is one of these Sam?") is not a person's name yet: while the panel asks, a word that isn't
+        // ordinary meme vocabulary ("sad", "facepalm", "cat") stays off GIPHY.
+        let parsed = TextQuery.parse(raw, people: store.people)
+        let words = WebQuery.words(from: parsed.terms)
+        let pendingName = naming != nil ? parsed.possibleName : nil
+        let holdsBackName = pendingName.map { !MemeTemplateCatalog.isMemeWord($0) } ?? false
+        scheduleGiphyWords(holdsBackName ? nil : words)
+        if let words {
+            showTemplates(for: words)
+        }
     }
 
     private func runImageSearch() {
@@ -1253,16 +1400,24 @@ enum Pick: Equatable {
         }
     }
 
-    /// A focused GIPHY GIF starts downloading, so copying it is instant.
+    /// A focused GIPHY GIF or classic meme starts downloading, so copying it is instant.
     private func prefetchFocused() {
-        if case let .gif(gif)? = focusedPick {
+        switch focusedPick {
+        case let .gif(gif)?:
             web.prefetchForCopy([gif])
+        case let .template(template)?:
+            templates.prefetchForCopy(template)
+        case .meme?, nil:
+            break
         }
     }
 
     // MARK: - Text
 
     private func queryTextWasEdited(previous: String) {
+        // A GIPHY search waits for typing to pause: any keystroke restarts the wait.
+        giphyWordsTask?.cancel()
+        giphyWordsTask = nil
         let now = CACurrentMediaTime()
         lastTextEditAt = now
         if previous.isEmpty && !queryText.isEmpty {
@@ -1322,6 +1477,7 @@ enum Pick: Equatable {
     private func clearTextState() {
         textDebounceTask?.cancel()
         textDebounceTask = nil
+        dropTypedWebQueries()
         setQueryTextSilently("")
         textBeganAt = nil
         if naming != nil { naming = nil }
@@ -1465,7 +1621,6 @@ enum Pick: Equatable {
             settings.hasCompletedFirstRun = true
             store.settings = settings
             showSetupCard = true
-            setupCardShownThisSession = true
             camera.stop()
             if holdProgress != 0 { holdProgress = 0 }
             refreshFooter()
@@ -1479,30 +1634,44 @@ enum Pick: Equatable {
         HUDController.shared.show("Copied “\(pick.title)” · ⌘V — not sent", thumbnail: fileURL)
     }
 
-    /// The local file to put on the pasteboard; GIPHY GIFs are downloaded first ("Copying…" if that is slow).
+    /// The local file to put on the pasteboard; GIPHY GIFs and classic memes are downloaded first ("Copying…" if that
+    /// is slow).
     private func resolveFileForCopy(_ pick: Pick) async -> URL? {
         switch pick {
         case let .meme(item):
             return FileManager.default.fileExists(atPath: item.fileURL.path) ? item.fileURL : nil
         case let .gif(gif):
-            let slowNotice = Task { @MainActor in
-                try? await Task.sleep(nanoseconds: AppModel.slowCopyNanoseconds)
-                guard !Task.isCancelled else { return }
-                HUDController.shared.show("Copying…")
-            }
+            let slowNotice = AppModel.slowCopyNotice()
             let url = await web.prepareForCopy(gif)
+            slowNotice.cancel()
+            return url
+        case let .template(template):
+            let slowNotice = AppModel.slowCopyNotice()
+            let url = await templates.prepareForCopy(template)
             slowNotice.cancel()
             return url
         }
     }
 
-    /// What the clipboard names the copy after: your meme itself, or a GIPHY GIF as "reaction.gif".
+    /// "Copying…" once a download takes longer than `slowCopyNanoseconds`; cancel it when the file is there.
+    private static func slowCopyNotice() -> Task<Void, Never> {
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: AppModel.slowCopyNanoseconds)
+            guard !Task.isCancelled else { return }
+            HUDController.shared.show("Copying…")
+        }
+    }
+
+    /// What the clipboard names the copy after: your meme itself, a GIPHY GIF as "reaction.gif", a classic meme as
+    /// "reaction.png".
     private func clipboardItem(for pick: Pick, fileURL: URL) -> LibraryItem {
         switch pick {
         case let .meme(item):
             return item
         case let .gif(gif):
             return LibraryItem(fileURL: fileURL, displayName: gif.title, kind: .web, source: "GIPHY", contentHash: "giphy:" + gif.id, isAnimated: true, remoteURL: gif.fullURL)
+        case let .template(template):
+            return LibraryItem(fileURL: fileURL, displayName: template.name, kind: .web, source: "Imgflip", contentHash: "imgflip:" + template.id, isAnimated: false, remoteURL: template.url)
         }
     }
 
@@ -1528,6 +1697,26 @@ enum Pick: Equatable {
         provider.registerFileRepresentation(forTypeIdentifier: UTType.gif.identifier, fileOptions: [], visibility: .all) { @Sendable completion in
             Task { @MainActor in
                 let prepared = await web.prepareForCopy(gif)
+                let shared = prepared.flatMap { makeDragCopy(of: $0, named: fileName) }
+                completion(shared, false, nil)
+            }
+            return nil
+        }
+        return provider
+    }
+
+    /// Classic memes drag the template, fetched when the receiving app asks for it, as "meme.jpg" (or .png).
+    private func templateDragProvider(for template: MemeTemplate) -> NSItemProvider {
+        let provider = NSItemProvider()
+        let templates = self.templates
+        let pathExtension = template.url.pathExtension.lowercased()
+        let type: UTType = pathExtension == "png" ? .png : (pathExtension == "gif" ? .gif : .jpeg)
+        let fileName = "meme." + (type.preferredFilenameExtension ?? "jpg")
+        provider.suggestedName = "meme"
+        // Like GIPHY's: the load handler runs on a background queue and hops to the main actor for the download.
+        provider.registerFileRepresentation(forTypeIdentifier: type.identifier, fileOptions: [], visibility: .all) { @Sendable completion in
+            Task { @MainActor in
+                let prepared = await templates.prepareForCopy(template)
                 let shared = prepared.flatMap { makeDragCopy(of: $0, named: fileName) }
                 completion(shared, false, nil)
             }
@@ -1562,10 +1751,8 @@ enum Pick: Equatable {
             state = .added(summary)
         } else if let manifest = offeredUpdate {
             state = .update(manifest)
-        } else if shouldOfferLibrary {
-            state = .libraryOffer
         } else {
-            state = .legend
+            state = .hidden
         }
         if footer != state {
             footer = state
@@ -1581,17 +1768,6 @@ enum Pick: Equatable {
             return nil
         }
         return manifest
-    }
-
-    /// "Search memes you already saved?" on later opens when the card was skipped, until two "Not now"s.
-    private var shouldOfferLibrary: Bool {
-        let settings = store.settings
-        return settings.hasCompletedFirstRun
-            && !setupCardShownThisSession
-            && !libraryOfferHiddenThisSession
-            && !settings.libraryOfferAccepted
-            && settings.libraryOfferDismissals < 2
-            && settings.watchedFolders.isEmpty
     }
 
     // MARK: - Hint
@@ -1617,7 +1793,7 @@ enum Pick: Equatable {
                 return PanelHint(title: "Focusing on " + pinDescription, subtitle: nil, actionTitle: HintCopy.clearAction, action: .clearPins)
             }
             // The same words the whole time the camera reads you: the ring around the mirror shows a face being held.
-            return PanelHint(title: HintCopy.liveTitle, subtitle: HintCopy.liveSubtitle, actionTitle: nil, action: nil)
+            return PanelHint(title: HintCopy.liveTitle, subtitle: nil, actionTitle: nil, action: nil)
         case .text:
             return PanelHint(title: HintCopy.textTitle, subtitle: HintCopy.textSubtitle, actionTitle: nil, action: nil)
         case .image:
@@ -1661,6 +1837,8 @@ enum Pick: Equatable {
         earlyMood.reset()
         clearGiphyRow()
         showsGiphyRow = store.settings.webDiscoverEnabled && web.hasAPIKey
+        clearTemplateRow()
+        showsTemplateRow = store.settings.webDiscoverEnabled
         if !pins.isEmpty { pins = [] }
         if holdProgress != 0 { holdProgress = 0 }
         if !newResultIDs.isEmpty { newResultIDs = [] }
@@ -1672,8 +1850,6 @@ enum Pick: Equatable {
         useCameraDespiteOtherApp = false
         isKeepingImage = false
         currentWeights = .uniform
-        setupCardShownThisSession = false
-        libraryOfferHiddenThisSession = false
         shownSummaryID = nil
     }
 
@@ -1683,6 +1859,11 @@ enum Pick: Equatable {
         giphyTask?.cancel()
         giphyTask = nil
         giphyGeneration += 1
+        giphyWordsTask?.cancel()
+        giphyWordsTask = nil
+        templateTask?.cancel()
+        templateTask = nil
+        templateGeneration += 1
         imageTask?.cancel()
         imageTask = nil
         cameraAccessTask?.cancel()

@@ -1,6 +1,6 @@
 import Foundation
 
-/// The one word a face is mapped to on-device; only this word is ever sent to GIPHY.
+/// The one word a face is mapped to on-device; of the face, only this word is sent to GIPHY (typed words go as typed).
 public enum Mood: String, CaseIterable, Codable, Hashable, Sendable {
     case shocked, screaming, laughing, happy, smug, sideEye, crying, sad, angry, confused, unimpressed, nervous, excited, reaction
     // Body language
