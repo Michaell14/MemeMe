@@ -102,8 +102,9 @@ public enum MemeTemplateCatalog {
         return sorted.prefix(limit).map { $0.element.index }
     }
 
-    /// A word people search memes by: a mood word ("sad", "lol"), a mood's label or one of the table's search words.
-    /// Tells an ordinary search word from a possible name ("Is one of these Sam?") that should stay on the Mac.
+    /// A word people search memes by: a mood word ("sad", "lol"), a mood's label or one of the table's search words,
+    /// but no name ("jordan", "tom", "kermit"). Tells an ordinary search word from a possible name ("Is one of these
+    /// Sam?") that should stay on the Mac.
     public static func isMemeWord(_ word: String) -> Bool {
         memeVocabulary.contains(word.lowercased())
     }
@@ -118,8 +119,17 @@ public enum MemeTemplateCatalog {
                 vocabulary.formUnion(MemeTemplateCatalog.words(in: phrase))
             }
         }
-        return vocabulary
+        return vocabulary.subtracting(MemeTemplateCatalog.nameWords)
     }()
+
+    /// Names among the table's search words (people and characters in the memes): they find the template, but could
+    /// be a friend's name being set up.
+    private static let nameWords: Set<String> = [
+        "andre", "anakin", "arthur", "bernie", "boromir", "brian", "cheems", "chloe", "dicaprio", "django", "doge",
+        "drake", "dwayne", "eric", "escobar", "fry", "gandalf", "gatsby", "giorgio", "gru", "hannibal", "harold", "jack",
+        "jerry", "jordan", "kermit", "krabs", "leo", "morpheus", "oprah", "pablo", "padme", "picard", "pikachu", "pooh",
+        "robin", "scooby", "shaq", "smudge", "sparrow", "squidward", "tom", "winnie",
+    ]
 
     /// For each entry, the template in `templates` it describes (by Imgflip id, else by name), if Imgflip lists it.
     static func entryIndexes(for templates: [TemplateRef]) -> [Int: Int] {

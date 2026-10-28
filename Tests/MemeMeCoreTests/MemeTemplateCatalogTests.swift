@@ -54,12 +54,15 @@ final class MemeTemplateCatalogTests: XCTestCase {
     }
 
     func testMemeWordsAreToldFromPossibleNames() {
-        for word in ["sad", "LOL", "facepalm", "shrug", "cat", "boyfriend", "pikachu", "mind", "blown"] {
+        for word in ["sad", "LOL", "facepalm", "shrug", "cat", "boyfriend", "mind", "blown"] {
             XCTAssertTrue(MemeTemplateCatalog.isMemeWord(word), word)
         }
-        for word in ["sam", "maya", "zorblax"] {
+        // Names, the memes' ones included: a friend called Jordan stays on the Mac while the panel asks.
+        for word in ["sam", "maya", "zorblax", "jordan", "tom", "jack", "chloe", "Leo"] {
             XCTAssertFalse(MemeTemplateCatalog.isMemeWord(word), word)
         }
+        // They still find their templates.
+        XCTAssertEqual(MemeTemplateCatalog.pick(forTerms: ["pikachu"], from: popular, limit: 5), [3])
     }
 
     func testTheTableIsWellFormed() {
