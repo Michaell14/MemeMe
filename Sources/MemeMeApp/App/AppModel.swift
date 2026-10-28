@@ -116,8 +116,8 @@ enum Pick: Equatable {
     }
 }
 
-/// Which web row the shelf under your memes shows: GIPHY's GIFs or the classic memes.
-enum WebShelf: Equatable {
+/// Which web row the shelf under your memes (`WebShelf`) shows: GIPHY's GIFs or the classic memes.
+enum ShelfRow: Equatable {
     case gifs, classic
 }
 
@@ -161,7 +161,7 @@ struct MoodReadout: Equatable {
         }
     }
     /// The web row on the shelf under your memes (the other one is a ↓ or a click away); see `visibleShelf`.
-    @Published private(set) var shelf: WebShelf = .gifs
+    @Published private(set) var shelf: ShelfRow = .gifs
     /// The GIPHY row: GIPHY's results for `giphyQuery` (the face's mood, or typed words) in GIPHY's order, never
     /// ranked or mixed with your memes.
     @Published private(set) var giphyResults: [WebGIF] = []          // ≤ Theme.columns
@@ -457,7 +457,7 @@ struct MoodReadout: Equatable {
     }
 
     /// The web row on the shelf: the one picked or focused last, or the only one there is.
-    var visibleShelf: WebShelf {
+    var visibleShelf: ShelfRow {
         if !showsGiphyRow { return .classic }
         if !showsTemplateRow { return .gifs }
         return shelf
@@ -466,7 +466,7 @@ struct MoodReadout: Equatable {
     /// A click on the shelf's "GIFs" or "Classic memes": that row, its first tile focused. A row still loading (or
     /// with nothing for the words) takes the focus from the other web row all the same, so ↵ never copies a tile out
     /// of sight; a focused meme of yours keeps it.
-    func showShelf(_ target: WebShelf) {
+    func showShelf(_ target: ShelfRow) {
         guard target == .gifs ? showsGiphyRow : showsTemplateRow else { return }
         userInteracted = true
         if shelf != target { shelf = target }

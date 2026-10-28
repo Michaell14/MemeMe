@@ -1255,9 +1255,9 @@ enum DropOutcome { case kept(IndexBatch), stickers(StickerBatch), nothing }
     @Published private(set) var newResultIDs: Set<UUID>         // amber ring for 600 ms
     @Published private(set) var ownRows: Int                     // rows of your memes: 1, or 0 (none, nothing drawn); enough for what is shown
     @Published var focusedIndex: Int                             // a TileGrid slot: your memes, then the GIPHY row, then classic memes; moving into a web row puts it on the shelf
-    @Published private(set) var shelf: WebShelf                  // .gifs / .classic: the web row last picked or focused (.gifs each time the panel opens)
-    var visibleShelf: WebShelf { get }                           // shelf, or the only web row there is
-    func showShelf(_ target: WebShelf)                           // a pill: that row on the shelf, its first tile focused
+    @Published private(set) var shelf: ShelfRow                  // .gifs / .classic: the web row last picked or focused (.gifs each time the panel opens)
+    var visibleShelf: ShelfRow { get }                           // shelf, or the only web row there is
+    func showShelf(_ target: ShelfRow)                           // a pill: that row on the shelf, its first tile focused
     @Published private(set) var giphyResults: [WebGIF]           // ≤ Theme.columns, GIPHY's order
     @Published private(set) var giphyQuery: WebQuery?            // the face's mood, or typed words
     @Published private(set) var isGiphyLoading: Bool
