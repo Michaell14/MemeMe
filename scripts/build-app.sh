@@ -113,14 +113,14 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BINARY" "$APP/Contents/MacOS/$PRODUCT"
 cp "$PLIST_SOURCE" "$PLIST"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
-# GIPHY's "Powered by GIPHY" mark for the GIPHY row (Resources/GIPHY/PoweredByGIPHY.png, @2x); without it the
-# row shows the words instead.
-GIPHY_MARKS=("$ROOT"/Resources/GIPHY/PoweredByGIPHY*.png)
+# GIPHY's logo for the GIPHY row's "Powered by" attribution (Resources/GIPHY/GIPHYLogo.png); without it the row
+# shows the word instead.
+GIPHY_MARKS=("$ROOT"/Resources/GIPHY/GIPHYLogo*.png)
 if [[ -e "${GIPHY_MARKS[0]}" ]]; then
   cp "${GIPHY_MARKS[@]}" "$APP/Contents/Resources/"
   log "GIPHY attribution mark: $(basename -a "${GIPHY_MARKS[@]}" | tr '\n' ' ')"
 else
-  echo "warning: Resources/GIPHY/PoweredByGIPHY.png is missing; the GIPHY row shows \"Powered by GIPHY\" as text" >&2
+  echo "warning: Resources/GIPHY/GIPHYLogo.png is missing; the GIPHY row shows \"Powered by GIPHY\" as text" >&2
 fi
 
 # 3. Version and update feed. The app compares builds by CFBundleVersion only.

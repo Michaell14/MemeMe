@@ -112,14 +112,15 @@ Every change to the app on the default branch is released automatically. When `S
 
 ## GIPHY API key
 
-Web Discover shows a row of GIPHY reaction GIFs for the face you make, under the memes you already have, with GIPHY's "Powered by GIPHY" mark. It is on by default, but it does nothing without an API key; the menu then shows **Web Discover (GIPHY): No API Key**.
+Web Discover shows a row of GIPHY reaction GIFs for the face you make, under the memes you already have, headed "Powered by" with GIPHY's logo. It is on by default, but it does nothing without an API key; the menu then shows **Web Discover (GIPHY): No API Key**.
 
 1. Create an app at [developers.giphy.com](https://developers.giphy.com) (choose **API**) and copy its API key. A new key is a beta key: 100 calls per hour. MemeMe stays under 90 per rolling hour on each Mac and reuses a mood's results for 10 minutes, but GIPHY counts calls per key, so every copy of a release shares the built-in key's limit. That's fine for you and a few friends; before sharing MemeMe widely, use **Upgrade to Production** on the key in GIPHY's dashboard.
 2. Choose one way to provide it:
    - **Build time:** `GIPHY_API_KEY=your-key ./scripts/build-app.sh` writes it into the bundle's Info.plist (`GiphyAPIKey`).
    - **CI:** add a repository secret named `GIPHY_API_KEY` (Settings → Secrets and variables → Actions). The workflow passes it to the build script. Release runs fail without it; other builds without the secret, such as pull requests from forks, get an empty key.
    - **At run time:** menu-bar icon → **Set GIPHY API Key…**. This overrides the built-in key; leave it empty to go back to the built-in one.
-3. Add GIPHY's attribution mark: download the official **Powered by GIPHY** image for dark backgrounds from GIPHY's developer site and save it as `Resources/GIPHY/PoweredByGIPHY.png` (and `PoweredByGIPHY@2x.png`). `scripts/build-app.sh` copies it into the app; without it the GIPHY row shows the words "Powered by GIPHY".
+
+GIPHY's attribution is built in: the row's header reads "Powered by" with GIPHY's logo (`Resources/GIPHY/GIPHYLogo.png`, white lettering on transparent; `scripts/build-app.sh` copies it into the app).
 
 MemeMe follows GIPHY's integration rules: results in their own row, in GIPHY's order, unfiltered, never mixed with your memes and never stored.
 
