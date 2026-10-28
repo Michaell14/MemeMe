@@ -6,8 +6,8 @@
 # Usage:  GIPHY_API_KEY=your-key ./scripts/build-app.sh
 #
 # Environment (all optional):
-#   GIPHY_API_KEY      written into the bundle; without it the key is empty and Web Discover stays
-#                      off until a key is set from the menu-bar menu
+#   GIPHY_API_KEY      written into the bundle; without it the key is empty and the GIPHY row stays
+#                      off until a key is set from the menu-bar menu (the classic memes still work)
 #   APP_VERSION        CFBundleShortVersionString, e.g. 1.0 (default: the VERSION file)
 #   APP_BUILD          CFBundleVersion, a whole number (default: git rev-list --count HEAD)
 #   UPDATE_FEED_URL    https URL of the release feed, latest.json (default: empty, so the app never

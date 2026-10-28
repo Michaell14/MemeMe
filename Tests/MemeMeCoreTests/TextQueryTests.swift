@@ -23,6 +23,16 @@ final class TextQueryTests: XCTestCase {
         XCTAssertTrue(TextQuery.parse("   ", people: []).terms.isEmpty)
     }
 
+    func testAPossessiveNameIsThePerson() {
+        let sam = Person(name: "Sam")
+        let query = TextQuery.parse("Sam's birthday sam’s", people: [sam])
+        XCTAssertEqual(query.personIDs, [sam.id])
+        XCTAssertEqual(query.terms, ["birthday"])
+        // Not a person: an ordinary word.
+        XCTAssertEqual(TextQuery.parse("cat's", people: [sam]).terms, ["cat's"])
+        XCTAssertEqual(TextQuery.parse("'s", people: [sam]).terms, ["s"])
+    }
+
     func testSingularAndPluralFilterWords() {
         XCTAssertTrue(TextQuery.parse("gif", people: []).onlyGIFs)
         XCTAssertTrue(TextQuery.parse("GIFS", people: []).onlyGIFs)

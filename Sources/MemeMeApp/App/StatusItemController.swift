@@ -271,8 +271,8 @@ import SwiftUI
         }
 
         menu.addItem(.separator())
-        // Without a key Web Discover can't search, so it shows as off until one is set. When GIPHY refuses
-        // searches, the item says why.
+        // The switch for everything web (GIPHY and the classic memes from Imgflip), with or without a key: without
+        // one only GIPHY is idle, and the title says so. When GIPHY refuses searches, the title says why.
         let hasGiphyKey = model.web.hasAPIKey
         var webTitle = "Web Discover (GIPHY)"
         switch hasGiphyKey ? model.web.status : .noKey {
@@ -282,8 +282,7 @@ import SwiftUI
         case .off, .ready: break
         }
         let webDiscover = makeItem(webTitle, action: #selector(toggleWebDiscover(_:)))
-        webDiscover.state = settings.webDiscoverEnabled && hasGiphyKey ? .on : .off
-        webDiscover.isEnabled = hasGiphyKey
+        webDiscover.state = settings.webDiscoverEnabled ? .on : .off
         menu.addItem(webDiscover)
         menu.addItem(makeItem("Set GIPHY API Key…", action: #selector(setGiphyAPIKey(_:))))
 
@@ -407,7 +406,7 @@ import SwiftUI
     @objc private func setGiphyAPIKey(_ sender: Any?) {
         let alert = NSAlert()
         alert.messageText = "GIPHY API Key"
-        alert.informativeText = "Paste a key from developers.giphy.com to find reaction GIFs on the web. Only the mood word for your face is ever sent. Leave it empty to use the key this build came with, if any."
+        alert.informativeText = "Paste a key from developers.giphy.com to find reaction GIFs on the web. Only the mood word for your face, or the words you type in the search field (without filter words or your people’s names), is sent. Leave it empty to use the key this build came with, if any."
         alert.addButton(withTitle: "Save")
         alert.addButton(withTitle: "Cancel")
 

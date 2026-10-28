@@ -18,8 +18,8 @@ final class MemeTemplateCatalogTests: XCTestCase {
 
     func testAMoodPutsItsTemplatesFirstThenThePopularOnes() {
         XCTAssertEqual(MemeTemplateCatalog.pick(for: .shocked, from: popular, limit: 5), [3, 0, 1, 2, 4])
-        // Hide the Pain Harold comes before Sad Pablo Escobar in the table.
-        XCTAssertEqual(MemeTemplateCatalog.pick(for: .sad, from: popular, limit: 5), [5, 4, 0, 1, 2])
+        // Sad Pablo Escobar is sad first; Hide the Pain Harold is nervous first and sad second.
+        XCTAssertEqual(MemeTemplateCatalog.pick(for: .sad, from: popular, limit: 5), [4, 5, 0, 1, 2])
         XCTAssertEqual(MemeTemplateCatalog.pick(for: .sideEye, from: popular, limit: 5).first, 2)
         XCTAssertEqual(MemeTemplateCatalog.pick(for: .laughing, from: popular, limit: 5).first, 8)
     }

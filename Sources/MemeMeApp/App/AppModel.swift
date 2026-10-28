@@ -184,7 +184,7 @@ enum Pick: Equatable {
     private static let enterGuard: TimeInterval = 0.3
     private static let textDebounceNanoseconds: UInt64 = 80_000_000
     /// Typed words go to GIPHY once typing pauses this long (each search counts against GIPHY's hourly limit).
-    private static let giphyTypingPauseNanoseconds: UInt64 = 450_000_000
+    private static let giphyTypingPauseNanoseconds: UInt64 = 600_000_000
     private static let newRingNanoseconds: UInt64 = 600_000_000
     private static let saveDelayNanoseconds: UInt64 = 2_000_000_000
     private static let cameraPromptDelay: TimeInterval = 0.6
@@ -1253,11 +1253,18 @@ enum Pick: Equatable {
     /// yet); after, on the nearest one in the same row.
     private func normalizeFocus() {
         let grid = tileGrid
+        // Until the user points somewhere, the focus follows the start slot as rows fill in: with no memes, GIPHY's
+        // GIFs arriving after the classic memes still take it.
+        if !userInteracted {
+            let target = startSlot
+            if focusedIndex != target {
+                focusedIndex = target
+            }
+            return
+        }
         guard !grid.isFilled(focusedIndex) else { return }
         let target: Int
-        if !userInteracted {
-            target = startSlot
-        } else if focusedIndex >= grid.templateStart, grid.templateCount > 0 {
+        if focusedIndex >= grid.templateStart, grid.templateCount > 0 {
             target = grid.templateStart + grid.templateCount - 1
         } else if focusedIndex >= grid.giphyStart, focusedIndex < grid.templateStart, grid.giphyCount > 0 {
             target = grid.giphyStart + grid.giphyCount - 1
@@ -1282,9 +1289,10 @@ enum Pick: Equatable {
         let ranked = ranker.rank(ownItems, query: .text(raw, face: face, weights: weights), people: store.people, limit: limit)
         setResults(ranked, animateNew: false, resetFocus: true)
         updateNamingPrompt(raw: raw, hasResults: !ranked.isEmpty)
-        // GIPHY and the classic memes follow the words too (without filter words or your people's names).
+        // GIPHY and the classic memes follow the words too (without filter words or your people's names). A name
+        // being set up ("Is one of these Sam?") is not a person's name yet, so nothing goes to GIPHY while it asks.
         let words = WebQuery.words(from: TextQuery.parse(raw, people: store.people).terms)
-        scheduleGiphyWords(words)
+        scheduleGiphyWords(naming == nil ? words : nil)
         if let words {
             showTemplates(for: words)
         }
@@ -1403,6 +1411,9 @@ enum Pick: Equatable {
     // MARK: - Text
 
     private func queryTextWasEdited(previous: String) {
+        // A GIPHY search waits for typing to pause: any keystroke restarts the wait.
+        giphyWordsTask?.cancel()
+        giphyWordsTask = nil
         let now = CACurrentMediaTime()
         lastTextEditAt = now
         if previous.isEmpty && !queryText.isEmpty {

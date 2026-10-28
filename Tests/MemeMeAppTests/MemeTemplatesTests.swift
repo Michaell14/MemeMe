@@ -77,6 +77,7 @@ final class MemeTemplatesTests: XCTestCase {
         XCTAssertEqual(WebQuery.words(from: ["Sad"]), .words("sad"))
         XCTAssertEqual(WebQuery.words(from: ["  so ", " Sad  dog"]), .words("so sad dog"))
         XCTAssertNil(WebQuery.words(from: ["a"]))
+        XCTAssertNil(WebQuery.words(from: ["ok"]), "two letters find nothing useful and still cost a search")
         XCTAssertNil(WebQuery.words(from: ["!!"]))
         XCTAssertNil(WebQuery.words(from: []))
         guard case let .words(long)? = WebQuery.words(from: [String(repeating: "x", count: 80)]) else {

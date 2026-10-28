@@ -14,13 +14,14 @@ enum WebQuery: Hashable, Sendable {
 
     static let maximumLength = 50
 
-    /// The typed search terms as GIPHY gets them; nil when they hold fewer than two letters or digits.
+    /// The typed search terms as GIPHY gets them; nil when they hold fewer than three letters or digits (each
+    /// search counts against GIPHY's hourly limit, and two letters find nothing useful).
     static func words(from terms: [String]) -> WebQuery? {
         let joined = terms
             .flatMap { $0.lowercased().split(whereSeparator: { $0.isWhitespace }) }
             .joined(separator: " ")
         let text = String(joined.prefix(maximumLength)).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard text.unicodeScalars.filter({ CharacterSet.alphanumerics.contains($0) }).count >= 2 else { return nil }
+        guard text.unicodeScalars.filter({ CharacterSet.alphanumerics.contains($0) }).count >= 3 else { return nil }
         return .words(text)
     }
 
@@ -93,7 +94,7 @@ enum WebQuery: Hashable, Sendable {
     private var isPruning = false
     private var lastPruneAt = Date.distantPast
 
-    /// How long a mood's results are reused before searching again.
+    /// How long a query's results are reused before searching again.
     static let resultLifetime: TimeInterval = 10 * 60
     private static let searchesPerHour = 90
     private static let retryDelay: TimeInterval = 60

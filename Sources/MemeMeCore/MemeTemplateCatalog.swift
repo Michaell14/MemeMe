@@ -25,14 +25,22 @@ public enum MemeTemplateCatalog {
     }
 
     /// Up to `limit` indexes into `templates` (Imgflip's order, most popular first) for `mood`: the templates made for
-    /// it, then the most popular others, so the row is never empty. `.reaction` (no face yet) is the popular ones.
+    /// it (those whose first mood it is, then those that list it later; each in table order), then the most popular
+    /// others, so the row is never empty. `.reaction` (no face yet) is the popular ones.
     public static func pick(for mood: Mood, from templates: [TemplateRef], limit: Int) -> [Int] {
         guard limit > 0 else { return [] }
         var picked: [Int] = []
         if mood != .reaction {
             let indexes = entryIndexes(for: templates)
-            for (entryIndex, entry) in entries.enumerated() where entry.moods.contains(mood) {
-                guard let found = indexes[entryIndex], !picked.contains(found) else { continue }
+            var matching: [(entryIndex: Int, rank: Int)] = []
+            for (entryIndex, entry) in entries.enumerated() {
+                if let rank = entry.moods.firstIndex(of: mood) {
+                    matching.append((entryIndex: entryIndex, rank: rank))
+                }
+            }
+            let ordered = matching.sorted { $0.rank != $1.rank ? $0.rank < $1.rank : $0.entryIndex < $1.entryIndex }
+            for match in ordered {
+                guard let found = indexes[match.entryIndex], !picked.contains(found) else { continue }
                 picked.append(found)
                 if picked.count == limit { return picked }
             }
@@ -175,7 +183,7 @@ public enum MemeTemplateCatalog {
               words: ["think", "thinking", "smart", "tap head", "genius", "logic", "roll safe"]),
         Entry(names: ["Mocking Spongebob"], id: "102156234", moods: [.smug, .angry],
               words: ["mocking", "spongebob", "sarcastic", "sarcasm", "chicken", "mock"]),
-        Entry(names: ["Change My Mind"], id: "129242436", moods: [.smug, .pointing],
+        Entry(names: ["Change My Mind"], id: "129242436", moods: [.smug],
               words: ["change my mind", "debate", "opinion", "prove me wrong"]),
         Entry(names: ["Monkey Puppet"], id: "148909805", moods: [.sideEye, .nervous],
               words: ["monkey", "puppet", "side eye", "awkward", "look away", "awkward look"]),
@@ -199,7 +207,7 @@ public enum MemeTemplateCatalog {
               words: ["balloon", "running away", "chasing", "holding back"]),
         Entry(names: ["UNO Draw 25 Cards"], id: "217743513", moods: [.smug, .unimpressed],
               words: ["uno", "draw 25", "cards", "refuse", "rather not"]),
-        Entry(names: ["Bernie I Am Once Again Asking For Your Support"], id: "222403160", moods: [.pointing],
+        Entry(names: ["Bernie I Am Once Again Asking For Your Support"], id: "222403160", moods: [.unimpressed, .sad],
               words: ["bernie", "asking", "once again", "support", "please"]),
         Entry(names: ["Buff Doge vs. Cheems"], id: "247375501", moods: [.excited],
               words: ["doge", "cheems", "buff", "strong", "weak", "then vs now"]),
