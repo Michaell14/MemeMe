@@ -497,6 +497,39 @@ final class PoseTrackingTests: XCTestCase {
         XCTAssertEqual(tracker.query?.face, TestFaces.surprise)
     }
 
+    func testRaisingTheOtherArmTooIsANewExpression() {
+        let tracker = PeakHoldTracker(baseline: RestingBaseline(sampleCount: 100))
+        let oneUp = TestPoses.features(TestPoses.body(left: TestPoses.up, right: nil))   // the other hand below the frame
+        let bothUp = TestPoses.features(TestPoses.both(TestPoses.up))
+        for step in 1...3 {
+            XCTAssertFalse(tracker.ingest(frame(TestFaces.neutral, step, pose: oneUp)))
+        }
+        XCTAssertTrue(tracker.ingest(frame(TestFaces.neutral, 4, pose: oneUp)))
+        XCTAssertFalse(tracker.ingest(frame(TestFaces.neutral, 5, pose: bothUp)))
+        XCTAssertTrue(tracker.candidateIsNewExpression)
+        for step in 6...14 {
+            XCTAssertFalse(tracker.ingest(frame(TestFaces.neutral, step, pose: bothUp)), "step \(step)")
+        }
+        XCTAssertTrue(tracker.ingest(frame(TestFaces.neutral, 15, pose: bothUp)))
+        XCTAssertEqual(MoodClassifier.mood(for: TestFaces.neutral, pose: tracker.query?.pose, baseline: tracker.baseline), .celebrate)
+    }
+
+    func testAFlickeringRestingWristDoesntRestartTheHold() {
+        let tracker = PeakHoldTracker(baseline: RestingBaseline(sampleCount: 100))
+        for step in 1...3 {
+            XCTAssertFalse(tracker.ingest(frame(TestFaces.surprise, step, pose: nil)))
+        }
+        XCTAssertTrue(tracker.ingest(frame(TestFaces.surprise, 4, pose: nil)))
+        // A facepalm while the resting hand at the frame's edge is seen on some frames and not on others.
+        let otherSeen = TestPoses.features(TestPoses.body(left: TestPoses.onFace, right: TestPoses.rest.otherSide))
+        let otherUnseen = TestPoses.features(TestPoses.body(left: TestPoses.onFace, right: nil))
+        for step in 5...14 {
+            let pose = (step / 2) % 2 == 0 ? otherSeen : otherUnseen
+            XCTAssertFalse(tracker.ingest(frame(TestFaces.neutral, step, pose: pose)), "step \(step)")
+        }
+        XCTAssertTrue(tracker.ingest(frame(TestFaces.neutral, 15, pose: otherSeen)))
+    }
+
     func testSwitchingHandSignsIsANewExpression() {
         let tracker = PeakHoldTracker(baseline: RestingBaseline(sampleCount: 100))
         let thumbsUp = TestPoses.features(TestPoses.both(TestPoses.rest), hand: HandShape(thumbsUp: 1))

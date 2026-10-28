@@ -30,6 +30,8 @@
 	<true/>
 	<key>MemeMeUpdateFeedURL</key>
 	<string></string>
+	<key>NSCameraReactionEffectGesturesEnabledDefault</key>
+	<false/>
 	<key>NSCameraUsageDescription</key>
 	<string>MemeMe uses the camera only while its panel is open, to match your expression and to take the photos or GIFs of you that you copy. Nothing leaves your Mac unless you paste it.</string>
 	<key>NSDesktopFolderUsageDescription</key>

@@ -116,7 +116,7 @@ public struct PoseDescriptor: Codable, Hashable, Sendable {
     public var mirrored: PoseDescriptor { get }    // arms swapped
     public var showsArms: Bool { get }             // a wrist, an elbow or a hand sign was seen
     public var gestureStrength: Double { get }
-    public var gestureDirection: [Double] { get }  // 9 numbers for the tracker (0 at rest): 6 for the arms, then thumbs up, pointing, peace (each from 0.7)
+    public var gestureDirection: [Double] { get }  // 9 numbers for the tracker (0 at rest): 6 for the arms (an unseen arm next to a seen one reads as resting unless its upper arm is near vertical), then thumbs up, pointing, peace (each from 0.7)
     public static func compare(_ a: PoseDescriptor, _ b: PoseDescriptor) -> (similarity: Double, coverage: Double)
 }
 ```

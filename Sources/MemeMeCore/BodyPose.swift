@@ -519,12 +519,20 @@ public struct PoseDescriptor: Codable, Hashable, Sendable {
     /// [higher wrist lift, lower wrist lift, nearer wrist to head, farther wrist to head, wrist gap, higher elbow,
     ///  thumbs up, pointing, peace] — a hand sign counts from 0.7, so relaxing the hand doesn't read as a new gesture.
     public var gestureDirection: [Double] {
-        func pair(_ left: Dimension, _ right: Dimension) -> (high: Double?, low: Double?) {
-            let seen = [self[left], self[right]].compactMap { $0 }
+        // An arm whose wrist wasn't seen, next to one that was, reads as resting (out of frame ≈ arms down, as in
+        // `gestureStrength`) — not as a copy of the other — unless its upper arm is near vertical (hands out of the top
+        // of the frame). So one arm up and both arms up are different gestures.
+        let hiddenArmUp = (self[.leftLift] == nil && (self[.leftElbowLift] ?? 0) >= PoseDescriptor.elbowOnlyUp)
+            || (self[.rightLift] == nil && (self[.rightElbowLift] ?? 0) >= PoseDescriptor.elbowOnlyUp)
+        func pair(_ left: Dimension, _ right: Dimension, resting: Double? = nil) -> (high: Double?, low: Double?) {
+            var seen = [self[left], self[right]].compactMap { $0 }
+            if seen.count == 1, let resting, !hiddenArmUp {
+                seen.append(resting)
+            }
             return (seen.max(), seen.min())
         }
-        let lift = pair(.leftLift, .rightLift)
-        let head = pair(.leftHead, .rightHead)
+        let lift = pair(.leftLift, .rightLift, resting: 0.03)
+        let head = pair(.leftHead, .rightHead, resting: 1)
         let elbow = pair(.leftElbowLift, .rightElbowLift)
         return [
             lift.high.map { $0 - 0.03 } ?? 0,
