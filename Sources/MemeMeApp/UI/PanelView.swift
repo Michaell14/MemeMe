@@ -130,11 +130,11 @@ struct PanelView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if model.showsFaceToken {
-                Button("+ your face ×") {
+                Button(model.faceTokenIsPose ? "+ your pose ×" : "+ your face ×") {
                     model.removeFaceToken()
                 }
                 .buttonStyle(PanelCapsuleButtonStyle(fontSize: 11, foreground: Theme.softText))
-                .accessibilityLabel("Stop using your face in this search")
+                .accessibilityLabel(model.faceTokenIsPose ? "Stop using your pose in this search" : "Stop using your face in this search")
             }
             KeycapRow(color: model.hotKeyAvailable ? Theme.mutedText : Theme.warning)
         }

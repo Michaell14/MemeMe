@@ -1266,13 +1266,20 @@ enum Pick: Equatable {
         refreshHint()
     }
 
-    /// Typing right after opening stops the camera; later, a held face stays as a removable token.
+    /// The held query kept while typing shows no face (a gesture hid it): the token reads "your pose".
+    var faceTokenIsPose: Bool {
+        showsFaceToken && faceTokenSample?.face == nil
+    }
+
+    /// Typing right after opening stops the camera; later, a held face (or a clear gesture that hid it) stays as a
+    /// removable token.
     private func enterTextMode() {
         let began = textBeganAt ?? CACurrentMediaTime()
         let typedRightAfterOpening = began - shownAt < AppModel.typingStopsCameraWindow
         resetQueryImage()
         if holdProgress != 0 { holdProgress = 0 }
-        if !typedRightAfterOpening, let held = tracker.query, held.face != nil, camera.isRunning {
+        if !typedRightAfterOpening, let held = tracker.query,
+           held.face != nil || (held.pose?.gestureStrength ?? 0) >= Ranker.gestureWithoutFace, camera.isRunning {
             faceTokenSample = held
             faceTokenWeights = currentWeights
             showsFaceToken = true

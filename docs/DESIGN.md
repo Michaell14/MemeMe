@@ -68,7 +68,7 @@ On open, before a face is captured, the grid shows **Recent in this app** (per f
 ## Typing, dropping, pasting
 
 - Any letter types into the search field (it has focus when the panel opens). Digits never type: 1–9 always pick. Space types only once there is text.
-- Typing stops the camera if it starts within 1 s of opening; otherwise the held face stays as a removable token "+ your face ×" that orders the text results.
+- Typing stops the camera if it starts within 1 s of opening; otherwise the held face stays as a removable token "+ your face ×" that orders the text results ("+ your pose ×" when a clear gesture hid the face).
 - Text search covers OCR text, Vision labels, file names, sources and friend names. Filters by word: "mine", "gif", "sticker", a friend's name. Own items, grouped by month (newest first). Typed words are never sent to GIPHY, and GIPHY's results are never filtered: the GIPHY row keeps showing the face's results. If nothing matches and the word looks like a name, the panel asks **“Is one of these Sam?”** with up to 3 unnamed faces; clicking one names that person.
 - If too few results, the last tile is "Not here? Look in Documents…" which adds a watched folder (one macOS prompt).
 - **Drop or ⌘V an image onto the panel = search with it only** (never saved silently). "Keep it" saves it. ⌘V is treated as an image query only when the pasteboard holds an image that MemeMe did not put there itself.
