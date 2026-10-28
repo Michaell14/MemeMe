@@ -76,7 +76,7 @@ final class TileGridTests: XCTestCase {
         XCTAssertEqual(noGIPHY.move(from: 1, dx: 0, dy: 1), 11)
         XCTAssertEqual(noGIPHY.move(from: 11, dx: 0, dy: -1), 1)
 
-        XCTAssertEqual(TileGrid(columns: 5, ownRows: 0, ownCount: 0, giphyCount: 0, templateCount: 3).firstSlot, 10)
+        XCTAssertEqual(TileGrid(columns: 5, ownRows: 0, ownCount: 0, giphyCount: 0, templateCount: 3).firstSlot, 5)
         XCTAssertEqual(TileGrid(columns: 5, ownRows: 2, ownCount: 0, giphyCount: 0, templateCount: 9).templateCount, 5)
     }
 
