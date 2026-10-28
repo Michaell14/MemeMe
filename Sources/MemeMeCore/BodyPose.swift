@@ -463,39 +463,51 @@ public struct PoseDescriptor: Codable, Hashable, Sendable {
     /// phone held at the chest): 1 inside that zone (lift ≤ 0.3, out ≤ 0.2, head ≥ 0.45), falling to 0 across a narrow
     /// band around it so the strength never jumps; 0 without a wrist.
     var forearmRest: Double {
-        let wrists: [(lift: Double?, out: Double?, head: Double?)] = [
-            (self[.leftLift], self[.leftOut], self[.leftHead]),
-            (self[.rightLift], self[.rightOut], self[.rightHead]),
-        ].filter { $0.lift != nil }
-        let factors = wrists.map { wrist in
-            min(VectorMath.clampUnit((0.38 - (wrist.lift ?? 1)) / 0.08),
-                VectorMath.clampUnit((0.26 - (wrist.out ?? 1)) / 0.06),
-                VectorMath.clampUnit(((wrist.head ?? 0) - 0.35) / 0.1))
-        }
+        let factors = [
+            self[.leftLift] == nil ? nil : armRest(lift: .leftLift, out: .leftOut, head: .leftHead),
+            self[.rightLift] == nil ? nil : armRest(lift: .rightLift, out: .rightOut, head: .rightHead),
+        ].compactMap { $0 }
         return factors.min() ?? 0
     }
 
+    /// How much one wrist rests low, in front and away from the head (see `forearmRest`); 0 without that wrist.
+    private func armRest(lift: Dimension, out: Dimension, head: Dimension) -> Double {
+        guard let liftValue = self[lift] else { return 0 }
+        return min(VectorMath.clampUnit((0.38 - liftValue) / 0.08),
+                   VectorMath.clampUnit((0.26 - (self[out] ?? 1)) / 0.06),
+                   VectorMath.clampUnit(((self[head] ?? 0) - 0.35) / 0.1))
+    }
+
     /// 0 for arms at rest (hanging, on a desk, holding a mug at the chest, behind the head, or not seen) … 1 for a clear
-    /// gesture: the weighted RMS distance from arms hanging at the sides over the arms seen, minus a small dead zone
-    /// (fidgeting, typing), scaled down by `forearmRest`; or a clear hand sign.
+    /// gesture: the weighted RMS distance from arms hanging at the sides over the arms seen, each arm's part scaled down
+    /// by how much that arm rests (`armRest`), minus a small dead zone (fidgeting, typing); or a clear hand sign.
     public var gestureStrength: Double {
         var strength = 0.0
-        let rest = forearmRest
-        if rest < 1 {
-            var sum = 0.0
-            var weights = 0.0
-            for entry in PoseDescriptor.rest {
-                guard let value = self[entry.dimension] else { continue }
-                if entry.dimension == .leftElbowLift && self[.leftLift] == nil && value < PoseDescriptor.elbowOnlyUp { continue }
-                if entry.dimension == .rightElbowLift && self[.rightLift] == nil && value < PoseDescriptor.elbowOnlyUp { continue }
-                let difference = value - entry.value
-                sum += entry.weight * difference * difference
-                weights += entry.weight
+        // Each arm's distance is discounted by how much that arm rests (a phone in one hand and the other arm hanging
+        // or on the mouse is still rest); the wrist gap by the more resting of the two.
+        let leftRest = armRest(lift: .leftLift, out: .leftOut, head: .leftHead)
+        let rightRest = armRest(lift: .rightLift, out: .rightOut, head: .rightHead)
+        var sum = 0.0
+        var weights = 0.0
+        for entry in PoseDescriptor.rest {
+            guard let value = self[entry.dimension] else { continue }
+            if entry.dimension == .leftElbowLift && self[.leftLift] == nil && value < PoseDescriptor.elbowOnlyUp { continue }
+            if entry.dimension == .rightElbowLift && self[.rightLift] == nil && value < PoseDescriptor.elbowOnlyUp { continue }
+            let resting: Double
+            if entry.dimension.rawValue < Dimension.rightLift.rawValue {
+                resting = leftRest
+            } else if entry.dimension.rawValue < Dimension.wristGap.rawValue {
+                resting = rightRest
+            } else {
+                resting = max(leftRest, rightRest)
             }
-            if weights > 0 {
-                let rms = (sum / weights).squareRoot()
-                strength = VectorMath.clampUnit((rms - 0.1) / 0.3) * (1 - rest)
-            }
+            let difference = value - entry.value
+            sum += entry.weight * (1 - resting) * difference * difference
+            weights += entry.weight
+        }
+        if weights > 0 {
+            let rms = (sum / weights).squareRoot()
+            strength = VectorMath.clampUnit((rms - 0.1) / 0.3)
         }
         if let sign = hand?.signStrength, sign >= 0.7 {
             strength = max(strength, sign)

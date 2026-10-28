@@ -97,7 +97,8 @@ public enum MoodClassifier {
     ///    elbowLift ≥ `PoseDescriptor.elbowOnlyUp`) → mouth open ≥ 0.35 without a smile ? .screaming : .celebrate
     /// 3. both hands beside the head (head ≤ 0.35, lift ≥ 0.5, out ≥ 0.09: not under the chin or over the face)
     ///    → mouth open ≥ 0.45 ? .screaming : .mindBlown
-    /// 4. a hand on the face (head ≤ 0.22, lift ≥ 0.5; ≤ 0.3 when the face is hidden) with the eyes shut or the face
+    /// 4. a hand on the face (head ≤ 0.22, lift ≥ 0.5; ≤ 0.3 when the face is hidden) with the eyes shut (≥ 0.25 below
+    ///    rest; heavy lids on a propped head aren't enough) or the face
     ///    hidden, mouth open < 0.35, no smile (≤ 0.05: a smile narrows the eyes too) → .facepalm
     /// 5. wrists together (gap ≤ 0.12) in front, both lifts 0.3...0.75, clear of the chin (head > 0.3), not resting low
     ///    (`forearmRest` < 0.5), open hands when the hands were read (a mug or clasped fingers isn't a clap) → .clapping
@@ -147,7 +148,7 @@ public enum MoodClassifier {
             guard let head = arm.head, let lift = arm.lift else { return false }
             return head <= reach && lift >= 0.5
         }
-        if either(handOnFace) && (face == nil || eyeDeviation <= -0.1) && open < 0.35 && smile <= 0.05 {
+        if either(handOnFace) && (face == nil || eyeDeviation <= -0.25) && open < 0.35 && smile <= 0.05 {
             return .facepalm
         }
         let openHands = pose.hand.map { $0.openPalm >= 0.5 } ?? true

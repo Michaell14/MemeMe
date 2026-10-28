@@ -139,6 +139,13 @@ final class PoseDescriptorTests: XCTestCase {
         let higher = try descriptor(TestPoses.both(TestArm(elbow: (x: 0.55, y: -0.9), wrist: (x: 0.15, y: -0.3))))
         XCTAssertGreaterThan(higher.gestureStrength, 0.2)
         XCTAssertLessThan(higher.gestureStrength, 0.8)
+        // The other arm hanging or on the mouse doesn't undo the rest of the hand holding the phone.
+        XCTAssertLessThan(try descriptor(TestPoses.body(left: phone, right: TestPoses.rest.otherSide)).gestureStrength, 0.05)
+        let mouse = TestArm(elbow: (x: 0.6, y: -0.8), wrist: (x: 0.7, y: -0.9))
+        XCTAssertLessThan(try descriptor(TestPoses.body(left: phone, right: mouse.otherSide)).gestureStrength, 0.05)
+        // An arm raised out of the top of the frame still counts with the other forearm on the desk.
+        let desk = TestArm(elbow: (x: 0.6, y: -0.8), wrist: (x: 0.3, y: -0.85))
+        XCTAssertGreaterThan(try descriptor(TestPoses.body(left: TestPoses.elbowUp, right: desk.otherSide)).gestureStrength, 0.5)
     }
 
     func testAFaceWithShouldersShowsNoArms() throws {
@@ -295,7 +302,9 @@ final class PoseMoodTests: XCTestCase {
 
     func testAHandOverShutEyesOrAHiddenFaceIsAFacepalm() {
         let facepalm = TestPoses.body(left: TestPoses.onFace, right: TestPoses.rest.otherSide)
-        XCTAssertEqual(classify(makeFace(eye: 0.3), facepalm), .facepalm)
+        XCTAssertEqual(classify(makeFace(eye: 0.15), facepalm), .facepalm)
+        // Heavy lids on a propped head aren't shut eyes.
+        XCTAssertEqual(classify(makeFace(eye: 0.33), facepalm), .unimpressed)
         XCTAssertEqual(classify(nil, facepalm), .facepalm)
         // Eyes open: a hand near the face alone isn't a facepalm.
         XCTAssertEqual(classify(TestFaces.neutral, facepalm), .unimpressed)
