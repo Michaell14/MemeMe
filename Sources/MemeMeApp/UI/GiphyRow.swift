@@ -3,7 +3,7 @@ import MemeMeCore
 import SwiftUI
 
 /// GIPHY's results for the face's mood, below the user's memes and apart from them: one row, in GIPHY's
-/// own order, under GIPHY's "Powered by GIPHY" mark.
+/// own order, under "Powered by" and GIPHY's logo.
 struct GiphyRow: View {
     @ObservedObject var model: AppModel
 
@@ -79,18 +79,21 @@ struct GiphyRow: View {
     }
 }
 
-/// GIPHY's attribution: their "Powered by GIPHY" mark from the app's resources, or the words until it is added.
+/// GIPHY's attribution: "Powered by" and GIPHY's logo from the app's resources (the word "GIPHY" if it's missing).
 private struct PoweredByGiphyMark: View {
     var body: some View {
-        Group {
-            if let image = PoweredByGiphyMark.image {
-                Image(nsImage: image)
+        HStack(alignment: .center, spacing: 5) {
+            Text("Powered by")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(Theme.softText)
+            if let logo = PoweredByGiphyMark.logo {
+                Image(nsImage: logo)
                     .resizable()
                     .interpolation(.high)
                     .aspectRatio(contentMode: .fit)
-                    .frame(height: 14)
+                    .frame(height: 13)
             } else {
-                Text("Powered by GIPHY")
+                Text(verbatim: "GIPHY")
                     .font(.system(size: 11, weight: .bold))
                     .foregroundColor(Theme.text)
             }
@@ -99,8 +102,9 @@ private struct PoweredByGiphyMark: View {
         .accessibilityLabel("Powered by GIPHY")
     }
 
-    /// Resources/GIPHY/PoweredByGIPHY.png (and @2x), copied into the app by scripts/build-app.sh.
-    static let image: NSImage? = Bundle.main.image(forResource: "PoweredByGIPHY")
+    /// Resources/GIPHY/GIPHYLogo.png: GIPHY's logo, white lettering on transparent for the dark panel, copied into the
+    /// app by scripts/build-app.sh.
+    static let logo: NSImage? = Bundle.main.image(forResource: "GIPHYLogo")
 }
 
 /// One GIPHY result: its small still, playing its preview while focused.

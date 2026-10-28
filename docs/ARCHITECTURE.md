@@ -962,7 +962,7 @@ Key handling:
 struct PanelView: View { @ObservedObject var model: AppModel }                       // compact layout per DESIGN.md
 struct MirrorColumn: View { @ObservedObject var model: AppModel }                    // mirror (CameraPreviewView / silhouette / image / drop well) + hint
 struct ResultGrid: View { @ObservedObject var model: AppModel }                      // your memes: ownRows × 5 LazyVGrid of ResultTile, or one dashed line with none
-struct GiphyRow: View { @ObservedObject var model: AppModel }                        // "Powered by GIPHY" mark + mood word, then 5 GIPHY tiles in GIPHY's order
+struct GiphyRow: View { @ObservedObject var model: AppModel }                        // "Powered by" + GIPHY logo, mood word, then 5 GIPHY tiles in GIPHY's order
 struct ResultTile: View { let result: RankedResult; let number: Int?; let isFocused: Bool; let isNew: Bool; @ObservedObject var model: AppModel }
 struct FooterView: View { @ObservedObject var model: AppModel }
 struct SetupCardView: View { @ObservedObject var model: AppModel }
@@ -976,7 +976,7 @@ struct CaptureView: View { init(model: AppModel) }                              
 - Drops on the whole panel: `.onDrop(of: [.fileURL, .image], …)` → `model.search(withImageAt:)`.
 - Tiles: `.onHover { if $0 { model.hover(index:) } }`, `.onTapGesture { model.commit(index:) }`, `.onDrag { model.dragItemProvider(index:) ?? NSItemProvider() }`, with slots from `TileGrid` (GIPHY tiles: `model.giphySlot(offset)`).
 - Your memes' thumbnails via `ThumbnailCache.shared`; the focused GIF tile shows `AnimatedImageView(url:)`. GIPHY tiles load `model.web.still(for:)` and, while focused, `AnimatedImageView(image: await model.web.preview(for:))`.
-- The GIPHY row shows when `model.showsGiphyRow`; its mark is `Bundle.main.image(forResource: "PoweredByGIPHY")` (Resources/GIPHY, copied by build-app.sh), else the words "Powered by GIPHY".
+- The GIPHY row shows when `model.showsGiphyRow`; its mark is "Powered by" + `Bundle.main.image(forResource: "GIPHYLogo")` (Resources/GIPHY/GIPHYLogo.png, copied by build-app.sh), else the words "Powered by GIPHY".
 
 ### UI/HUDController.swift
 
