@@ -23,7 +23,7 @@ Read `docs/DESIGN.md` for behavior and exact UI strings.
 |---|---|
 | Core | `Sources/MemeMeCore/*.swift`, `Tests/MemeMeCoreTests/*.swift` |
 | Vision & camera | `Sources/MemeMeApp/Vision/FaceFeatureExtractor.swift`, `Vision/ImageAnalyzer.swift`, `Vision/ThumbnailCache.swift`, `Camera/CameraController.swift`, `Camera/CameraPreviewView.swift`, `Camera/CameraFilter.swift`, `Camera/CaptureRenderer.swift` |
-| Library, web, stickers | `Sources/MemeMeApp/Library/LibraryIndexer.swift`, `Library/FolderWatcher.swift`, `Web/GIFProvider.swift`, `Web/GiphyProvider.swift`, `Web/WebDiscover.swift`, `Stickers/StickerMaker.swift`, `Stickers/FriendService.swift`, `System/Clipboard.swift`, `System/SystemConditions.swift` |
+| Library, web, stickers | `Sources/MemeMeApp/Library/LibraryIndexer.swift`, `Library/FolderWatcher.swift`, `Web/GIFProvider.swift`, `Web/GiphyProvider.swift`, `Web/WebDiscover.swift`, `Web/MemeTemplates.swift`, `Stickers/StickerMaker.swift`, `Stickers/FriendService.swift`, `System/Clipboard.swift`, `System/SystemConditions.swift` |
 | Panel UI | `Sources/MemeMeApp/UI/PanelController.swift`, `UI/PanelView.swift`, `UI/MirrorColumn.swift`, `UI/ResultGrid.swift`, `UI/FooterView.swift`, `UI/SetupCardView.swift`, `UI/HUDController.swift`, `UI/StickerPopoverView.swift`, `UI/AnimatedImageView.swift`, `UI/CaptureView.swift`, `UI/Theme.swift` |
 | App shell | `Sources/MemeMeApp/App/main.swift`, `App/AppDelegate.swift`, `App/AppModel.swift`, `App/CaptureModel.swift`, `App/HotKey.swift`, `App/StatusItemController.swift`, `App/StickerPopoverModel.swift`, `App/LoginItem.swift`, `Resources/Info.plist`, `scripts/build-app.sh`, `.github/workflows/ci.yml`, `README.md`, `.gitignore` |
 | Updates | `Sources/MemeMeApp/Update/UpdateChecker.swift`, `Update/UpdateInstaller.swift`, `Tests/MemeMeAppTests/UpdateCheckerTests.swift`, `Tests/MemeMeAppTests/UpdateInstallerTests.swift` |
@@ -404,14 +404,30 @@ Scoring (binding):
 
 ```swift
 public struct TileGrid: Equatable, Sendable {
-    public init(columns: Int, ownRows: Int, ownCount: Int, giphyCount: Int)   // counts clamped to the grid / one row
+    public init(columns: Int, ownRows: Int, ownCount: Int, giphyCount: Int, templateCount: Int = 0)   // counts clamped to the grid / one row
     public var giphyStart: Int { get }               // columns × ownRows: the GIPHY row's first slot, however many memes there are
-    public var firstSlot: Int? { get }               // the first meme, else the first GIPHY tile
+    public var templateStart: Int { get }            // giphyStart + columns: the classic memes row's first slot
+    public var firstSlot: Int? { get }               // the first meme, else the first GIPHY tile, else the first classic meme
     public func isFilled(_ slot: Int) -> Bool
     public func move(from slot: Int, dx: Int, dy: Int) -> Int?   // arrow keys: along the row, or to the nearest row with tiles (column kept when it can)
 }
 ```
-Keyboard focus over your memes (`ownRows` rows of 5: 2, 1 with five or fewer memes, 0 with none) and the GIPHY row below them. Each row fills from the left; empty rows are skipped.
+Keyboard focus over your memes (`ownRows` rows of 5: 2, 1 with five or fewer memes, 0 with none), the GIPHY row below them and the classic memes row below that. Each row fills from the left; empty rows are skipped.
+
+### MemeTemplateCatalog.swift
+
+```swift
+public struct TemplateRef: Equatable, Sendable { public let id: String; public let name: String }   // Imgflip's id and name
+public enum MemeTemplateCatalog {
+    public struct Entry: Sendable { names: [String]; id: String?; moods: [Mood]; words: [String] }
+    public static let entries: [Entry]               // ~80 famous templates, most famous first
+    /// The templates for `mood` (entries listing it, in table order), then the most popular others; `.reaction` = the most popular.
+    public static func pick(for mood: Mood, from templates: [TemplateRef], limit: Int) -> [Int]
+    /// Templates matching typed terms, best first; none when nothing matches.
+    public static func pick(forTerms terms: [String], from templates: [TemplateRef], limit: Int) -> [Int]
+}
+```
+Imgflip's list has no tags, so this table says what each famous template is for. An entry matches a listed template by Imgflip id, else by name (lowercased, letters and digits only: "Gru's Plan" = "grusplan"). Typed terms (split into words of 2+ letters) score per template: +3 for a word of its name starting with a term, else +2 for one of its search words; +2 when the typed text contains one of its multi-word phrases ("looking back"); +3 when its first mood is one the words name (`moodWords`: "sad", "lol" → laughing, "mad" → angry, "omg" → shocked…, plus "side eye", "mind blown", "thumbs up"), +2 for a later mood. Ties keep Imgflip's (popularity) order.
 
 ### Classifier.swift
 
@@ -808,6 +824,15 @@ struct GiphyProvider: GIFProvider {
 ### Web/WebDiscover.swift
 
 ```swift
+/// What the GIPHY row asks for (also the classic memes row's query).
+enum WebQuery: Hashable, Sendable {
+    case mood(Mood)
+    case words(String)                               // typed terms: lowercased, single-spaced, ≤ 50 characters
+    static func words(from terms: [String]) -> WebQuery?   // nil with fewer than 2 letters or digits
+    var searchTerms: String { get }                  // mood.searchQuery, or the words
+    var label: String { get }                        // mood.label, or the words
+}
+
 @MainActor final class WebDiscover: ObservableObject {
     enum Status { case off, noKey, keyRejected, limitReached, ready }
     static let resultLifetime: TimeInterval          // 10 min
@@ -816,13 +841,14 @@ struct GiphyProvider: GIFProvider {
     init(store: LibraryStore, cacheRoot: URL?, configuration: URLSessionConfiguration? = nil)   // tests: temp folder, stubbed network
     var hasAPIKey: Bool { get }
     var status: Status { get }                       // for the menu; .ready = a search can start now
-    /// GIPHY's results for the mood from the last 10 minutes, in GIPHY's order; nil when there are none.
-    func cachedGIFs(for mood: Mood) -> [WebGIF]?
+    /// GIPHY's results for the query from the last 10 minutes, in GIPHY's order; nil when there are none.
+    func cachedGIFs(for query: WebQuery) -> [WebGIF]?
     /// Cached at once, else the running or a new search; nil when nothing can be searched or it failed. The search outlives the caller.
-    func gifs(for mood: Mood) async -> [WebGIF]?
-    func isSearching(_ mood: Mood) -> Bool
-    /// Starts the mood's search unless fresh or running (the early search while a face is held).
-    func warm(_ mood: Mood)
+    func gifs(for query: WebQuery) async -> [WebGIF]?
+    func isSearching(_ query: WebQuery) -> Bool
+    /// Starts the query's search unless fresh or running (the early search while a face is held).
+    func warm(_ query: WebQuery)
+    // Each also takes a Mood (= .mood(mood)).
     func cachedStill(for gif: WebGIF) -> NSImage?
     func still(for gif: WebGIF) async -> NSImage?    // fixed_width_small_still through the HTTP cache
     func preview(for gif: WebGIF) async -> NSImage?  // fixed_width_small (animated) through the HTTP cache
@@ -832,9 +858,30 @@ struct GiphyProvider: GIFProvider {
     func pruneCache()                                // copy files older than 1 h, and earlier versions' <mood>.json files
 }
 ```
-Compliance with GIPHY's integration rules: results are shown in GIPHY's order, unfiltered, never mixed with the user's memes, never written to disk. A search: the GIPHY search with `limit=10` (tried once more after a dropped connection, timeout or 5xx, if the hourly limit allows; the retry counts) on an API session without caching; results kept in memory for `resultLifetime`. Media (stills, previews, full GIFs) come from a second session with a `URLCache` (16 MB memory, 64 MB disk in Web/HTTP, `.useProtocolCachePolicy`) and `httpMaximumConnectionsPerHost` 8; decoded stills stay in an `NSCache` (200). Full GIFs are written to Web/files only to be copied or dragged, and deleted after an hour. 429 pauses all searches for 10 min; 401/403 makes that key wait 10 min (`status` says which). API key: `store.settings.giphyAPIKey` (non-empty) ?? `Bundle.main.object(forInfoDictionaryKey: "GiphyAPIKey") as? String` (non-empty and not starting with "$("). Rate guard: at most 90 network searches per rolling hour (timestamps persisted in Web/rate.json).
+Compliance with GIPHY's integration rules: results are shown in GIPHY's order, unfiltered, never mixed with the user's memes, never written to disk. Results, running searches and failures are kept per `WebQuery`. A search: the GIPHY search for `query.searchTerms` with `limit=10` (tried once more after a dropped connection, timeout or 5xx, if the hourly limit allows; the retry counts) on an API session without caching; results kept in memory for `resultLifetime`. Media (stills, previews, full GIFs) come from a second session with a `URLCache` (16 MB memory, 64 MB disk in Web/HTTP, `.useProtocolCachePolicy`) and `httpMaximumConnectionsPerHost` 8; decoded stills stay in an `NSCache` (200). Full GIFs are written to Web/files only to be copied or dragged, and deleted after an hour. 429 pauses all searches for 10 min; 401/403 makes that key wait 10 min (`status` says which). API key: `store.settings.giphyAPIKey` (non-empty) ?? `Bundle.main.object(forInfoDictionaryKey: "GiphyAPIKey") as? String` (non-empty and not starting with "$("). Rate guard: at most 90 network searches per rolling hour (timestamps persisted in Web/rate.json).
 
 `WebGIF` (GIFProvider.swift) also carries `creator: String?` from the result's `user` (display name, else username).
+
+### Web/MemeTemplates.swift
+
+```swift
+struct MemeTemplate: Codable, Hashable, Sendable { let id: String; let name: String; let url: URL; let width: Int; let height: Int; var ref: TemplateRef }
+@MainActor final class MemeTemplates {
+    static let listLifetime: TimeInterval            // 24 h
+    static let fileLifetime: TimeInterval            // 1 h
+    init(store: LibraryStore, cacheRoot: URL?, configuration: URLSessionConfiguration? = nil)   // nil = ~/Library/Caches/MemeMe/Templates
+    var isEnabled: Bool { get }                      // settings.webDiscoverEnabled
+    var cachedList: [MemeTemplate]? { get }          // memory, else templates.json in the cache folder (any age); nil when off
+    func templates() async -> [MemeTemplate]?        // the list from the last day, else a fetch (an older list if Imgflip doesn't answer; retried after 60 s)
+    func cachedImage(for template: MemeTemplate) -> NSImage?
+    func image(for template: MemeTemplate) async -> NSImage?        // downsampled to 320 px, through the HTTP cache
+    func prepareForCopy(_ template: MemeTemplate) async -> URL?     // files/<id>.<ext>; nil after 8 s (the download continues)
+    func prefetchForCopy(_ template: MemeTemplate)
+    func pruneCache()                                // copy files older than an hour
+    nonisolated static func parseList(_ data: Data) -> [MemeTemplate]?   // Imgflip's order; https only; each id once
+}
+```
+`GET https://api.imgflip.com/get_memes` (no key; `{"success": true, "data": {"memes": [{"id", "name", "url", "width", "height"}]}}`), at most once a day, written to Templates/templates.json. Images load through one session with a `URLCache` (8 MB memory, 64 MB disk in Templates/HTTP); decoded tiles stay in an `NSCache` (120). Off (no requests, nil list) with Web Discover.
 
 ### Stickers/StickerMaker.swift
 
@@ -962,9 +1009,10 @@ Key handling:
 struct PanelView: View { @ObservedObject var model: AppModel }                       // compact layout per DESIGN.md
 struct MirrorColumn: View { @ObservedObject var model: AppModel }                    // mirror (CameraPreviewView / silhouette / image / drop well) + hint
 struct ResultGrid: View { @ObservedObject var model: AppModel }                      // your memes: ownRows × 5 LazyVGrid of ResultTile, or one dashed line with none
-struct GiphyRow: View { @ObservedObject var model: AppModel }                        // "Powered by" + GIPHY logo, mood word, then 5 GIPHY tiles in GIPHY's order
+struct GiphyRow: View { @ObservedObject var model: AppModel }                        // "Powered by" + GIPHY logo, mood word or typed words, then 5 GIPHY tiles in GIPHY's order
+struct TemplateRow: View { @ObservedObject var model: AppModel }                     // "Classic memes · Imgflip", the query's label, then 5 templates shown whole (aspect fit)
 struct ResultTile: View { let result: RankedResult; let number: Int?; let isFocused: Bool; let isNew: Bool; @ObservedObject var model: AppModel }
-struct FooterView: View { @ObservedObject var model: AppModel }
+struct FooterView: View { @ObservedObject var model: AppModel }                     // only while footer != .hidden: indexing, added, update
 struct SetupCardView: View { @ObservedObject var model: AppModel }
 struct AnimatedImageView: NSViewRepresentable { init(url: URL); init(image: NSImage) }   // NSImageView with animates = true
 struct CaptureView: View { init(model: AppModel) }                                   // replaces the strip while model.isCaptureOpen
@@ -974,8 +1022,10 @@ struct CaptureView: View { init(model: AppModel) }                              
 - `CaptureView`: a 300 × 300 stage (`CapturePreview`, an `NSView` whose layer contents are set straight from `camera.onCapturePreview`, aspect fill) with a white flash on each photo, a coral progress ring while recording and the shutter (a `DragGesture(minimumDistance: 0)`: press → `capture.press(from: .mouse)`, release → `capture.release(from: .mouse)`); beside it the title, the status line, the filter chips (3 columns) and "Back to memes"; the legend below.
 - The search field is a SwiftUI `TextField` bound to `$model.queryText`, focused on appear (`@FocusState`), plain style.
 - Drops on the whole panel: `.onDrop(of: [.fileURL, .image], …)` → `model.search(withImageAt:)`.
-- Tiles: `.onHover { if $0 { model.hover(index:) } }`, `.onTapGesture { model.commit(index:) }`, `.onDrag { model.dragItemProvider(index:) ?? NSItemProvider() }`, with slots from `TileGrid` (GIPHY tiles: `model.giphySlot(offset)`).
+- Tiles: `.onHover { if $0 { model.hover(index:) } }`, `.onTapGesture { model.commit(index:) }`, `.onDrag { model.dragItemProvider(index:) ?? NSItemProvider() }`, with slots from `TileGrid` (GIPHY tiles: `model.giphySlot(offset)`, classic memes: `model.templateSlot(offset)`).
 - Your memes' thumbnails via `ThumbnailCache.shared`; the focused GIF tile shows `AnimatedImageView(url:)`. GIPHY tiles load `model.web.still(for:)` and, while focused, `AnimatedImageView(image: await model.web.preview(for:))`.
+- The classic memes row shows when `model.showsTemplateRow`; its tiles load `model.templates.image(for:)`.
+- `ResultGrid`'s dashed empty line carries a "Find my memes" capsule while `model.offersFindMyMemes` (no folders collected, not indexing).
 - The GIPHY row shows when `model.showsGiphyRow`; its mark is "Powered by" + `Bundle.main.image(forResource: "GIPHYLogo")` (Resources/GIPHY/GIPHYLogo.png, copied by build-app.sh), else the words "Powered by GIPHY".
 
 ### UI/HUDController.swift
@@ -1160,7 +1210,7 @@ A press held 0.35 s starts a clip (`camera.beginClip`); the release (or 3 s) end
 enum PanelMode: Equatable { case prompt, warming, live, text, image, moreLike, cameraOff, cameraBusy }
 enum HintAction: Equatable { case clearPins, backToFace, keepImage, turnOnCamera, useCamera }
 struct PanelHint: Equatable { var title: String; var subtitle: String?; var actionTitle: String?; var action: HintAction? }
-enum FooterState: Equatable { case legend, libraryOffer, indexing(count: Int), added(IndexBatch), update(UpdateManifest) }
+enum FooterState: Equatable { case hidden, indexing(count: Int), added(IndexBatch), update(UpdateManifest) }
 struct NamingCandidate: Identifiable, Equatable { let personID: UUID; let stickerCount: Int; let sample: LibraryItem?; var id: UUID { personID } }
 struct NamingPrompt: Equatable { var name: String; var candidates: [NamingCandidate] }
 enum DropOutcome { case kept(IndexBatch), stickers(StickerBatch), nothing }
@@ -1171,12 +1221,17 @@ enum DropOutcome { case kept(IndexBatch), stickers(StickerBatch), nothing }
     @Published private(set) var results: [RankedResult]        // ≤ Theme.resultLimit
     @Published private(set) var newResultIDs: Set<UUID>         // amber ring for 600 ms
     @Published private(set) var ownRows: Int                     // rows of your memes: 2, 1 (≤ 5 memes), 0 (none: one dashed line); enough for what is shown
-    @Published var focusedIndex: Int                             // a TileGrid slot: your memes, then the GIPHY row
+    @Published var focusedIndex: Int                             // a TileGrid slot: your memes, then the GIPHY row, then classic memes
     @Published private(set) var giphyResults: [WebGIF]           // ≤ Theme.columns, GIPHY's order
-    @Published private(set) var giphyMood: Mood?
+    @Published private(set) var giphyQuery: WebQuery?            // the face's mood, or typed words
     @Published private(set) var isGiphyLoading: Bool
     @Published private(set) var giphyUnavailable: Bool
     @Published private(set) var showsGiphyRow: Bool              // Web Discover on and a key (set when the panel opens)
+    @Published private(set) var templateResults: [MemeTemplate]  // ≤ Theme.columns
+    @Published private(set) var templateQuery: WebQuery?
+    @Published private(set) var isTemplatesLoading: Bool
+    @Published private(set) var templatesUnavailable: Bool       // no list at all
+    @Published private(set) var showsTemplateRow: Bool           // Web Discover on (set when the panel opens)
     @Published private(set) var pins: Set<FaceRegion>
     @Published private(set) var hint: PanelHint
     @Published private(set) var footer: FooterState
@@ -1196,6 +1251,7 @@ enum DropOutcome { case kept(IndexBatch), stickers(StickerBatch), nothing }
     let capture: CaptureModel
     let indexer: LibraryIndexer
     let web: WebDiscover
+    let templates: MemeTemplates                     // cache: webCacheRoot's sibling "Templates" in tests
     let friends: FriendService
     let updates: UpdateChecker                       // UpdateChecker(bundle: .main); disabled in tests (no feed URL)
 
@@ -1204,7 +1260,7 @@ enum DropOutcome { case kept(IndexBatch), stickers(StickerBatch), nothing }
     init(store: LibraryStore)
     init(store: LibraryStore, webCacheRoot: URL?)   // tests pass a temp cache folder; both remove saved GIPHY picks and items whose kept file is gone (store.removeSavedWebItems, removeItemsWithMissingFiles)
     var requestsCameraAccessOnShow: Bool             // default true; tests turn it off
-    func start()                                     // after launch: SystemConditions.startMonitoring(), indexer.startWatching(), a cleanup every 10 min (web.pruneCache(), Clipboard.removeStaleCopies()), updates.start()
+    func start()                                     // after launch: SystemConditions.startMonitoring(), indexer.startWatching(), a cleanup every 10 min (web.pruneCache(), templates.pruneCache(), Clipboard.removeStaleCopies()), updates.start()
     func setHotKeyAvailable(_ available: Bool)
 
     // Panel lifecycle
@@ -1212,9 +1268,11 @@ enum DropOutcome { case kept(IndexBatch), stickers(StickerBatch), nothing }
     func panelDidHide()
 
     // Input (indices are TileGrid slots)
-    var focusedPick: Pick? { get }                   // enum Pick { case meme(LibraryItem), gif(WebGIF) }
+    var focusedPick: Pick? { get }                   // enum Pick { case meme(LibraryItem), gif(WebGIF), template(MemeTemplate) }
     var canMoreLikeFocused: Bool { get }             // only for your memes
     func giphySlot(_ offset: Int) -> Int
+    func templateSlot(_ offset: Int) -> Int
+    static func pickTemplates(for query: WebQuery, from list: [MemeTemplate]) -> [MemeTemplate]   // MemeTemplateCatalog, ≤ 5
     func commit(index: Int)
     func commitFocused()
     func commitNumbered(index: Int)                  // 1–9: your memes only
@@ -1238,7 +1296,7 @@ enum DropOutcome { case kept(IndexBatch), stickers(StickerBatch), nothing }
 
     // Library
     func findMyMemes()
-    func dismissLibraryOffer()
+    var offersFindMyMemes: Bool { get }              // no watched folders and not indexing
     func undoAddedBatch()
     func toggleOpenAtLogin()
     func dismissSetupCard()
@@ -1258,10 +1316,10 @@ enum DropOutcome { case kept(IndexBatch), stickers(StickerBatch), nothing }
 ```
 Other internal helpers that exist outside the contract: `StickerBatchSources` (App/StickerPopoverModel.swift) and `TileDragEvents` (UI/PanelController.swift).
 Behavior summary (details in DESIGN.md):
-- `panelWillShow`: remember previous app + bundle id; reset query state; mode = `.cameraBusy` if `camera.isInUseByAnotherApplication`, `.prompt` if authorization is `.notDetermined`, `.cameraOff` if denied/restricted, else `.warming` (start camera); results = recent for that app (or the newest own memes); with none at all, or when no face can be read (`.cameraOff`, `.cameraBusy`, `.prompt`), the GIPHY row shows `.reaction`; footer per rules; on first run (`!settings.hasCompletedFirstRun`) request camera access 0.6 s after show (activate the app just for the prompt).
-- `camera.onSample` → `tracker.ingest`; the mood of `tracker.candidate` (the expression being held) goes through `EarlyMoodTrigger` (same mood for 0.2 s) → `web.warm(mood)`; publish `holdProgress`; on query change: mood → weights (`automatic(...).pinning(pins)`) → your memes ranked at once (`store.items` without `.web`); the GIPHY row shows `web.cachedGIFs(for: mood)` at once, else placeholders until `await web.gifs(for: mood)` (its own task and generation; text, image and more-like searches leave the row alone). `normalizeFocus` keeps the focus on a tile: until the user moves it, the first one for Recent and the face (so ↵ copies a GIPHY GIF when there are no memes), and nothing for a typed, image or more-like search that finds no meme. `newResultIDs` for ids not shown before (cleared after 600 ms). The row's first GIF and a focused GIF prefetch their full GIF. No face for 1.5 s → hint "Can’t see your face".
-- Text changes (debounced 80 ms) → text mode; camera stops if typing began within 1 s of show, otherwise `showsFaceToken = true`; naming prompt when `TextQuery.possibleName` is set, no results, and `friends.unnamedPeople` is non-empty. Empty text → back to live (restart camera if it was stopped).
-- `commit`: resolve file (a GIPHY GIF → `await web.prepareForCopy`, HUD "Copying…" if it takes > 150 ms); `Clipboard.copy` (a GIPHY GIF as "reaction.gif"); for your memes only: increment `timesSent`, set `lastSentAt`, `recents.record` (GIPHY GIFs are never kept or listed as recent); first run → `showSetupCard = true` and `hasCompletedFirstRun = true` (panel stays open); otherwise close and HUD "Copied “<title>” · ⌘V — not sent" with the copied file as thumbnail. ↵ is ignored within 300 ms of the last text edit.
+- `panelWillShow`: remember previous app + bundle id; reset query state; mode = `.cameraBusy` if `camera.isInUseByAnotherApplication`, `.prompt` if authorization is `.notDetermined`, `.cameraOff` if denied/restricted, else `.warming` (start camera); results = recent for that app (or the newest own memes); with none at all, or when no face can be read (`.cameraOff`, `.cameraBusy`, `.prompt`), the GIPHY row shows `.mood(.reaction)` and the classic memes row the most popular templates; footer per rules; on first run (`!settings.hasCompletedFirstRun`) request camera access 0.6 s after show (activate the app just for the prompt).
+- `camera.onSample` → `tracker.ingest`; the mood of `tracker.candidate` (the expression being held) goes through `EarlyMoodTrigger` (same mood for 0.2 s) → `web.warm(mood)`; publish `holdProgress`; on query change: mood → weights (`automatic(...).pinning(pins)`) → your memes ranked at once (`store.items` without `.web`); the GIPHY row shows `web.cachedGIFs(for: .mood(mood))` at once, else placeholders until `await web.gifs(for:)` (its own task and generation), and the classic memes row `pickTemplates(for: .mood(mood), …)` from `templates.cachedList` at once, else after `await templates.templates()` (its own task and generation). Image and more-like searches leave both rows alone. `normalizeFocus` keeps the focus on a tile: until the user moves it, the first one for Recent and the face (so ↵ copies a GIPHY GIF when there are no memes), and nothing for a typed, image or more-like search that finds no meme. `newResultIDs` for ids not shown before (cleared after 600 ms). The row's first GIF and a focused GIF prefetch their full GIF. No face for 1.5 s → hint "Can’t see your face".
+- Text changes (debounced 80 ms) → text mode; camera stops if typing began within 1 s of show, otherwise `showsFaceToken = true`; naming prompt when `TextQuery.possibleName` is set, no results, and `friends.unnamedPeople` is non-empty. The typed terms (`TextQuery.parse(…).terms`: no filter words or people's names) → `WebQuery.words(from:)`: the classic memes row shows its templates at once; the GIPHY row shows GIPHY's results once typing has paused 0.45 s (at once when cached; a nil query leaves both rows alone). Empty text → back to live (restart camera if it was stopped); leaving typed words clears a GIPHY row showing them and puts the classic memes back to the popular ones.
+- `commit`: resolve file (a GIPHY GIF → `await web.prepareForCopy`, a classic meme → `await templates.prepareForCopy`, HUD "Copying…" if it takes > 150 ms); `Clipboard.copy` (a GIPHY GIF as "reaction.gif", a classic meme as "reaction.png": kind `.web`, source "Imgflip", hash "imgflip:<id>"); for your memes only: increment `timesSent`, set `lastSentAt`, `recents.record` (GIPHY GIFs are never kept or listed as recent); first run → `showSetupCard = true` and `hasCompletedFirstRun = true` (panel stays open); otherwise close and HUD "Copied “<title>” · ⌘V — not sent" with the copied file as thumbnail. ↵ is ignored within 300 ms of the last text edit.
 - A capture (`capture.onCaptured`): `commitToken += 1`; `Clipboard.copy(data:fileName:)` as "reaction.gif" / "reaction.png"; the sticker source is that PNG (photo) or the clip's best frame written as `capture.png` in a fresh clipboard folder; close the capture view and the panel; HUD "Copied your photo · ⌘V — not sent" (or GIF) with the copy as thumbnail and the action "Save as sticker" → HUD "Making your sticker…", `friends.makeOwnSticker(fromCapture:)`, then "Saved “<name>” as a sticker" with the action "Undo" (`friends.removeOwnSticker`, then "Sticker removed"), "Already one of your stickers" when it was kept before (both skipped when the panel was reopened meanwhile: they would cover it), or "Couldn’t find you in that one." (shown regardless). Captures are not recorded as sent and don't count as the first pick.
 - Persist the store (debounced 2 s) after changes; persist `tracker.baseline` into settings on hide.
-- Footer priority: `.indexing` > `.added` (panel visible) > `.update(manifest)` (when `updates.available` is set, `updates.phase` is `.idle` or `.checking` and `UpdatePolicy.shouldOfferInPanel(manifest, skippedBuild: settings.skippedUpdateBuild)`) > `.libraryOffer` > `.legend`. AppModel subscribes to `updates.objectWillChange` like it does to the indexer and refreshes the footer on the next main-actor turn.
+- Footer priority: `.indexing` > `.added` (panel visible) > `.update(manifest)` (when `updates.available` is set, `updates.phase` is `.idle` or `.checking` and `UpdatePolicy.shouldOfferInPanel(manifest, skippedBuild: settings.skippedUpdateBuild)`) > `.hidden` (no footer at all). AppModel subscribes to `updates.objectWillChange` like it does to the indexer and refreshes the footer on the next main-actor turn.

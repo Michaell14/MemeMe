@@ -6,13 +6,49 @@ import os
 
 private let webLog = Logger(subsystem: "com.mememe.app", category: "web")
 
-/// GIPHY's results for the mood of the user's face, for the GIPHY row.
+/// What the GIPHY row asks GIPHY for: the mood of your face, or the words you typed.
+enum WebQuery: Hashable, Sendable {
+    case mood(Mood)
+    /// Lowercased, trimmed, single-spaced, at most `maximumLength` characters (`words(from:)`).
+    case words(String)
+
+    static let maximumLength = 50
+
+    /// The typed search terms as GIPHY gets them; nil when they hold fewer than two letters or digits.
+    static func words(from terms: [String]) -> WebQuery? {
+        let joined = terms
+            .flatMap { $0.lowercased().split(whereSeparator: { $0.isWhitespace }) }
+            .joined(separator: " ")
+        let text = String(joined.prefix(maximumLength)).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard text.unicodeScalars.filter({ CharacterSet.alphanumerics.contains($0) }).count >= 2 else { return nil }
+        return .words(text)
+    }
+
+    /// What is sent to GIPHY.
+    var searchTerms: String {
+        switch self {
+        case let .mood(mood): return mood.searchQuery
+        case let .words(text): return text
+        }
+    }
+
+    /// The GIPHY row's label: the mood word, or the typed words.
+    var label: String {
+        switch self {
+        case let .mood(mood): return mood.label
+        case let .words(text): return text
+        }
+    }
+}
+
+/// GIPHY's results for the mood of the user's face, or for the words typed in the search field, for the GIPHY row.
 ///
-/// Only the mood word leaves the Mac. Results are shown the way GIPHY returns them: never re-ranked,
-/// filtered or mixed with the user's memes, and never stored on disk. A mood's results are reused for
-/// 10 minutes in memory, images load from GIPHY's URLs through ordinary HTTP caching, and full GIFs go to
-/// short-lived files only so they can be copied or dragged into a chat. A search starts as soon as the
-/// mood is clear (`warm`). Searches are rate-limited (90 per rolling hour, persisted).
+/// Only the mood word, or the typed words (without filter words or the names of your people), leave the Mac.
+/// Results are shown the way GIPHY returns them: never re-ranked, filtered or mixed with the user's memes, and
+/// never stored on disk. A query's results are reused for 10 minutes in memory, images load from GIPHY's URLs
+/// through ordinary HTTP caching, and full GIFs go to short-lived files only so they can be copied or dragged into
+/// a chat. A search starts as soon as the mood is clear (`warm`). Searches are rate-limited (90 per rolling hour,
+/// persisted).
 @MainActor final class WebDiscover: ObservableObject {
     /// What Web Discover can do right now, for the menu.
     enum Status: Equatable {
@@ -35,10 +71,10 @@ private let webLog = Logger(subsystem: "com.mememe.app", category: "web")
     private let mediaSession: URLSession
     private let ioQueue = DispatchQueue(label: "com.mememe.web.io", qos: .utility)
 
-    /// Each mood's latest results, in memory only.
-    private var results: [Mood: SearchResult] = [:]
-    private var fetches: [Mood: Task<[WebGIF]?, Never>] = [:]
-    private var failedAt: [Mood: Date] = [:]
+    /// Each query's latest results, in memory only.
+    private var results: [WebQuery: SearchResult] = [:]
+    private var fetches: [WebQuery: Task<[WebGIF]?, Never>] = [:]
+    private var failedAt: [WebQuery: Date] = [:]
     /// After GIPHY says too many requests (429), no searches start until then.
     private var pausedUntil: Date?
     /// The key GIPHY last refused (401, 403) and when: searches with it wait `refusalPause`, and one that
@@ -111,39 +147,55 @@ private let webLog = Logger(subsystem: "com.mememe.app", category: "web")
         return .ready
     }
 
-    /// GIPHY's results for `mood` from the last 10 minutes, in GIPHY's order; nil when there are none.
-    func cachedGIFs(for mood: Mood) -> [WebGIF]? {
-        guard store.settings.webDiscoverEnabled, let result = results[mood] else { return nil }
+    /// GIPHY's results for `query` from the last 10 minutes, in GIPHY's order; nil when there are none.
+    func cachedGIFs(for query: WebQuery) -> [WebGIF]? {
+        guard store.settings.webDiscoverEnabled, let result = results[query] else { return nil }
         let age = Date().timeIntervalSince(result.fetchedAt)
         guard age >= -60, age < WebDiscover.resultLifetime else {
-            results[mood] = nil
+            results[query] = nil
             return nil
         }
         return result.gifs
     }
 
-    /// GIPHY's results for `mood`, in GIPHY's order: from the last 10 minutes at once, else from the running
+    func cachedGIFs(for mood: Mood) -> [WebGIF]? {
+        cachedGIFs(for: .mood(mood))
+    }
+
+    /// GIPHY's results for `query`, in GIPHY's order: from the last 10 minutes at once, else from the running
     /// search or a new one. nil when nothing can be searched or the search failed. The search keeps going
     /// if the caller stops waiting, so its results are there next time.
-    func gifs(for mood: Mood) async -> [WebGIF]? {
-        if let cached = cachedGIFs(for: mood) {
+    func gifs(for query: WebQuery) async -> [WebGIF]? {
+        if let cached = cachedGIFs(for: query) {
             return cached
         }
-        guard store.settings.webDiscoverEnabled, let task = startFetch(for: mood) else { return nil }
+        guard store.settings.webDiscoverEnabled, let task = startFetch(for: query) else { return nil }
         let found = await task.value
         return store.settings.webDiscoverEnabled ? found : nil
     }
 
-    /// Whether a search for `mood` is running.
-    func isSearching(_ mood: Mood) -> Bool {
-        fetches[mood] != nil
+    func gifs(for mood: Mood) async -> [WebGIF]? {
+        await gifs(for: .mood(mood))
     }
 
-    /// Starts the search for `mood` now unless its results are fresh or it is running, so they are in
+    /// Whether a search for `query` is running.
+    func isSearching(_ query: WebQuery) -> Bool {
+        fetches[query] != nil
+    }
+
+    func isSearching(_ mood: Mood) -> Bool {
+        isSearching(.mood(mood))
+    }
+
+    /// Starts the search for `query` now unless its results are fresh or it is running, so they are in
     /// (or arriving) by the time the face is held.
+    func warm(_ query: WebQuery) {
+        guard store.settings.webDiscoverEnabled, cachedGIFs(for: query) == nil else { return }
+        _ = startFetch(for: query)
+    }
+
     func warm(_ mood: Mood) {
-        guard store.settings.webDiscoverEnabled, cachedGIFs(for: mood) == nil else { return }
-        _ = startFetch(for: mood)
+        warm(.mood(mood))
     }
 
     // MARK: - Media
@@ -248,10 +300,10 @@ private let webLog = Logger(subsystem: "com.mememe.app", category: "web")
         key == rejectedKey && Date().timeIntervalSince(rejectedAt) < WebDiscover.refusalPause
     }
 
-    /// The running search for `mood`, or a new one; nil when disabled, keyless, rate-limited, paused or recently failed.
-    private func startFetch(for mood: Mood) -> Task<[WebGIF]?, Never>? {
-        if let running = fetches[mood] { return running }
-        if let failed = failedAt[mood], Date().timeIntervalSince(failed) < WebDiscover.retryDelay { return nil }
+    /// The running search for `query`, or a new one; nil when disabled, keyless, rate-limited, paused or recently failed.
+    private func startFetch(for query: WebQuery) -> Task<[WebGIF]?, Never>? {
+        if let running = fetches[query] { return running }
+        if let failed = failedAt[query], Date().timeIntervalSince(failed) < WebDiscover.retryDelay { return nil }
         guard store.settings.webDiscoverEnabled,
               let key = apiKey,
               !isPaused,
@@ -265,28 +317,29 @@ private let webLog = Logger(subsystem: "com.mememe.app", category: "web")
         let mayRetry: @Sendable () async -> Bool = { [weak self] in
             await self?.recordRetry() ?? false
         }
+        let terms = query.searchTerms
         let task = Task { [weak self] () async -> [WebGIF]? in
             let outcome = await Task.detached(priority: .userInitiated) {
-                await WebFetcher.search(mood, provider: provider, mayRetry: mayRetry)
+                await WebFetcher.search(terms, provider: provider, mayRetry: mayRetry)
             }.value
-            self?.finishFetch(mood: mood, outcome: outcome, key: key)
+            self?.finishFetch(query: query, outcome: outcome, key: key)
             return outcome.gifs
         }
-        fetches[mood] = task
+        fetches[query] = task
         isFetching = true
         return task
     }
 
-    private func finishFetch(mood: Mood, outcome: SearchOutcome, key: String) {
-        fetches[mood] = nil
+    private func finishFetch(query: WebQuery, outcome: SearchOutcome, key: String) {
+        fetches[query] = nil
         if let gifs = outcome.gifs {
-            results[mood] = SearchResult(fetchedAt: Date(), gifs: gifs)
-            failedAt[mood] = nil
+            results[query] = SearchResult(fetchedAt: Date(), gifs: gifs)
+            failedAt[query] = nil
             if rejectedKey == key {
                 rejectedKey = nil
             }
         } else {
-            failedAt[mood] = Date()
+            failedAt[query] = Date()
             switch outcome.failure {
             case .refused:
                 pausedUntil = Date().addingTimeInterval(WebDiscover.refusalPause)
@@ -395,7 +448,7 @@ private let webLog = Logger(subsystem: "com.mememe.app", category: "web")
 
 // MARK: - Model
 
-/// One mood's results and when GIPHY gave them.
+/// One query's results and when GIPHY gave them.
 private struct SearchResult {
     let fetchedAt: Date
     let gifs: [WebGIF]
@@ -443,7 +496,7 @@ private struct WebPaths: Sendable {
 // MARK: - Racing a task against a timeout
 
 /// Resumes a continuation with whichever value arrives first.
-private final class RaceGate<Value>: @unchecked Sendable {
+final class RaceGate<Value>: @unchecked Sendable {
     private let lock = NSLock()
     private var continuation: CheckedContinuation<Value?, Never>?
     private var settled = false
@@ -480,7 +533,7 @@ private final class RaceGate<Value>: @unchecked Sendable {
     }
 }
 
-private enum WebRace {
+enum WebRace {
     /// The task's value, or nil after `timeout` seconds (or when the caller is cancelled).
     /// The task itself keeps running.
     static func value<T: Sendable>(of task: Task<T?, Never>, timeout: TimeInterval) async -> T? {
@@ -518,9 +571,9 @@ private enum WebFetcher {
     /// Files for copying and dragging are deleted after this.
     static let fileLifetime: TimeInterval = 3600
 
-    static func search(_ mood: Mood, provider: GiphyProvider, mayRetry: @Sendable () async -> Bool) async -> SearchOutcome {
+    static func search(_ terms: String, provider: GiphyProvider, mayRetry: @Sendable () async -> Bool) async -> SearchOutcome {
         do {
-            let gifs = try await attempt(mood, provider: provider, mayRetry: mayRetry)
+            let gifs = try await attempt(terms, provider: provider, mayRetry: mayRetry)
             return SearchOutcome(gifs: Array(gifs.prefix(resultLimit)), failure: nil)
         } catch {
             webLog.error("GIPHY search failed: \(error.localizedDescription, privacy: .public)")
@@ -530,13 +583,13 @@ private enum WebFetcher {
 
     /// The search, tried once more after a dropped connection, a timeout or a server error, if `mayRetry`
     /// (which counts the retry against the hourly limit) allows it.
-    static func attempt(_ mood: Mood, provider: GiphyProvider, mayRetry: @Sendable () async -> Bool) async throws -> [WebGIF] {
+    static func attempt(_ terms: String, provider: GiphyProvider, mayRetry: @Sendable () async -> Bool) async throws -> [WebGIF] {
         do {
-            return try await provider.search(mood.searchQuery, limit: resultLimit)
+            return try await provider.search(terms, limit: resultLimit)
         } catch let error where isWorthRetrying(error) {
             try? await Task.sleep(nanoseconds: searchRetryDelayNanoseconds)
             guard await mayRetry() else { throw error }
-            return try await provider.search(mood.searchQuery, limit: resultLimit)
+            return try await provider.search(terms, limit: resultLimit)
         }
     }
 

@@ -41,6 +41,13 @@ struct ResultGrid: View {
                     addDocumentsFolder()
                 }
                 .buttonStyle(PanelCapsuleButtonStyle(fontSize: 11, foreground: Theme.softText))
+            } else if model.offersFindMyMemes {
+                // Downloads, Desktop and your screenshots (the menu has it too).
+                Button("Find my memes") {
+                    model.findMyMemes()
+                }
+                .buttonStyle(PanelCapsuleButtonStyle(fontSize: 11, foreground: Theme.softText))
+                .help("Collect the memes in Downloads, Desktop and your screenshots")
             }
         }
         .padding(.horizontal, 12)

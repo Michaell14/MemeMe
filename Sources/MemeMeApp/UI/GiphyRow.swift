@@ -18,12 +18,13 @@ struct GiphyRow: View {
             HStack(alignment: .center, spacing: 8) {
                 PoweredByGiphyMark()
                 Spacer(minLength: 0)
-                if let mood = model.giphyMood {
-                    Text(verbatim: mood.label)
+                if let query = model.giphyQuery {
+                    Text(verbatim: query.label)
                         .font(.system(size: 11))
                         .foregroundColor(Theme.mutedText)
                         .lineLimit(1)
-                        .accessibilityLabel(Text(verbatim: "GIPHY results for \(mood.label)"))
+                        .truncationMode(.tail)
+                        .accessibilityLabel(Text(verbatim: "GIPHY results for \(query.label)"))
                 }
             }
             LazyVGrid(columns: columns, alignment: .leading, spacing: spacing) {
@@ -75,7 +76,7 @@ struct GiphyRow: View {
     private var emptyMessage: String? {
         if model.isGiphyLoading { return nil }
         if model.giphyUnavailable { return "GIPHY isn’t answering right now." }
-        return model.giphyMood == nil ? "Make a face for GIFs from GIPHY." : "Nothing on GIPHY for this one."
+        return model.giphyQuery == nil ? "Make a face for GIFs from GIPHY." : "Nothing on GIPHY for this one."
     }
 }
 
