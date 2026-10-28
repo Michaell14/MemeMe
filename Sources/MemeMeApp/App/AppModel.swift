@@ -329,6 +329,8 @@ enum Pick: Equatable {
     func panelWillShow(previousApp: NSRunningApplication?) {
         // A notice still showing (e.g. "Save as sticker" from the last capture) sits where the panel opens.
         HUDController.shared.dismiss()
+        // A kept image or sticker deleted in Finder while the panel was closed doesn't come back as a tile.
+        indexer.removeItemsWithMissingFiles()
         sessionID += 1
         let ownBundleID = Bundle.main.bundleIdentifier
         if let bundleID = previousApp?.bundleIdentifier, bundleID != ownBundleID {
@@ -1438,9 +1440,9 @@ enum Pick: Equatable {
         // The panel this pick came from may have closed (and another opened) while a GIPHY GIF downloaded.
         let isSameOpen = session == sessionID && isPanelVisible
         guard let fileURL = resolved else {
-            // A kept image or sticker deleted in Finder: forget it, so it stops coming up.
-            if case .meme = pick, store.removeItemsWithMissingFiles() > 0 {
-                saveSoon()
+            // A kept image or sticker deleted in Finder while the panel was open: forget it (its tile goes too).
+            if case .meme = pick {
+                indexer.removeItemsWithMissingFiles()
             }
             HUDController.shared.show("Couldn’t copy that one. Try another.")
             return

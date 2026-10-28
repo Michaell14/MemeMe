@@ -207,14 +207,27 @@ public final class LibraryStore {
         }
     }
 
-    /// Forgets items whose file MemeMe keeps itself (kept images, stickers: under rootURL) is gone, deleted in Finder
-    /// say, with their recents. Files in watched folders are the indexer's to reconcile. Returns how many were removed.
+    /// Items whose file MemeMe keeps itself (kept images, stickers: under rootURL) is gone, deleted in Finder say.
+    /// Files in watched folders are the indexer's to reconcile. Cheap enough for every panel open: a path prefix
+    /// test per item, and a file check only for the files under rootURL.
+    public func idsWithMissingFiles() -> Set<UUID> {
+        let rootPath = LibraryStore.pathKey(for: rootURL)
+        let prefixes = Set([rootURL.path, rootPath].map { $0.hasSuffix("/") ? $0 : $0 + "/" })
+        var ids = Set<UUID>()
+        for item in items where item.fileURL.isFileURL {
+            let path = item.fileURL.path
+            guard prefixes.contains(where: { path.hasPrefix($0) }) else { continue }
+            if !FileManager.default.fileExists(atPath: path) {
+                ids.insert(item.id)
+            }
+        }
+        return ids
+    }
+
+    /// Forgets `idsWithMissingFiles()`, with their recents. Returns how many were removed.
     @discardableResult
     public func removeItemsWithMissingFiles() -> Int {
-        let rootPath = LibraryStore.pathKey(for: rootURL)
-        let ids = Set(items.filter { item in
-            LibraryStore.isFile(item.fileURL, insideDirectoryAtPath: rootPath) && !FileManager.default.fileExists(atPath: item.fileURL.path)
-        }.map(\.id))
+        let ids = idsWithMissingFiles()
         remove(ids: ids)
         return ids.count
     }

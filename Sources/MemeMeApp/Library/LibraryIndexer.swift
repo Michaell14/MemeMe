@@ -178,6 +178,8 @@ struct IndexBatch: Identifiable, Equatable {
     func keep(urls: [URL], source: String) async -> IndexBatch {
         var batch = IndexBatch(id: UUID(), addedIDs: [], skipped: 0, duplicates: 0, sources: [source])
         guard !urls.isEmpty else { return batch }
+        // A kept file deleted in Finder frees its name ("pasted.png"): forget its item before a new file takes the name.
+        removeItemsWithMissingFiles()
 
         let keptDirectory = store.keptDirectory
         let knownHashes = Set(store.items.map { $0.contentHash })
@@ -226,6 +228,17 @@ struct IndexBatch: Identifiable, Equatable {
             flushChanges()
         }
         return batch
+    }
+
+    /// Forgets kept images and stickers whose file was deleted (in Finder, say), saves and tells the app; copies that
+    /// were skipped as their duplicates are indexed again. Returns how many were removed.
+    @discardableResult
+    func removeItemsWithMissingFiles() -> Int {
+        let ids = store.idsWithMissingFiles()
+        guard !ids.isEmpty else { return 0 }
+        removeIndexedItems(ids)
+        flushChanges()
+        return ids.count
     }
 
     /// Removes the batch's items. For a folder scan it also stops collecting from those folders,

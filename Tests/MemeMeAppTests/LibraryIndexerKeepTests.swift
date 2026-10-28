@@ -71,6 +71,36 @@ final class LibraryIndexerKeepTests: XCTestCase {
     }
 
     @MainActor
+    func testAKeptFileDeletedInFinderIsForgottenBeforeItsNameIsReused() async throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.remove() }
+        let first = try sandbox.directory("First").appendingPathComponent("pasted.png", isDirectory: false)
+        let second = try sandbox.directory("Second").appendingPathComponent("pasted.png", isDirectory: false)
+        try TestImages.writePNG(try TestImages.shapes(seed: 3), to: first)
+        try TestImages.writePNG(try TestImages.shapes(seed: 4), to: second)
+        let store = try LibraryStore(rootURL: sandbox.url.appendingPathComponent("Library", isDirectory: true))
+        let indexer = LibraryIndexer(store: store)
+
+        let kept = await indexer.keep(urls: [first], source: "Kept")
+        let oldID = try XCTUnwrap(kept.addedIDs.first)
+        let oldFile = try XCTUnwrap(store.item(id: oldID)?.fileURL)
+        try FileManager.default.removeItem(at: oldFile)
+
+        // The next "pasted.png" may take the freed name; the deleted one's item is gone, not pointing at it.
+        let next = await indexer.keep(urls: [second], source: "Kept")
+        let newID = try XCTUnwrap(next.addedIDs.first)
+        XCTAssertNil(store.item(id: oldID))
+        XCTAssertEqual(store.items.map(\.id), [newID])
+        XCTAssertEqual(indexer.removeItemsWithMissingFiles(), 0)
+
+        // Deleted again while MemeMe runs: forgotten on the next check, and saved.
+        try FileManager.default.removeItem(at: try XCTUnwrap(store.item(id: newID)?.fileURL))
+        XCTAssertEqual(indexer.removeItemsWithMissingFiles(), 1)
+        XCTAssertTrue(store.items.isEmpty)
+        XCTAssertTrue(try LibraryStore(rootURL: store.rootURL).items.isEmpty)
+    }
+
+    @MainActor
     func testOneDropWithTheSameFileTwiceKeepsOneCopyAndSkipsNonImages() async throws {
         let sandbox = try TestSandbox()
         defer { sandbox.remove() }

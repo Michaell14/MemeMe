@@ -553,7 +553,8 @@ public final class LibraryStore {
     @discardableResult public func add(_ item: LibraryItem) -> Bool   // false (no-op) when an item with the same contentHash exists
     public var legacySentDirectory: URL { get }       // rootURL/Sent (never created): where earlier versions kept sent GIPHY stills
     @discardableResult public func removeSavedWebItems() -> Int        // removes kind .web / "giphy:" items (files, recents), then Sent unless still used
-    @discardableResult public func removeItemsWithMissingFiles() -> Int // removes items whose file under rootURL (Kept, Stickers) is gone, with their recents
+    public func idsWithMissingFiles() -> Set<UUID>                      // items whose file under rootURL (Kept, Stickers) is gone; a prefix test per item
+    @discardableResult public func removeItemsWithMissingFiles() -> Int // removes those, with their recents
     public func update(_ item: LibraryItem)                           // replaces by id
     public func remove(ids: Set<UUID>)                                 // deletes files only when they are inside rootURL; also removes from recents
     public func upsert(_ person: Person)
@@ -754,7 +755,8 @@ struct IndexBatch: Identifiable, Equatable {
     func removeWatchedFolder(_ url: URL)
     func isWatching(_ url: URL) -> Bool
     /// Hand-ins (menu-bar drop / Keep it): copies files into store.keptDirectory (http(s) URLs are downloaded first), analyzes, adds as .mine with source "Kept".
-    func keep(urls: [URL], source: String) async -> IndexBatch
+    func keep(urls: [URL], source: String) async -> IndexBatch   // first forgets kept files deleted in Finder, so a reused name ("pasted.png") can't revive one
+    @discardableResult func removeItemsWithMissingFiles() -> Int // store.idsWithMissingFiles → removed like vanished files (duplicates requeued), saved, onLibraryChanged
     func undo(_ batch: IndexBatch)
     func pauseCollecting(for interval: TimeInterval)
     func resumeCollecting()
@@ -1206,7 +1208,7 @@ enum DropOutcome { case kept(IndexBatch), stickers(StickerBatch), nothing }
     func setHotKeyAvailable(_ available: Bool)
 
     // Panel lifecycle
-    func panelWillShow(previousApp: NSRunningApplication?)   // dismisses a HUD still showing first
+    func panelWillShow(previousApp: NSRunningApplication?)   // dismisses a HUD still showing and forgets kept files deleted in Finder (indexer.removeItemsWithMissingFiles) first
     func panelDidHide()
 
     // Input (indices are TileGrid slots)
