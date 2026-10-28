@@ -56,6 +56,29 @@ final class PeakHoldTrackerTests: XCTestCase {
         XCTAssertFalse(tracker.candidateIsNewExpression)
     }
 
+    func testTheCandidateIsTheStrongestFrameBeingHeld() {
+        let tracker = makeTracker()
+        tracker.ingest(frame(TestFaces.neutral, 0))
+        XCTAssertNil(tracker.candidate)
+        tracker.ingest(frame(TestFaces.mildSurprise, 1))
+        XCTAssertEqual(tracker.candidate?.timestamp, 0.1)
+        tracker.ingest(frame(TestFaces.surprise, 2))
+        XCTAssertEqual(tracker.candidate?.face, TestFaces.surprise)
+        tracker.ingest(frame(TestFaces.mildSurprise, 3))
+        XCTAssertEqual(tracker.candidate?.timestamp, 0.2)
+        // Becoming the query, relaxing and losing the face all clear it.
+        XCTAssertTrue(tracker.ingest(frame(TestFaces.surprise, 4)))
+        XCTAssertNil(tracker.candidate)
+        tracker.ingest(frame(TestFaces.smile, 5))
+        XCTAssertNotNil(tracker.candidate)
+        tracker.ingest(frame(TestFaces.neutral, 6))
+        XCTAssertNil(tracker.candidate)
+        tracker.ingest(frame(TestFaces.smile, 7))
+        XCTAssertNotNil(tracker.candidate)
+        tracker.ingest(frame(nil, 8))
+        XCTAssertNil(tracker.candidate)
+    }
+
     func testTheSharpestFrameOfTheHoldBecomesTheQuery() {
         let tracker = makeTracker()
         let sharpness = [0.5, 1.0, 0.6, 0.7]

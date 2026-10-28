@@ -22,6 +22,8 @@ public final class PeakHoldTracker {
     public private(set) var queryIntensity: Double = 0          // 0 when no query
     public private(set) var holdProgress: Double = 0            // 0...1 toward replacing the query
     public private(set) var candidateIsNewExpression: Bool = false
+    /// The strongest frame of the expression being held toward the query; nil when nothing is being held.
+    public private(set) var candidate: ExpressionSample?
     public private(set) var lastSample: ExpressionSample?
     public private(set) var lastFaceTimestamp: TimeInterval?    // timestamp of the last sample that had a face
 
@@ -119,6 +121,7 @@ public final class PeakHoldTracker {
             return true
         }
         run = current
+        candidate = best.sample
         holdProgress = min(1, max(0, progress))
         return false
     }
@@ -148,6 +151,7 @@ public final class PeakHoldTracker {
 
     private func clearCandidate() {
         run = nil
+        candidate = nil
         holdProgress = 0
         candidateIsNewExpression = false
     }

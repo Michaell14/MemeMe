@@ -271,9 +271,17 @@ import SwiftUI
         }
 
         menu.addItem(.separator())
-        // Without a key Web Discover can't search, so it shows as off until one is set.
+        // Without a key Web Discover can't search, so it shows as off until one is set. When GIPHY refuses
+        // searches, the item says why.
         let hasGiphyKey = model.web.hasAPIKey
-        let webDiscover = makeItem(hasGiphyKey ? "Web Discover (GIPHY)" : "Web Discover (GIPHY): No API Key", action: #selector(toggleWebDiscover(_:)))
+        var webTitle = "Web Discover (GIPHY)"
+        switch hasGiphyKey ? model.web.status : .noKey {
+        case .noKey: webTitle += ": No API Key"
+        case .keyRejected: webTitle += ": Key Not Accepted"
+        case .limitReached: webTitle += ": Hourly Limit Reached"
+        case .off, .ready: break
+        }
+        let webDiscover = makeItem(webTitle, action: #selector(toggleWebDiscover(_:)))
         webDiscover.state = settings.webDiscoverEnabled && hasGiphyKey ? .on : .off
         webDiscover.isEnabled = hasGiphyKey
         menu.addItem(webDiscover)

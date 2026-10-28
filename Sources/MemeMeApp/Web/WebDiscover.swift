@@ -8,10 +8,22 @@ private let webLog = Logger(subsystem: "com.mememe.app", category: "web")
 
 /// GIPHY results for one mood, analyzed on-device and cached for 24 h.
 ///
-/// Only the mood word leaves the Mac. Searches are rate-limited (90 per rolling hour, persisted),
-/// stills are downloaded in parallel and analyzed off the main actor, and slow round-trips are
-/// dropped from the current grid while still filling the cache for next time.
+/// Only the mood word leaves the Mac. Searches are rate-limited (90 per rolling hour, persisted).
+/// A search downloads all its stills at once and analyzes them a few at a time off the main actor;
+/// `results(for:)` streams each result as soon as it is analyzed, so the grid fills in while the
+/// rest are still arriving.
 @MainActor final class WebDiscover: ObservableObject {
+    /// What Web Discover can do right now, for the menu.
+    enum Status: Equatable {
+        case off
+        case noKey
+        /// GIPHY refused the key (401 or 403).
+        case keyRejected
+        /// MemeMe's own hourly limit, or GIPHY said too many requests (429).
+        case limitReached
+        case ready
+    }
+
     @Published private(set) var isFetching: Bool = false
 
     private let store: LibraryStore
@@ -23,7 +35,19 @@ private let webLog = Logger(subsystem: "com.mememe.app", category: "web")
     /// Moods whose manifest file has been looked for on disk.
     private var checkedDisk: Set<Mood> = []
     private var fetches: [Mood: Task<MoodManifest?, Never>] = [:]
+    /// How urgent each running search is; a live search joining a background one raises it.
+    private var urgencies: [Mood: FetchUrgency] = [:]
+    /// Results of each running search analyzed so far, by their position in GIPHY's results.
+    private var partials: [Mood: [Int: LibraryItem]] = [:]
+    /// Who is listening to each running search (`results(for:)`).
+    private var listeners: [Mood: [UUID: AsyncStream<[LibraryItem]>.Continuation]] = [:]
     private var failedAt: [Mood: Date] = [:]
+    /// After GIPHY says too many requests (429), no searches start until then.
+    private var pausedUntil: Date?
+    /// The key GIPHY last refused (401, 403) and when: searches with it wait `refusalPause`, and one that
+    /// succeeds clears it. A different key searches at once.
+    private var rejectedKey: String?
+    private var rejectedAt = Date.distantPast
     /// In-flight downloads keyed by destination file name, so callers share one download.
     private var fileTasks: [String: Task<URL?, Never>] = [:]
     /// Network searches in the last hour (persisted).
@@ -38,6 +62,8 @@ private let webLog = Logger(subsystem: "com.mememe.app", category: "web")
     /// Background prefetch stops here, keeping the rest of the hourly budget for live searches.
     private static let prefetchBudget = 60
     private static let retryDelay: TimeInterval = 60
+    /// How long searches pause after GIPHY refuses one, or a key.
+    private static let refusalPause: TimeInterval = 10 * 60
     private static let copyTimeout: TimeInterval = 8
     private static let pruneInterval: TimeInterval = 600
 
@@ -46,14 +72,17 @@ private let webLog = Logger(subsystem: "com.mememe.app", category: "web")
     }
 
     /// `cacheRoot`: the cache folder (nil = ~/Library/Caches/MemeMe/Web); tests pass a temp folder.
-    init(store: LibraryStore, cacheRoot: URL?) {
+    /// `configuration`: the network session's configuration (nil = default); tests pass one that serves canned replies.
+    init(store: LibraryStore, cacheRoot: URL?, configuration: URLSessionConfiguration? = nil) {
         self.store = store
         paths = WebPaths.make(root: cacheRoot)
-        let configuration = URLSessionConfiguration.default
+        let configuration = configuration ?? .default
         configuration.urlCache = nil
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.timeoutIntervalForRequest = 15
         configuration.timeoutIntervalForResource = 60
+        // All of a search's stills download at once (GIPHY's CDN multiplexes them over HTTP/2; this covers HTTP/1.1).
+        configuration.httpMaximumConnectionsPerHost = 8
         session = URLSession(configuration: configuration)
         searchTimes = WebFetcher.loadSearchTimes(from: paths.rateURL)
         pruneSearchTimes()
@@ -64,9 +93,12 @@ private let webLog = Logger(subsystem: "com.mememe.app", category: "web")
         apiKey != nil
     }
 
-    /// settings.webDiscoverEnabled && an API key exists && under the rate limit.
-    var isAvailable: Bool {
-        store.settings.webDiscoverEnabled && apiKey != nil && recentSearchCount < WebDiscover.searchesPerHour
+    var status: Status {
+        guard store.settings.webDiscoverEnabled else { return .off }
+        guard let key = apiKey else { return .noKey }
+        if isRefused(key) { return .keyRejected }
+        if isPaused || recentSearchCount >= WebDiscover.searchesPerHour { return .limitReached }
+        return .ready
     }
 
     /// Instant: analyzed items for the mood if cached and fresh (24 h), else [].
@@ -75,17 +107,53 @@ private let webLog = Logger(subsystem: "com.mememe.app", category: "web")
         return manifest.items
     }
 
-    /// Cache first; otherwise search + download stills in parallel + analyze off-main.
-    /// Returns [] on timeout/error (the fetch continues in the background and fills the cache).
-    func items(for mood: Mood, timeout: TimeInterval = 1.5) async -> [LibraryItem] {
-        guard store.settings.webDiscoverEnabled else { return [] }
-        if let manifest = freshManifest(for: mood) {
-            return manifest.items
+    /// Results of the running search for `mood` analyzed so far, in GIPHY's order; [] when none is running.
+    func partialItems(for mood: Mood) -> [LibraryItem] {
+        guard store.settings.webDiscoverEnabled, let found = partials[mood] else { return [] }
+        return found.keys.sorted().compactMap { found[$0] }
+    }
+
+    /// GIPHY results for `mood` as they come in: each element is every result analyzed so far, in GIPHY's
+    /// order (a slow reader gets only the newest). Cached results arrive at once. Starts the search if needed
+    /// and joins it if it is running. The stream ends when the search does, at once when nothing can be
+    /// searched, and stopping early never stops the search, so it still fills the cache.
+    func results(for mood: Mood) -> AsyncStream<[LibraryItem]> {
+        let (stream, continuation) = AsyncStream<[LibraryItem]>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        guard store.settings.webDiscoverEnabled else {
+            continuation.finish()
+            return stream
         }
-        guard let task = startFetch(for: mood, priority: .userInitiated) else { return [] }
-        let manifest = await WebRace.value(of: task, timeout: max(0, timeout))
-        guard store.settings.webDiscoverEnabled else { return [] }
-        return manifest?.items ?? []
+        if let manifest = freshManifest(for: mood) {
+            continuation.yield(manifest.items)
+            continuation.finish()
+            return stream
+        }
+        guard startFetch(for: mood, priority: .userInitiated) != nil else {
+            continuation.finish()
+            return stream
+        }
+        urgencies[mood]?.raise()
+        let soFar = partialItems(for: mood)
+        if !soFar.isEmpty {
+            continuation.yield(soFar)
+        }
+        let id = UUID()
+        listeners[mood, default: [:]][id] = continuation
+        continuation.onTermination = { [weak self] _ in
+            Task { @MainActor in
+                self?.listeners[mood]?[id] = nil
+            }
+        }
+        return stream
+    }
+
+    /// Starts the search for `mood` now unless it is cached or running, so its results are in (or arriving)
+    /// by the time the face is held.
+    func warm(_ mood: Mood) {
+        guard store.settings.webDiscoverEnabled, freshManifest(for: mood) == nil else { return }
+        if startFetch(for: mood, priority: .userInitiated) != nil {
+            urgencies[mood]?.raise()
+        }
     }
 
     /// Background warm-up for moods not cached; skipped on expensive networks or when SystemConditions.shouldDeferBackgroundWork.
@@ -184,8 +252,7 @@ private let webLog = Logger(subsystem: "com.mememe.app", category: "web")
     }
 
     private var canPrefetch: Bool {
-        store.settings.webDiscoverEnabled
-            && apiKey != nil
+        status == .ready
             && !SystemConditions.isOnExpensiveNetwork
             && !SystemConditions.shouldDeferBackgroundWork
             && recentSearchCount < WebDiscover.prefetchBudget
@@ -205,12 +272,26 @@ private let webLog = Logger(subsystem: "com.mememe.app", category: "web")
         return manifest
     }
 
-    /// The running fetch for `mood`, or a new one; nil when disabled, keyless, rate-limited or recently failed.
+    private var isPaused: Bool {
+        guard let until = pausedUntil else { return false }
+        if Date() < until { return true }
+        pausedUntil = nil
+        return false
+    }
+
+    /// GIPHY refused `key` less than `refusalPause` ago.
+    private func isRefused(_ key: String) -> Bool {
+        key == rejectedKey && Date().timeIntervalSince(rejectedAt) < WebDiscover.refusalPause
+    }
+
+    /// The running fetch for `mood`, or a new one; nil when disabled, keyless, rate-limited, paused or recently failed.
     private func startFetch(for mood: Mood, priority: TaskPriority) -> Task<MoodManifest?, Never>? {
         if let running = fetches[mood] { return running }
         if let failed = failedAt[mood], Date().timeIntervalSince(failed) < WebDiscover.retryDelay { return nil }
         guard store.settings.webDiscoverEnabled,
               let key = apiKey,
+              !isPaused,
+              !isRefused(key),
               recentSearchCount < WebDiscover.searchesPerHour else {
             return nil
         }
@@ -219,31 +300,83 @@ private let webLog = Logger(subsystem: "com.mememe.app", category: "web")
         let fetchPaths = paths
         let fetchSession = session
         let provider = GiphyProvider(apiKey: key, session: fetchSession)
+        let urgency = FetchUrgency(urgent: priority.rawValue >= TaskPriority.userInitiated.rawValue)
+        // One reader on the main actor applies the fetch's events in order: each result, then the outcome.
+        let (events, sink) = AsyncStream<FetchEvent>.makeStream()
+        let mayRetry: @Sendable () async -> Bool = { [weak self] in
+            await self?.recordRetry() ?? false
+        }
         let task = Task.detached(priority: priority) { () async -> MoodManifest? in
-            do {
-                return try await WebFetcher.fetch(mood: mood, provider: provider, paths: fetchPaths, session: fetchSession)
-            } catch {
-                webLog.error("GIPHY fetch failed: \(error.localizedDescription, privacy: .public)")
-                return nil
+            let outcome = await WebFetcher.fetch(
+                mood: mood,
+                provider: provider,
+                paths: fetchPaths,
+                session: fetchSession,
+                urgency: urgency,
+                mayRetry: mayRetry
+            ) { index, item in
+                sink.yield(.analyzed(index, item))
             }
+            sink.yield(.finished(outcome))
+            sink.finish()
+            return outcome.manifest
         }
         fetches[mood] = task
+        urgencies[mood] = urgency
+        partials[mood] = [:]
         isFetching = true
         Task { [weak self] in
-            let manifest = await task.value
-            self?.finishFetch(mood: mood, manifest: manifest)
+            for await event in events {
+                switch event {
+                case let .analyzed(index, item):
+                    self?.didAnalyze(item, at: index, for: mood)
+                case let .finished(outcome):
+                    self?.finishFetch(mood: mood, outcome: outcome, key: key)
+                }
+            }
         }
         return task
     }
 
-    private func finishFetch(mood: Mood, manifest: MoodManifest?) {
+    private func didAnalyze(_ item: LibraryItem, at index: Int, for mood: Mood) {
+        guard partials[mood] != nil else { return }
+        partials[mood]?[index] = item
+        guard let waiting = listeners[mood], !waiting.isEmpty else { return }
+        let snapshot = partialItems(for: mood)
+        for listener in waiting.values {
+            listener.yield(snapshot)
+        }
+    }
+
+    private func finishFetch(mood: Mood, outcome: FetchOutcome, key: String) {
         fetches[mood] = nil
-        if let manifest = manifest {
+        urgencies[mood] = nil
+        partials[mood] = nil
+        if let manifest = outcome.manifest {
             manifests[mood] = manifest
             checkedDisk.insert(mood)
             failedAt[mood] = nil
+            if rejectedKey == key {
+                rejectedKey = nil
+            }
         } else {
             failedAt[mood] = Date()
+            switch outcome.failure {
+            case .refused:
+                pausedUntil = Date().addingTimeInterval(WebDiscover.refusalPause)
+            case .keyRejected:
+                rejectedKey = key
+                rejectedAt = Date()
+            case .failed, nil:
+                break
+            }
+        }
+        let final = store.settings.webDiscoverEnabled ? (outcome.manifest?.items ?? []) : []
+        for listener in (listeners.removeValue(forKey: mood) ?? [:]).values {
+            if !final.isEmpty {
+                listener.yield(final)
+            }
+            listener.finish()
         }
         isFetching = !fetches.isEmpty
         if Date().timeIntervalSince(lastPruneAt) > WebDiscover.pruneInterval {
@@ -281,6 +414,9 @@ private let webLog = Logger(subsystem: "com.mememe.app", category: "web")
 
     private func didPrune(_ result: PruneResult) {
         isPruning = false
+        for (mood, found) in partials where !result.removedFiles.isEmpty {
+            partials[mood] = found.filter { !result.removedFiles.contains($0.value.fileURL.lastPathComponent) }
+        }
         for name in result.removedMoods {
             // A refetch may have replaced the manifest while pruning ran; keep fresh ones.
             if let mood = Mood(rawValue: name), let manifest = manifests[mood],
@@ -311,6 +447,13 @@ private let webLog = Logger(subsystem: "com.mememe.app", category: "web")
         searchTimes.removeAll { $0 < cutoff || $0 > future }
     }
 
+    /// Counts a retried search like any other; false (no retry) when Web Discover was turned off, the hour's searches are spent or searching is paused.
+    private func recordRetry() -> Bool {
+        guard store.settings.webDiscoverEnabled, !isPaused, recentSearchCount < WebDiscover.searchesPerHour else { return false }
+        recordSearch()
+        return true
+    }
+
     private func recordSearch() {
         pruneSearchTimes()
         searchTimes.append(Date())
@@ -328,6 +471,27 @@ private let webLog = Logger(subsystem: "com.mememe.app", category: "web")
 private struct MoodManifest: Codable, Sendable {
     var fetchedAt: Date
     var items: [LibraryItem]
+}
+
+/// How a search ended. `manifest` is nil when it failed.
+private struct FetchOutcome: Sendable {
+    var manifest: MoodManifest?
+    var failure: FetchFailure?
+}
+
+private enum FetchFailure: Sendable {
+    /// GIPHY said too many requests (429).
+    case refused
+    /// GIPHY refused the key (401 or 403).
+    case keyRejected
+    /// Offline, a server error, or no still could be downloaded and analyzed.
+    case failed
+}
+
+/// What a running search reports to the main actor, in order.
+private enum FetchEvent: Sendable {
+    case analyzed(Int, LibraryItem)
+    case finished(FetchOutcome)
 }
 
 /// Only the date of a manifest, for pruning without decoding its items.
@@ -437,57 +601,157 @@ private enum WebFetchError: Error {
     case badResponse
 }
 
+/// Whether a search's stills are analyzed ahead of background ones. A live search that joins a background
+/// one (prefetch) raises it, which also moves that search's stills that are still waiting.
+private final class FetchUrgency: @unchecked Sendable {
+    private let lock = NSLock()
+    private var urgent: Bool
+
+    init(urgent: Bool) {
+        self.urgent = urgent
+    }
+
+    var isUrgent: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return urgent
+    }
+
+    func raise() {
+        lock.lock()
+        urgent = true
+        lock.unlock()
+    }
+}
+
+/// Runs blocking work (Vision) on threads of its own, a few at a time, so a search's stills never tie up
+/// Swift's shared task threads or take every core from the camera. Each free thread takes the oldest urgent
+/// job, else the oldest one, so a live search never waits behind background prefetch.
+private final class AnalysisQueue: @unchecked Sendable {
+    private let queue = OperationQueue()
+    private let lock = NSLock()
+    private var pending: [(urgency: FetchUrgency, job: () -> Void)] = []
+
+    init(maxConcurrent: Int) {
+        queue.name = "com.mememe.web.analysis"
+        queue.maxConcurrentOperationCount = max(1, maxConcurrent)
+    }
+
+    func run<Value>(urgency: FetchUrgency, _ work: @escaping @Sendable () -> Value) async -> Value {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            pending.append((urgency: urgency, job: { continuation.resume(returning: work()) }))
+            lock.unlock()
+            // One operation per job, so every job runs exactly once.
+            let operation = BlockOperation { [self] in
+                runNext()
+            }
+            let urgent = urgency.isUrgent
+            operation.qualityOfService = urgent ? .userInitiated : .utility
+            // Started ahead of queued background operations, so a live search's job runs at its own priority.
+            operation.queuePriority = urgent ? .high : .normal
+            queue.addOperation(operation)
+        }
+    }
+
+    private func runNext() {
+        lock.lock()
+        guard !pending.isEmpty else {
+            lock.unlock()
+            return
+        }
+        let index = pending.firstIndex(where: { $0.urgency.isUrgent }) ?? 0
+        let next = pending.remove(at: index)
+        lock.unlock()
+        next.job()
+    }
+}
+
 private enum WebFetcher {
     static let freshness: TimeInterval = 24 * 3600
     static let maximumCacheBytes: Int64 = 50 * 1024 * 1024
     static let resultLimit = 25
-    static let parallelStills = 4
     static let stillTimeout: TimeInterval = 10
+    /// A failed search is tried once more after this, unless GIPHY refused it.
+    static let searchRetryDelayNanoseconds: UInt64 = 500_000_000
+    /// Vision runs a few stills at a time, next to the camera's own analysis.
+    static let analysisQueue = AnalysisQueue(maxConcurrent: max(2, min(4, ProcessInfo.processInfo.activeProcessorCount / 2)))
 
-    /// Search, download stills (≤ 4 at once) and analyze them; writes the mood manifest.
-    static func fetch(mood: Mood, provider: GiphyProvider, paths: WebPaths, session: URLSession) async throws -> MoodManifest {
-        let gifs = try await provider.search(mood.searchQuery, limit: resultLimit)
+    /// Searches, downloads every still at once and analyzes them a few at a time, calling `onAnalyzed` with each
+    /// result's position as soon as it is ready; then writes the mood manifest. Never throws: failures are in the outcome.
+    static func fetch(
+        mood: Mood,
+        provider: GiphyProvider,
+        paths: WebPaths,
+        session: URLSession,
+        urgency: FetchUrgency,
+        mayRetry: @escaping @Sendable () async -> Bool,
+        onAnalyzed: @escaping @Sendable (Int, LibraryItem) -> Void
+    ) async -> FetchOutcome {
+        let gifs: [WebGIF]
+        do {
+            gifs = try await search(mood, provider: provider, mayRetry: mayRetry)
+        } catch {
+            webLog.error("GIPHY search failed: \(error.localizedDescription, privacy: .public)")
+            return FetchOutcome(manifest: nil, failure: failure(for: error))
+        }
         let fetchedAt = Date()
 
         let collected = await withTaskGroup(of: (Int, LibraryItem?).self, returning: [(Int, LibraryItem)].self) { group in
-            var results: [(Int, LibraryItem)] = []
-            var nextIndex = 0
-            while nextIndex < gifs.count && nextIndex < WebFetcher.parallelStills {
-                let index = nextIndex
-                let gif = gifs[index]
+            for (index, gif) in gifs.enumerated() {
                 group.addTask {
-                    let item = await WebFetcher.makeItem(gif: gif, mood: mood, paths: paths, session: session, fetchedAt: fetchedAt)
+                    let item = await WebFetcher.makeItem(gif: gif, mood: mood, paths: paths, session: session, fetchedAt: fetchedAt, urgency: urgency)
                     return (index, item)
                 }
-                nextIndex += 1
             }
+            var results: [(Int, LibraryItem)] = []
             while let finished = await group.next() {
-                if let item = finished.1 {
-                    results.append((finished.0, item))
-                }
-                if nextIndex < gifs.count {
-                    let index = nextIndex
-                    let gif = gifs[index]
-                    group.addTask {
-                        let item = await WebFetcher.makeItem(gif: gif, mood: mood, paths: paths, session: session, fetchedAt: fetchedAt)
-                        return (index, item)
-                    }
-                    nextIndex += 1
-                }
+                guard let item = finished.1 else { continue }
+                results.append((finished.0, item))
+                onAnalyzed(finished.0, item)
             }
             return results
         }
 
         let items = collected.sorted { $0.0 < $1.0 }.map { $0.1 }
         // No still could be downloaded or analyzed: fail (60 s retry) instead of caching nothing for 24 h.
-        guard !items.isEmpty else { throw WebFetchError.badResponse }
+        guard !items.isEmpty else { return FetchOutcome(manifest: nil, failure: .failed) }
         let manifest = MoodManifest(fetchedAt: fetchedAt, items: items)
         saveManifest(manifest, to: paths.manifestURL(for: mood))
-        return manifest
+        return FetchOutcome(manifest: manifest, failure: nil)
+    }
+
+    /// The search, tried once more after a dropped connection, a timeout or a server error, if `mayRetry`
+    /// (which counts the retry against the hourly limit) allows it.
+    static func search(_ mood: Mood, provider: GiphyProvider, mayRetry: @Sendable () async -> Bool) async throws -> [WebGIF] {
+        do {
+            return try await provider.search(mood.searchQuery, limit: resultLimit)
+        } catch let error where isWorthRetrying(error) {
+            try? await Task.sleep(nanoseconds: searchRetryDelayNanoseconds)
+            guard await mayRetry() else { throw error }
+            return try await provider.search(mood.searchQuery, limit: resultLimit)
+        }
+    }
+
+    static func isWorthRetrying(_ error: Error) -> Bool {
+        if let status = GiphyError.status(of: error) {
+            return status >= 500
+        }
+        guard let urlError = error as? URLError else { return false }
+        let transient: Set<URLError.Code> = [.timedOut, .networkConnectionLost, .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed]
+        return transient.contains(urlError.code)
+    }
+
+    static func failure(for error: Error) -> FetchFailure {
+        switch GiphyError.status(of: error) {
+        case 429?: return .refused
+        case 401?, 403?: return .keyRejected
+        default: return .failed
+        }
     }
 
     /// Downloads (or reuses) the still and analyzes it on-device; nil when either fails.
-    static func makeItem(gif: WebGIF, mood: Mood, paths: WebPaths, session: URLSession, fetchedAt: Date) async -> LibraryItem? {
+    static func makeItem(gif: WebGIF, mood: Mood, paths: WebPaths, session: URLSession, fetchedAt: Date, urgency: FetchUrgency) async -> LibraryItem? {
         let fileID = safeID(gif.id)
         guard !fileID.isEmpty else { return nil }
         let stillFile = paths.files.appendingPathComponent(fileID + "-still." + stillExtension(of: gif.stillURL), isDirectory: false)
@@ -502,6 +766,13 @@ private enum WebFetcher {
             }
         }
 
+        return await analysisQueue.run(urgency: urgency) {
+            WebFetcher.analyzedItem(gif: gif, mood: mood, stillFile: stillFile, fetchedAt: fetchedAt)
+        }
+    }
+
+    /// Runs Vision on a downloaded still (blocking, so only on `analysisQueue`); nil when it can't be read.
+    private static func analyzedItem(gif: WebGIF, mood: Mood, stillFile: URL, fetchedAt: Date) -> LibraryItem? {
         let analysis: ImageAnalysis
         do {
             analysis = try ImageAnalyzer.analyze(url: stillFile, includeText: false)

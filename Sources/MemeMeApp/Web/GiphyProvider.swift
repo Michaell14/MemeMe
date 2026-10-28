@@ -130,10 +130,18 @@ struct GiphyProvider: GIFProvider {
     }
 }
 
-private enum GiphyError: Error {
+enum GiphyError: Error {
     case invalidRequest
     case invalidResponse
     case httpStatus(Int)
+
+    /// The HTTP status GIPHY answered with, nil for any other error.
+    static func status(of error: Error) -> Int? {
+        if case let .httpStatus(status)? = error as? GiphyError {
+            return status
+        }
+        return nil
+    }
 }
 
 // MARK: - Lenient response model

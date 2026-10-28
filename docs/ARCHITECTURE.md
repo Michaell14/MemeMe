@@ -11,7 +11,7 @@ Read `docs/DESIGN.md` for behavior and exact UI strings.
   - `MemeMeCore` — library, **Foundation only** (no AppKit/Vision/CoreGraphics/Accelerate/CryptoKit). Must also compile on Linux. Everything is `public`.
   - `MemeMeApp` — executable (product name `MemeMe`). AppKit + SwiftUI + AVFoundation + Vision + CoreImage + ImageIO + CryptoKit + Carbon + ServiceManagement + UniformTypeIdentifiers + Network. Types are `internal`.
   - `MemeMeCoreTests` — XCTest for the core.
-  - `MemeMeAppTests` — XCTest for the app target (`@testable import MemeMeApp`): GIPHY decoding via a URLProtocol stub, ImageAnalyzer on generated images, clipboard naming, keep/undo, sticker eligibility, headless AppModel text search.
+  - `MemeMeAppTests` — XCTest for the app target (`@testable import MemeMeApp`): GIPHY decoding via a URLProtocol stub, streamed web search against a stub GIPHY (stills downloading together, results before the slowest still, refusals), ImageAnalyzer on generated images, clipboard naming, keep/undo, sticker eligibility, headless AppModel text search.
 - `scripts/build-app.sh` assembles `build/MemeMe.app` (Info.plist from `Resources/Info.plist`; `GiphyAPIKey` from `$GIPHY_API_KEY`; `CFBundleShortVersionString` from `$APP_VERSION`, default the `VERSION` file; `CFBundleVersion` from `$APP_BUILD`, default `git rev-list --count HEAD`; `MemeMeUpdateFeedURL` from `$UPDATE_FEED_URL`, default empty = updates off) and ad-hoc signs it. `scripts/build-dmg.sh` packs it into `build/MemeMe.dmg` (the app plus an `Applications` link, UDZO) with dmgbuild (`scripts/dmg-settings.py`: a 660×400 icon-view window, the app at (170, 196), Applications at (490, 196), background from `Resources/DMG`; Python 3.10+, pinned by hash), signs it on Developer ID builds, then mounts it and checks the app's signature and the link.
 - CI (`.github/workflows/ci.yml`): job `build` (`macos-15`) runs `swift build`, `swift test`, both scripts and uploads `MemeMe.dmg` as the `MemeMe-app` artifact; it also decides whether this run is a release (push or manual run on the default branch, and app files changed since the last `v*` tag, or a manual run). Job `release` (`ubuntu-latest`, `contents: write`) runs `scripts/publish-release.sh`, which publishes GitHub Release `v<version>-<build>` with `MemeMe.dmg` and `latest.json` (the update feed, see `UpdateManifest`) and marks it latest.
 - Logging: `os.Logger(subsystem: "com.mememe.app", category: "<file area>")`. Never log file contents, OCR text or face data.
@@ -133,6 +133,7 @@ public final class PeakHoldTracker {
     public private(set) var queryIntensity: Double          // 0 when no query
     public private(set) var holdProgress: Double            // 0...1 toward replacing the query
     public private(set) var candidateIsNewExpression: Bool
+    public private(set) var candidate: ExpressionSample?    // the best frame of the run being held; nil when none
     public private(set) var lastSample: ExpressionSample?
     public private(set) var lastFaceTimestamp: TimeInterval? // timestamp of the last sample that had a face
     public init(baseline: RestingBaseline = RestingBaseline(), config: PeakHoldConfig = PeakHoldConfig())
@@ -152,6 +153,20 @@ Algorithm (binding):
 - The candidate is a run of consecutive candidate samples whose direction cosine with the run's first sample is ≥ `sameDirectionCosine`; a sample outside that cone starts a new run. Within a run keep the best sample by `e * sharpness` among samples whose timestamp is within `bufferWindow` of the newest.
 - Required hold: no query → `holdDuration`. Same direction as the query (cosine ≥ `sameDirectionCosine`) → `holdDuration`, and only if `bestE >= queryIntensity * strongerRatio` (otherwise `holdProgress = 0`, no replacement). Different direction → `newExpressionHold` and `candidateIsNewExpression = true`.
 - `holdProgress = min(1, (newest.timestamp - run.start) / required)`. When it reaches 1: `query = best`, `queryIntensity = bestE`, clear the run, `holdProgress = 0`, `candidateIsNewExpression = false`, return true.
+- `candidate` is the run's best sample while it is held toward the query; clearing the candidate (and the query being set) makes it nil.
+
+### EarlyMoodTrigger.swift
+
+```swift
+public struct EarlyMoodTrigger: Sendable {
+    public var settleTime: TimeInterval              // 0.2
+    public init(settleTime: TimeInterval = 0.2)
+    /// Feed the candidate's mood (nil: nothing held) every frame. Returns the mood once it has read the same for settleTime, once per streak.
+    public mutating func observe(_ candidateMood: Mood?, at timestamp: TimeInterval) -> Mood?
+    public mutating func reset()
+}
+```
+`.reaction` never fires. AppModel feeds it the mood of `tracker.candidate` and calls `web.warm` with what it returns, so a mood's GIPHY search starts before the hold completes.
 
 ### Mood.swift
 
@@ -670,13 +685,21 @@ struct GiphyProvider: GIFProvider {
 
 ```swift
 @MainActor final class WebDiscover: ObservableObject {
+    enum Status { case off, noKey, keyRejected, limitReached, ready }
     @Published private(set) var isFetching: Bool
     init(store: LibraryStore)
-    var isAvailable: Bool { get }                    // settings.webDiscoverEnabled && an API key exists && under the rate limit
+    init(store: LibraryStore, cacheRoot: URL?, configuration: URLSessionConfiguration? = nil)   // tests: temp cache, stubbed network
+    var hasAPIKey: Bool { get }
+    var status: Status { get }                       // for the menu; .ready = a search can start now
     /// Instant: analyzed items for the mood if cached and fresh (24 h), else [].
     func cachedItems(for mood: Mood) -> [LibraryItem]
-    /// Cache first; otherwise search + download stills in parallel + analyze off-main. Returns [] on timeout/error (the fetch continues in the background and fills the cache).
-    func items(for mood: Mood, timeout: TimeInterval = 1.5) async -> [LibraryItem]
+    /// Results of the running search analyzed so far, in GIPHY's order; [] when none is running.
+    func partialItems(for mood: Mood) -> [LibraryItem]
+    /// Every result analyzed so far, in GIPHY's order, each time one more is ready (bufferingNewest(1)); cached results at once.
+    /// Starts or joins the mood's one search; ends when it does (at once when nothing can be searched). Stopping early never stops the search.
+    func results(for mood: Mood) -> AsyncStream<[LibraryItem]>
+    /// Starts the mood's search unless it is cached or running (the early search while a face is held).
+    func warm(_ mood: Mood)
     /// Background warm-up for moods not cached; skipped on expensive networks or when SystemConditions.shouldDeferBackgroundWork.
     func prefetch(_ moods: [Mood])
     /// Local animated preview file for a web item (downloads previewURL once), nil for non-web items.
@@ -687,6 +710,8 @@ struct GiphyProvider: GIFProvider {
     func pruneCache()                                 // 24 h TTL, LRU to 50 MB
 }
 ```
+A search (`WebFetcher.fetch`): the GIPHY search (tried once more after a dropped connection, timeout or 5xx, if the hourly limit allows; the retry counts), then every still downloads at once (`httpMaximumConnectionsPerHost` 8) and is analyzed on `AnalysisQueue`, an `OperationQueue` of 2–4 threads (half the cores) so blocking Vision work stays off Swift's cooperative pool; each free thread takes the oldest job of an urgent search (live, or a prefetch a live caller joined: `FetchUrgency.raise`) before background ones; each result is reported to the main actor as soon as it is analyzed (one ordered `AsyncStream` of events per search), fanned out to `results(for:)` listeners, and the manifest is written once the search is complete. 429 pauses all searches for 10 min; 401/403 makes that key wait 10 min (`status` says which).
+
 Web items: `kind .web`, `tier .meme`, `source "GIPHY"`, `attribution "via GIPHY"`, `isAnimated true`, `fileURL` = cached still, `remoteURL` = full, `previewURL` = preview, `contentHash "giphy:<id>"`, a stable `id` derived from the hash (first 16 bytes of SHA-256 of "giphy:<id>" → UUID). API key: `store.settings.giphyAPIKey` (non-empty) ?? `Bundle.main.object(forInfoDictionaryKey: "GiphyAPIKey") as? String` (non-empty and not starting with "$("). Cache: `~/Library/Caches/MemeMe/Web/<mood>.json` (fetchedAt + items) and `Web/files/<id>-still.<ext>`, `-preview.gif`, `-full.gif`. Rate guard: at most 90 network searches per rolling hour (timestamps persisted in the cache directory).
 
 ### Stickers/StickerMaker.swift
@@ -1056,7 +1081,7 @@ enum DropOutcome { case kept(IndexBatch), stickers(StickerBatch), nothing }
 Other internal helpers that exist outside the contract: `StickerBatchSources` (App/StickerPopoverModel.swift) and `TileDragEvents` (UI/PanelController.swift).
 Behavior summary (details in DESIGN.md):
 - `panelWillShow`: remember previous app + bundle id; reset query state; mode = `.cameraBusy` if `camera.isInUseByAnotherApplication`, `.prompt` if authorization is `.notDetermined`, `.cameraOff` if denied/restricted, else `.warming` (start camera); results = recent for that app (or GIPHY `reaction` cached items / newest own memes); footer per rules; on first run (`!settings.hasCompletedFirstRun`) request camera access 0.6 s after show (activate the app just for the prompt).
-- `camera.onSample` → `tracker.ingest`; publish `holdProgress`; on query change: mood → weights (`automatic(...).pinning(pins)`) → local rank immediately → web `cachedItems` merged → `web.items(for:)` merged later via `ResultMerger` with `lockedCount = max(strongOwnPrefix, focusedIndex + 1)`; `newResultIDs` for ids not shown before (cleared after 600 ms); `web.prefetchForCopy(top 3)`. No face for 1.5 s → hint "Can’t see your face".
+- `camera.onSample` → `tracker.ingest`; the mood of `tracker.candidate` (the expression being held) goes through `EarlyMoodTrigger` (same mood for 0.2 s) → `web.warm(mood)`; publish `holdProgress`; on query change: mood → weights (`automatic(...).pinning(pins)`) → local rank immediately, with the mood's cached web items or, while its search runs, `partialItems` → `web.results(for:)` streamed in: thumbnails decoded first, merged at most every 250 ms with the search's own `Ranker` via `ResultMerger` (`lockedCount = max(strongOwnPrefix, focusedIndex + 1)`; only the first batch may replace placeholder tiles), until 8 s after the search; `newResultIDs` for ids not shown before (cleared after 600 ms); `web.prefetchForCopy` for the focused and top 3 tiles whenever a batch changes them (not on every batch). Number keys (`commitNumbered`) ignore a slot for 0.8 s after a merge changed it (`slotChangedAt`, per slot). No face for 1.5 s → hint "Can’t see your face".
 - Text changes (debounced 80 ms) → text mode; camera stops if typing began within 1 s of show, otherwise `showsFaceToken = true`; naming prompt when `TextQuery.possibleName` is set, no results, and `friends.unnamedPeople` is non-empty. Empty text → back to live (restart camera if it was stopped).
 - `commit`: resolve file (web → `await web.prepareForCopy`, HUD "Copying…" if it takes > 150 ms); `Clipboard.copy`; increment `timesSent`, set `lastSentAt`, `recents.record`; first run → `showSetupCard = true` and `hasCompletedFirstRun = true` (panel stays open); otherwise close and HUD "Copied “<displayName>” · ⌘V — not sent". ↵ is ignored within 300 ms of the last text edit.
 - Persist the store (debounced 2 s) after changes; persist `tracker.baseline` into settings on hide.

@@ -156,8 +156,10 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
     private static let typingStopsCameraWindow: TimeInterval = 1.0
     /// A HUD says "Copying…" when fetching a web GIF takes longer than this.
     private static let slowCopyNanoseconds: UInt64 = 150_000_000
-    /// How long a search waits for GIPHY results; slower ones are cached for next time.
+    /// Web results stop filling the grid this long after its search; later ones are cached for next time.
     private static let webFetchTimeout: TimeInterval = 8
+    /// Streamed web results are merged at most this often, so the grid settles instead of jittering.
+    private static let webBatchNanoseconds: UInt64 = 250_000_000
     private static let poseActiveThreshold = 0.3
     private static let keptSource = "Kept"
 
@@ -179,9 +181,10 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
     private var isKeepingImage = false
     private var isSettingQueryTextInternally = false
     private var lastTextEditAt: TimeInterval = 0
-    /// When a late web merge last changed the grid, and the positions it changed.
-    private var reshuffledAt: TimeInterval = 0
-    private var reshuffledSlots: Set<Int> = []
+    /// When a late merge last put a different tile in each position.
+    private var slotChangedAt: [Int: TimeInterval] = [:]
+    /// Starts an expression's web search while it is still being held.
+    private var earlyMood = EarlyMoodTrigger()
     private var textBeganAt: TimeInterval?
     private var searchGeneration = 0
     private var imageGeneration = 0
@@ -323,7 +326,7 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
     /// Number keys pick by position, so one pressed just as a late merge swapped that tile would copy
     /// something the user never saw.
     func commitNumbered(index: Int) {
-        if reshuffledSlots.contains(index), CACurrentMediaTime() - reshuffledAt < AppModel.reshuffleGuard {
+        if let changedAt = slotChangedAt[index], CACurrentMediaTime() - changedAt < AppModel.reshuffleGuard {
             return
         }
         commit(index: index)
@@ -685,9 +688,17 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
             faceMissing = false
         }
         // In text, image and more-like modes the camera only feeds the (dimmed) mirror.
-        guard mode == .live else { return }
+        guard mode == .live else {
+            earlyMood.reset()
+            return
+        }
 
         let queryChanged = tracker.ingest(sample)
+        // Search the web for the expression being held, so its results are in by the time the hold completes.
+        let candidateMood = tracker.candidate.map { MoodClassifier.mood(for: $0.face, pose: $0.pose, baseline: tracker.baseline) }
+        if let mood = earlyMood.observe(candidateMood, at: sample.timestamp) {
+            web.warm(mood)
+        }
         let progress = queryChanged ? 0 : tracker.holdProgress
         if holdProgress != progress { holdProgress = progress }
 
@@ -803,14 +814,30 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
         items.prefix(limit).map { RankedResult(item: $0, score: 1) }
     }
 
+    /// Nothing local yet (first run): GIPHY "reaction" results fill the grid as they arrive.
     private func fetchReactionResults() {
         let generation = searchGeneration
+        let stream = web.results(for: .reaction)
+        let started = CACurrentMediaTime()
         webTask = Task { [weak self] in
-            guard let self else { return }
-            let items = await self.web.items(for: .reaction, timeout: AppModel.webFetchTimeout)
-            guard !Task.isCancelled, generation == self.searchGeneration, self.resultSource == .recent,
-                  self.results.isEmpty, !items.isEmpty else { return }
-            self.setResults(self.reactionResults(items), animateNew: false, resetFocus: true)
+            for await snapshot in stream {
+                guard let self, !Task.isCancelled, generation == self.searchGeneration, self.resultSource == .recent else { return }
+                guard CACurrentMediaTime() - started < AppModel.webFetchTimeout else { break }
+                if !snapshot.isEmpty {
+                    await self.warmThumbnails(of: snapshot)
+                    guard !Task.isCancelled, generation == self.searchGeneration, self.resultSource == .recent else { return }
+                    let tiles = self.reactionResults(snapshot)
+                    if self.results.isEmpty {
+                        self.setResults(tiles, animateNew: false, resetFocus: true)
+                    } else {
+                        // These don't match a face, so the grid keeps still: tiles already shown stay, new ones fill the gaps.
+                        self.applyLateResults(tiles, lockedCount: self.results.count)
+                    }
+                }
+                try? await Task.sleep(nanoseconds: AppModel.webBatchNanoseconds)
+            }
+            guard let self, !Task.isCancelled, generation == self.searchGeneration else { return }
+            self.prefetchTopWebItems()
         }
     }
 
@@ -831,43 +858,80 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
 
         let ranker = Ranker(baseline: tracker.baseline)
         let cached = web.cachedItems(for: mood)
-        let ranked = ranker.rank(libraryPool(adding: cached), query: .expression(sample, weights: weights), people: store.people, limit: limit)
+        // A search that is still running (often started while the face was being held) already has some results.
+        let webItems = cached.isEmpty ? web.partialItems(for: mood) : cached
+        let ranked = ranker.rank(libraryPool(adding: webItems), query: .expression(sample, weights: weights), people: store.people, limit: limit)
         // Nothing local or cached matches this face yet: keep the recent / "reaction" tiles rather than blank the grid.
         if !ranked.isEmpty || results.isEmpty {
             setResults(ranked, animateNew: animate, resetFocus: true)
         }
 
-        guard cached.isEmpty, web.isAvailable else { return }
-        // A cold search takes a few seconds; its results fill in behind what the user may be about to click.
+        guard cached.isEmpty else { return }
+        // Web results stream in as GIPHY's stills are analyzed and fill in behind what the user may be about to click.
+        let stream = web.results(for: mood)
         let showsNoMatch = ranked.isEmpty
+        let started = CACurrentMediaTime()
         webTask = Task { [weak self] in
-            guard let self else { return }
-            // A fetch that outlasts the timeout still fills the cache for next time.
-            let fetched = await self.web.items(for: mood, timeout: AppModel.webFetchTimeout)
-            guard !Task.isCancelled, generation == self.searchGeneration, !fetched.isEmpty else { return }
-            self.mergeWebResults(fetched, sample: sample, weights: weights, replacingPlaceholders: showsNoMatch)
+            // Only the first batch may replace tiles that don't match this face.
+            var replacingPlaceholders = showsNoMatch
+            for await snapshot in stream {
+                guard let self, !Task.isCancelled, generation == self.searchGeneration else { return }
+                // Later results stay out of this grid; the search still caches them for next time.
+                guard CACurrentMediaTime() - started < AppModel.webFetchTimeout else { break }
+                if !snapshot.isEmpty {
+                    await self.warmThumbnails(of: snapshot)
+                    guard !Task.isCancelled, generation == self.searchGeneration else { return }
+                    self.mergeWebResults(snapshot, ranker: ranker, sample: sample, weights: weights, replacingPlaceholders: replacingPlaceholders)
+                    replacingPlaceholders = false
+                }
+                // The stream keeps only its newest batch while this waits.
+                try? await Task.sleep(nanoseconds: AppModel.webBatchNanoseconds)
+            }
+            guard let self, !Task.isCancelled, generation == self.searchGeneration else { return }
+            self.prefetchTopWebItems()
         }
     }
 
     /// Late web results fill in behind: the user's strong own matches and the focused tile never move.
     /// `replacingPlaceholders`: the grid still shows recent / "reaction" tiles that don't match this face, so only
-    /// a tile the user pointed at stays put.
-    private func mergeWebResults(_ webItems: [LibraryItem], sample: ExpressionSample, weights: FeatureWeights, replacingPlaceholders: Bool = false) {
+    /// a tile the user pointed at stays put. `ranker` is the search's own, so batches score alike.
+    private func mergeWebResults(_ webItems: [LibraryItem], ranker: Ranker, sample: ExpressionSample, weights: FeatureWeights, replacingPlaceholders: Bool) {
         guard isPanelVisible, resultSource == .expression else { return }
-        let ranker = Ranker(baseline: tracker.baseline)
         let incoming = ranker.rank(libraryPool(adding: webItems), query: .expression(sample, weights: weights), people: store.people, limit: limit)
         // The focused tile is what ↵ copies (and what the focus line names) even before the user moved the
         // focus, so everything up to and including it stays put.
         let lockedCount = replacingPlaceholders
             ? (userInteracted ? focusedIndex + 1 : 0)
             : max(ResultMerger.strongOwnPrefix(results), focusedIndex + 1)
+        applyLateResults(incoming, lockedCount: lockedCount)
+    }
+
+    /// Merges late results behind the first `lockedCount` tiles. A number key skips a slot for a moment after it changes.
+    private func applyLateResults(_ incoming: [RankedResult], lockedCount: Int) {
         let merged = ResultMerger.merge(current: results, incoming: incoming, lockedCount: lockedCount, limit: limit)
         let changed = ResultMerger.changedSlots(from: results, to: merged)
-        if !changed.isEmpty {
-            reshuffledAt = CACurrentMediaTime()
-            reshuffledSlots = changed
+        let now = CACurrentMediaTime()
+        for slot in changed {
+            slotChangedAt[slot] = now
         }
-        setResults(merged, animateNew: true, resetFocus: false)
+        setResults(merged, animateNew: true, resetFocus: false, prefetchingWeb: false)
+        // The full GIFs ↵ and the top tiles copy start downloading as soon as those tiles change, not once per batch.
+        if changed.contains(focusedIndex) || changed.contains(where: { $0 < 3 }) {
+            prefetchTopWebItems()
+        }
+    }
+
+    /// Decodes the grid thumbnails of web results before they are shown, so new tiles don't flash empty.
+    private func warmThumbnails(of items: [LibraryItem]) async {
+        let pending = items.filter { ThumbnailCache.shared.cached($0.fileURL) == nil }.map(\.fileURL)
+        guard !pending.isEmpty else { return }
+        await withTaskGroup(of: Void.self) { group in
+            for url in pending {
+                group.addTask { @MainActor in
+                    _ = await ThumbnailCache.shared.thumbnail(for: url, maxPixel: 256)   // the size ResultTile asks for
+                }
+            }
+        }
     }
 
     private func runTextSearch() {
@@ -949,7 +1013,8 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
         return store.items + webItems.filter { !known.contains($0.id) }
     }
 
-    private func setResults(_ newResults: [RankedResult], animateNew: Bool, resetFocus: Bool) {
+    /// `prefetchingWeb`: start downloading the full GIFs of the top web tiles (off while results are still streaming in).
+    private func setResults(_ newResults: [RankedResult], animateNew: Bool, resetFocus: Bool, prefetchingWeb: Bool = true) {
         let limited = Array(newResults.prefix(limit))
         if animateNew && !results.isEmpty {
             let previous = Set(results.map { $0.id })
@@ -967,11 +1032,14 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
         }
         if resetFocus {
             userInteracted = false
+            slotChangedAt.removeAll()
             if focusedIndex != 0 { focusedIndex = 0 }
         } else if focusedIndex >= limited.count {
             focusedIndex = max(0, limited.count - 1)
         }
-        prefetchTopWebItems()
+        if prefetchingWeb {
+            prefetchTopWebItems()
+        }
     }
 
     /// Amber ring on tiles that just arrived, for 600 ms.
@@ -1398,6 +1466,7 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
         clearTextState()
         resetQueryImage()
         tracker = PeakHoldTracker(baseline: tracker.baseline)
+        earlyMood.reset()
         if !pins.isEmpty { pins = [] }
         if holdProgress != 0 { holdProgress = 0 }
         if !newResultIDs.isEmpty { newResultIDs = [] }
