@@ -51,8 +51,6 @@ public final class PeakHoldTracker {
         /// rest, and no hand sign or face carries it. Such a shape is held for `newExpressionHold`, so a frame or two
         /// of hands in pockets that happen to look like one don't become the search.
         let isCarriedByShape: Bool
-        /// The face sets the intensity (it is at least as strong as the gesture): what the frame says is the face's.
-        let isFaceCarried: Bool
 
         var score: Double { intensity * sample.sharpness }
     }
@@ -61,6 +59,8 @@ public final class PeakHoldTracker {
     private struct Run {
         let start: TimeInterval
         let direction: [Double]
+        /// The run's first frame, whose face a frame joining by its shape must agree with.
+        let first: ExpressionSample
         var entries: [Entry]
         /// The run's first frame was a clear gesture: frames that miss it are bridged for `gestureGrace`.
         let isGesture: Bool
@@ -73,10 +73,9 @@ public final class PeakHoldTracker {
 
     private var run: Run?
     private var queryDirection: [Double]?
-    /// The query's pose word and shape, as read when it became the query, and whether its face set its intensity.
+    /// The query's pose word and shape, as read when it became the query.
     private var queryWord: Mood?
     private var queryShape: BodyShape?
-    private var queryIsFaceCarried = false
     /// The last sample with a face, or with a gesture strong enough to stand in for one: what `snap` takes.
     private var lastSeenSample: ExpressionSample?
 
@@ -131,9 +130,10 @@ public final class PeakHoldTracker {
         var current: Run
         // A frame with a shape the run already holds continues it whatever its direction: next to a shape held up
         // only by its strength floor, a far face flickering in and out (or just moving) swings the direction. Not when
-        // the face carries the frame: then the face is saying something, and its direction decides.
-        let continuesShape = entry.shape != nil && !entry.isFaceCarried
-            && (run?.entries.contains { $0.shape == entry.shape } ?? false)
+        // the face says something else: then its direction decides.
+        let continuesShape = entry.shape != nil && (run.map { existing in
+            existing.entries.contains { $0.shape == entry.shape } && facesAgree(existing.first, sample)
+        } ?? false)
         if let existing = run, VectorMath.cosine(entry.direction, existing.direction) >= config.sameDirectionCosine || continuesShape {
             current = existing
             current.entries.append(entry)
@@ -147,8 +147,9 @@ public final class PeakHoldTracker {
             }
             return false
         } else {
-            current = Run(start: run?.firstSkipped ?? sample.timestamp, direction: entry.direction, entries: [entry],
-                          isGesture: entry.strength >= PeakHoldTracker.minimumGesture, lastAccepted: sample.timestamp)
+            current = Run(start: run?.firstSkipped ?? sample.timestamp, direction: entry.direction, first: sample,
+                          entries: [entry], isGesture: entry.strength >= PeakHoldTracker.minimumGesture,
+                          lastAccepted: sample.timestamp)
         }
 
         guard let best = PeakHoldTracker.bestEntry(in: current.entries) else {
@@ -158,8 +159,9 @@ public final class PeakHoldTracker {
 
         var required: TimeInterval
         if let reference = queryDirection {
-            // The same shape is the same expression whatever the direction, unless a face carries either one.
-            let sameShapeAsQuery = best.shape != nil && best.shape == queryShape && !best.isFaceCarried && !queryIsFaceCarried
+            // The same shape is the same expression whatever the direction, unless the faces say different things.
+            let sameShapeAsQuery = best.shape != nil && best.shape == queryShape
+                && (query.map { facesAgree($0, best.sample) } ?? false)
             let sameDirection = VectorMath.cosine(current.direction, reference) >= config.sameDirectionCosine || sameShapeAsQuery
             if sameDirection, !changesGestureWord(best), !isNewPose(best) {
                 guard best.intensity >= queryIntensity * config.strongerRatio else {
@@ -219,7 +221,6 @@ public final class PeakHoldTracker {
         queryDirection = nil
         queryWord = nil
         queryShape = nil
-        queryIsFaceCarried = false
         clearCandidate()
     }
 
@@ -231,7 +232,24 @@ public final class PeakHoldTracker {
         queryDirection = entry.direction
         queryWord = entry.word
         queryShape = entry.shape
-        queryIsFaceCarried = entry.isFaceCarried
+    }
+
+    /// Whether two frames' faces say the same thing: both calm (below `minimumIntensity`) or not seen, or both
+    /// moved the same way (`sameDirectionCosine`).
+    private func facesAgree(_ a: ExpressionSample, _ b: ExpressionSample) -> Bool {
+        func expressive(_ face: FaceFeatures?) -> FaceFeatures? {
+            guard let face, baseline.intensity(of: face) >= config.minimumIntensity else { return nil }
+            return face
+        }
+        switch (expressive(a.face), expressive(b.face)) {
+        case (nil, nil):
+            return true
+        case let (first?, second?):
+            return VectorMath.cosine(baseline.signedDeviation(of: first), baseline.signedDeviation(of: second))
+                >= config.sameDirectionCosine
+        default:
+            return false
+        }
     }
 
     /// Whether a frame that misses the run (under a gate, or another direction without the run's shape) is skipped
@@ -271,8 +289,7 @@ public final class PeakHoldTracker {
             && (descriptor?.hand?.signStrength ?? 0) < 0.7
             && faceIntensity < intensity
         return Entry(sample: sample, intensity: intensity, direction: VectorMath.normalized(direction), strength: strength,
-                     word: word, shape: shape, isCarriedByShape: isCarriedByShape,
-                     isFaceCarried: sample.face != nil && faceIntensity >= intensity)
+                     word: word, shape: shape, isCarriedByShape: isCarriedByShape)
     }
 
     /// A clear gesture (at least `minimumGesture`) with a word the query doesn't have: a facepalm after the hold caught
@@ -301,10 +318,11 @@ public final class PeakHoldTracker {
     }
 
     /// The frame that stands for the run: the highest `intensity * sharpness` (the newest winning ties) among the
-    /// frames with the run's word: the word most of its frames have (the newest frame's on a tie), when two or more
-    /// have it or the newest does; else among the frames without one. So one noisy frame neither takes a held pose's
-    /// word away nor gives one to a pose without; arms caught rising into a celebration (no word yet) take its word
-    /// the moment it shows. Frames of the face alone have no word and all count.
+    /// frames with the run's word: the word most of its frames have (the newest frame's on a tie), when three or more
+    /// have it (the body is read every other frame, so a reading fills two) or the newest does; else among the frames
+    /// without one. So one noisy reading neither takes a held pose's word away nor gives one to a pose without; arms
+    /// caught rising into a celebration (no word yet) take its word the moment it shows. Frames of the face alone have
+    /// no word and all count.
     private static func bestEntry(in entries: [Entry]) -> Entry? {
         guard let newest = entries.last else { return nil }
         var counts: [Mood: Int] = [:]
@@ -317,7 +335,7 @@ public final class PeakHoldTracker {
         if let most = counts.values.max() {
             let tied = Set(counts.filter { $0.value == most }.map(\.key))
             let candidate = entries.last(where: { $0.word.map(tied.contains) ?? false })?.word
-            if most >= 2 || candidate == newest.word {
+            if most >= 3 || candidate == newest.word {
                 word = candidate
             }
         }
