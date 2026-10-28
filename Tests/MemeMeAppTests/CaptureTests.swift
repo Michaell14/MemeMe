@@ -166,3 +166,35 @@ final class ClipTimingTests: XCTestCase {
         XCTAssertEqual(CaptureRenderer.frameDelay(frameCount: 5, first: 3, last: 3), CaptureRenderer.clipFrameDelay)
     }
 }
+
+final class CaptureModelTests: XCTestCase {
+    @MainActor
+    func testOnlyTheInputThatPressedCanRelease() {
+        let capture = CaptureModel(camera: CameraController())
+        XCTAssertTrue(capture.press(from: .space))
+        XCTAssertEqual(capture.phase, .pressing)
+        // A click while Space holds the shutter is refused, and its release does nothing.
+        XCTAssertFalse(capture.press(from: .mouse))
+        capture.release(from: .mouse)
+        XCTAssertEqual(capture.phase, .pressing)
+        capture.cancel()
+        XCTAssertEqual(capture.phase, .idle)
+        XCTAssertFalse(capture.isBusy)
+        XCTAssertTrue(capture.press(from: .mouse))
+        capture.cancel()
+    }
+
+    @MainActor
+    func testFiltersCycleBothWays() {
+        let capture = CaptureModel(camera: CameraController())
+        XCTAssertEqual(capture.filter, .none)
+        capture.cycleFilter(by: -1)
+        XCTAssertEqual(capture.filter, CameraFilter.allCases.last)
+        capture.cycleFilter(by: 1)
+        XCTAssertEqual(capture.filter, .none)
+        capture.select(.comic)
+        capture.activate()
+        XCTAssertEqual(capture.filter, .none)   // every opening starts plain
+        capture.deactivate()
+    }
+}

@@ -11,6 +11,11 @@ enum CapturePhase: Equatable {
     case saving
 }
 
+/// What pressed the shutter: only the same input can let it go.
+enum ShutterInput {
+    case mouse, space, key
+}
+
 /// A finished capture, ready for the pasteboard.
 struct CaptureResult {
     let data: Data
@@ -37,7 +42,8 @@ struct CaptureResult {
     static let minimumClipFrames = 4
 
     private let camera: CameraController
-    private var isPressed = false
+    /// The input holding the shutter down; nil when it is up.
+    private var pressedBy: ShutterInput?
     /// A clip that stopped at 3 s while the shutter was still held: delivered on release, so the panel doesn't close
     /// (and key repeats of a held Space don't reach the chat) until it's let go.
     private var heldResult: CaptureResult?
@@ -82,24 +88,28 @@ struct CaptureResult {
         camera.setCaptureView(active: false, filter: filter)
     }
 
-    /// Shutter down (click or Space).
-    func press() {
-        guard phase == .idle, !isPressed else { return }
-        isPressed = true
+    /// Shutter down (a click, Space, ↵). Returns false when it was refused (already down, or a capture is under way):
+    /// that input's release then does nothing.
+    @discardableResult
+    func press(from input: ShutterInput) -> Bool {
+        guard phase == .idle, pressedBy == nil else { return false }
+        pressedBy = input
         failed = false
         phase = .pressing
         let current = generation
         holdTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(CaptureModel.holdThreshold * 1_000_000_000))
-            guard !Task.isCancelled, let self, self.generation == current, self.isPressed, self.phase == .pressing else { return }
+            guard !Task.isCancelled, let self, self.generation == current, self.pressedBy != nil, self.phase == .pressing else { return }
             self.startRecording()
         }
+        return true
     }
 
-    /// Shutter up: a short press takes a photo, a long one ends the clip.
-    func release() {
-        guard isPressed else { return }
-        isPressed = false
+    /// Shutter up: a short press takes a photo, a long one ends the clip. Only the input that pressed it counts, so a
+    /// click during a Space-held recording can't end it (and close the panel) while Space is still down.
+    func release(from input: ShutterInput) {
+        guard pressedBy == input else { return }
+        pressedBy = nil
         if let result = heldResult {
             heldResult = nil
             onCaptured?(result)
@@ -120,7 +130,7 @@ struct CaptureResult {
     /// Drops whatever is in progress (Esc, the panel closing).
     func cancel() {
         generation += 1
-        isPressed = false
+        pressedBy = nil
         heldResult = nil
         holdTask?.cancel()
         holdTask = nil
@@ -214,7 +224,7 @@ struct CaptureResult {
             failed = true
             return
         }
-        if isPressed {
+        if pressedBy != nil {
             // Stopped at 3 s with the shutter still down: hand it over on release.
             heldResult = result
             return

@@ -202,7 +202,7 @@ public final class PeakHoldTracker {
 
 Algorithm (binding):
 - `ingest`: set `lastSample`. No face and a gesture strength below `minimumGestureWithoutFace` (0.5) → clear the candidate, `holdProgress = 0`, return false (a facepalm hides the face: its gesture carries on). Calm frames with a face feed `baseline.observe`.
-- Effective intensity `e = max(baseline.intensity(of: face) (0 without), 0.8 * (pose?.gestureStrength ?? 0))`. Direction vector = `signedDeviation(of: face)` (7 zeros without) + `0.5 × descriptor.gestureDirection` (a pose without a descriptor: `[activity, 0, 0, 0, 0, 0, 0, 0, 0]`), 16 values, normalized. A different hand sign with the arm where it was is therefore a different expression.
+- Effective intensity `e = max(baseline.intensity(of: face) (0 without), 0.8 * (pose?.gestureStrength ?? 0))`. Direction vector = `signedDeviation(of: face)` (7 zeros without) + `0.5 × gestureStrength × descriptor.gestureDirection` (a pose without a descriptor: `[activity, 0, 0, 0, 0, 0, 0, 0, 0]`), 16 values, normalized. A different hand sign with the arm where it was is therefore a different expression.
 - A sample is a candidate if `e >= minimumIntensity`; otherwise clear the candidate, return false.
 - The candidate is a run of consecutive candidate samples whose direction cosine with the run's first sample is ≥ `sameDirectionCosine`; a sample outside that cone starts a new run. Within a run keep the best sample by `e * sharpness` among samples whose timestamp is within `bufferWindow` of the newest.
 - Required hold: no query → `holdDuration`. Same direction as the query (cosine ≥ `sameDirectionCosine`) → `holdDuration`, and only if `bestE >= queryIntensity * strongerRatio` (otherwise `holdProgress = 0`, no replacement). Different direction → `newExpressionHold` and `candidateIsNewExpression = true`.
@@ -253,9 +253,9 @@ public enum MoodClassifier {
     /// Each rule needs the joints it reads; in this order:
     /// 1. hand: thumbsUp ≥ 0.7 → .thumbsUp; point ≥ 0.7 → .pointing
     /// 2. both arms up (lift ≥ 0.7 with head ≥ 0.35, or no wrist and elbowLift ≥ 0.5) → o ≥ 0.35 && s ≤ 0.05 ? .screaming : .celebrate
-    /// 3. both hands at the head (head ≤ 0.35, lift ≥ 0.5) → o ≥ 0.45 ? .screaming : .mindBlown
+    /// 3. both hands beside the head (head ≤ 0.35, lift ≥ 0.5, out ≥ 0.09) → o ≥ 0.45 ? .screaming : .mindBlown
     /// 4. a hand on the face (head ≤ 0.22, ≤ 0.3 without a face; lift ≥ 0.5), face nil or d.eye ≤ −0.1, o < 0.35 → .facepalm
-    /// 5. wristGap ≤ 0.12 and both lifts 0.3...0.75 → .clapping
+    /// 5. wristGap ≤ 0.12, both lifts 0.3...0.75 with head > 0.3, and open hands when read (openPalm ≥ 0.5) → .clapping
     /// 6. both elbowBend ≥ 0.3, out ≥ 0.3, lift 0.1...0.5 → .shrug
     /// 7. both out ≥ 0.45 and lift ≥ 0.35, s > 0.08 → .excited
     public static func gestureMood(_ pose: PoseDescriptor, face: FaceFeatures?, baseline: RestingBaseline) -> Mood?
@@ -945,7 +945,7 @@ Key handling:
 - digits 1–9 as typed on the active keyboard layout (main row or keypad; Shift allowed, no ⌘/⌃/⌥; 0 is swallowed) → `model.commitNumbered(index: n - 1)` (your memes only)
 - ←/→ → `model.moveFocus(dx: ∓1, dy: 0)` only when `model.queryText` is empty; ↑/↓ → `model.moveFocus(dx: 0, dy: ∓1)`
 - Space with empty query → `model.snap()`; ⇧Space with empty query → `model.openCapture()` when `model.canOpenCapture`
-- In the capture view (`model.isCaptureOpen`): Esc → `model.handleEscape()` (cancels a capture in progress, else closes the view); Space down (not a repeat) → `model.capture.press()`, Space up (whatever the modifiers) → `model.capture.release()`; ↵ / Enter → press + release (a photo); ←/→ → `model.capture.cycleFilter(by: ∓1)`; other keys without ⌘/⌃/⌥ are swallowed
+- In the capture view (`model.isCaptureOpen`): Esc → `model.handleEscape()` (cancels a capture in progress, else closes the view); Space down (not a repeat) → `model.capture.press(from: .space)`, Space up (whatever the modifiers) → `model.capture.release(from: .space)`; ↵ / Enter → press + release from `.key` (a photo); ←/→ → `model.capture.cycleFilter(by: ∓1)`; other keys without ⌘/⌃/⌥ are swallowed
 - Tab → `model.moreLikeFocused()`; Shift-Tab → `model.backToFace()`
 - ⌘V → consume only if `model.pasteFromClipboard()` returns true
 - everything else passes through to the focused search field.
@@ -965,7 +965,7 @@ struct CaptureView: View { init(model: AppModel) }                              
 ```
 - `PanelView` shows `CaptureView` instead of the strip and footer while `model.isCaptureOpen`; drops are ignored there and the search field gets the focus back when it closes.
 - `MirrorColumn` puts a 26 px camera button (SF Symbol `camera.fill`, 55 % black circle) at the mirror's bottom right while `model.canOpenCapture`.
-- `CaptureView`: a 300 × 300 stage (`CapturePreview`, an `NSView` whose layer contents are set straight from `camera.onCapturePreview`, aspect fill) with a white flash on each photo, a coral progress ring while recording and the shutter (a `DragGesture(minimumDistance: 0)`: press → `capture.press()`, release → `capture.release()`); beside it the title, the status line, the filter chips (3 columns) and "Back to memes"; the legend below.
+- `CaptureView`: a 300 × 300 stage (`CapturePreview`, an `NSView` whose layer contents are set straight from `camera.onCapturePreview`, aspect fill) with a white flash on each photo, a coral progress ring while recording and the shutter (a `DragGesture(minimumDistance: 0)`: press → `capture.press(from: .mouse)`, release → `capture.release(from: .mouse)`); beside it the title, the status line, the filter chips (3 columns) and "Back to memes"; the legend below.
 - The search field is a SwiftUI `TextField` bound to `$model.queryText`, focused on appear (`@FocusState`), plain style.
 - Drops on the whole panel: `.onDrop(of: [.fileURL, .image], …)` → `model.search(withImageAt:)`.
 - Tiles: `.onHover { if $0 { model.hover(index:) } }`, `.onTapGesture { model.commit(index:) }`, `.onDrag { model.dragItemProvider(index:) ?? NSItemProvider() }`, with slots from `TileGrid` (GIPHY tiles: `model.giphySlot(offset)`).
@@ -1140,7 +1140,9 @@ struct CaptureResult { let data: Data; let isGIF: Bool; let stickerFrame: CGImag
     var isBusy: Bool { get }
     func select(_ filter: CameraFilter); func cycleFilter(by step: Int)
     func activate(); func deactivate()                 // the view opened (filter None) / closed
-    func press(); func release(); func cancel()
+    @discardableResult func press(from input: ShutterInput) -> Bool   // enum ShutterInput { case mouse, space, key }; false when refused
+    func release(from input: ShutterInput)              // only the input that pressed can release
+    func cancel()
 }
 ```
 A press held 0.35 s starts a clip (`camera.beginClip`); the release (or 3 s) ends it. A release before that takes a photo (`camera.captureStill`, PNG). A clip under 4 frames becomes a photo of its best frame (or of the next frame). A clip stopped at 3 s while the shutter is still down is handed over on release, so the panel stays (swallowing Space's key repeats) until then. Encoding runs detached at user-initiated priority; `cancel` (Esc, close) drops a capture in flight.

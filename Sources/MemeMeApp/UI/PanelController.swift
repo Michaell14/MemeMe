@@ -540,13 +540,14 @@ final class PanelController: NSObject {
         case KeyCode.space:
             // Held down, the key repeats; only the first press counts.
             if !event.isARepeat {
-                model.capture.press()
+                model.capture.press(from: .space)
             }
             return nil
         case KeyCode.returnKey, KeyCode.enter:
             guard hasNoCommandLikeModifiers, !event.isARepeat else { return nil }
-            model.capture.press()
-            model.capture.release()
+            if model.capture.press(from: .key) {
+                model.capture.release(from: .key)
+            }
             return nil
         case KeyCode.left, KeyCode.right:
             model.capture.cycleFilter(by: event.keyCode == KeyCode.left ? -1 : 1)
@@ -559,7 +560,7 @@ final class PanelController: NSObject {
     /// Releasing Space ends a press in the capture view (people often let go of ⇧ first, so any modifiers count).
     private func handleKeyUp(_ event: NSEvent) -> NSEvent? {
         guard panel.isVisible, model.isCaptureOpen, event.keyCode == KeyCode.space else { return event }
-        model.capture.release()
+        model.capture.release(from: .space)
         return nil
     }
 

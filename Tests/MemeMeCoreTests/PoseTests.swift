@@ -266,6 +266,21 @@ final class PoseMoodTests: XCTestCase {
         XCTAssertEqual(classify(TestFaces.neutral, TestPoses.both(TestPoses.clap)), .clapping)
     }
 
+    func testRestingYourChinOrFaceOnYourHandsIsNotClappingOrMindBlown() {
+        let chinRest = TestArm(elbow: (x: 0.45, y: -0.55), wrist: (x: 0.08, y: 0.2))
+        XCTAssertEqual(classify(TestFaces.neutral, TestPoses.both(chinRest)), .unimpressed)
+        let underChin = TestArm(elbow: (x: 0.45, y: -0.5), wrist: (x: 0.1, y: 0.3))
+        XCTAssertEqual(classify(TestFaces.neutral, TestPoses.both(underChin)), .unimpressed)
+        // Face buried in both hands, face hidden: a facepalm, not mind blown.
+        let faceInHands = TestArm(elbow: (x: 0.45, y: -0.5), wrist: (x: 0.15, y: 0.45))
+        XCTAssertEqual(classify(nil, TestPoses.both(faceInHands)), .facepalm)
+    }
+
+    func testHandsTogetherAreAClapOnlyWithOpenHands() {
+        XCTAssertEqual(classify(TestFaces.neutral, TestPoses.both(TestPoses.clap), hand: HandShape(fist: 1)), .unimpressed)
+        XCTAssertEqual(classify(TestFaces.neutral, TestPoses.both(TestPoses.clap), hand: HandShape(openPalm: 1)), .clapping)
+    }
+
     func testBentArmsOutLowIsAShrug() {
         XCTAssertEqual(classify(TestFaces.neutral, TestPoses.both(TestPoses.shrug)), .shrug)
     }
@@ -366,6 +381,23 @@ final class PoseTrackingTests: XCTestCase {
         XCTAssertNil(tracker.query)
         XCTAssertNil(tracker.candidate)
         XCTAssertNil(tracker.lastSeenTimestamp)
+    }
+
+    func testArmsOnTheDeskComingAndGoingDontChangeTheExpression() {
+        let tracker = PeakHoldTracker(baseline: RestingBaseline(sampleCount: 100))
+        let smile = makeFace(width: 0.6, smile: 0.65)   // a mild smile, intensity ≈ 0.16
+        let onDesk = TestPoses.features(TestPoses.both(TestArm(elbow: (x: 0.6, y: -0.8), wrist: (x: 0.3, y: -0.85))))
+        let outOfFrame = TestPoses.features(TestPoses.both(TestArm(elbow: (x: 0.6, y: -0.8), wrist: nil)))
+        XCTAssertLessThan(onDesk.gestureStrength, 0.4)
+        for step in 1...3 {
+            XCTAssertFalse(tracker.ingest(frame(smile, step, pose: onDesk)))
+        }
+        XCTAssertTrue(tracker.ingest(frame(smile, 4, pose: onDesk)))
+        // The wrists leave the frame; the face doesn't change: no new expression, no new query.
+        for step in 5...20 {
+            XCTAssertFalse(tracker.ingest(frame(smile, step, pose: outOfFrame)), "step \(step)")
+            XCTAssertFalse(tracker.candidateIsNewExpression, "step \(step)")
+        }
     }
 
     func testSwitchingHandSignsIsANewExpression() {

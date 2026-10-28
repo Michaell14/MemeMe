@@ -172,13 +172,15 @@ public final class PeakHoldTracker {
     }
 
     /// intensity = max(face intensity, 0.8 × gesture strength); direction = the face's signed deviations (zeros without
-    /// a face) + half the pose's gesture numbers (a pose measured the old way: [activity, 0, 0, 0, 0, 0, 0, 0, 0]).
+    /// a face) + the pose's gesture numbers × 0.5 × its gesture strength, so arms at rest or on a desk coming into view
+    /// don't turn the same face into a new expression (a pose measured the old way: [activity, 0, 0, 0, 0, 0, 0, 0, 0]).
     private func makeEntry(for sample: ExpressionSample) -> Entry {
         let faceIntensity = sample.face.map { baseline.intensity(of: $0) } ?? 0
         let intensity = max(faceIntensity, 0.8 * (sample.pose?.gestureStrength ?? 0))
         var direction = sample.face.map { baseline.signedDeviation(of: $0) } ?? [Double](repeating: 0, count: 7)
         if let descriptor = sample.pose?.descriptor {
-            direction += descriptor.gestureDirection.map { 0.5 * $0 }
+            let strength = descriptor.gestureStrength
+            direction += descriptor.gestureDirection.map { 0.5 * strength * $0 }
         } else {
             direction += [sample.pose?.activity ?? 0, 0, 0, 0, 0, 0, 0, 0, 0]
         }

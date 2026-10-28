@@ -100,11 +100,11 @@ struct CaptureView: View {
                 .onChanged { _ in
                     guard !shutterDown else { return }
                     shutterDown = true
-                    capture.press()
+                    capture.press(from: .mouse)
                 }
                 .onEnded { _ in
                     shutterDown = false
-                    capture.release()
+                    capture.release(from: .mouse)
                 }
         )
         .opacity(capture.phase == .saving ? 0.4 : 1)
@@ -113,8 +113,9 @@ struct CaptureView: View {
         .accessibilityHint("Takes a photo of you and copies it")
         .accessibilityAddTraits(.isButton)
         .accessibilityAction {
-            capture.press()
-            capture.release()
+            if capture.press(from: .key) {
+                capture.release(from: .key)
+            }
         }
     }
 
