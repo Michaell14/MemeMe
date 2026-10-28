@@ -51,13 +51,18 @@ final class MemeTemplateCatalogTests: XCTestCase {
         let templates = [
             TemplateRef(id: "87743020", name: "Two Buttons"),
             TemplateRef(id: "247375501", name: "Buff Doge vs. Cheems"),
+            TemplateRef(id: "1", name: "Y U No"),
+            TemplateRef(id: "2", name: "One Does Not Simply"),
             TemplateRef(id: "226297822", name: "Panik Kalm Panik"),
         ]
         XCTAssertEqual(MemeTemplateCatalog.pick(forTerms: ["flex"], from: templates, limit: 5), [1])
-        XCTAssertTrue(MemeTemplateCatalog.pick(forTerms: ["oh no"], from: templates, limit: 5).contains(2))
-        XCTAssertTrue(MemeTemplateCatalog.pick(forTerms: ["Oh,", "no!"], from: templates, limit: 5).contains(2))
-        // Whole words only.
-        XCTAssertFalse(MemeTemplateCatalog.pick(forTerms: ["oh nothing"], from: templates, limit: 5).contains(2))
+        // The phrase names a mood; its "no" isn't Y U No's, nor its "oh" anyone's.
+        XCTAssertEqual(MemeTemplateCatalog.pick(forTerms: ["oh no"], from: templates, limit: 5), [4])
+        XCTAssertEqual(MemeTemplateCatalog.pick(forTerms: ["Oh,", "no!"], from: templates, limit: 5), [4])
+        // "oh no" ends on a whole word.
+        XCTAssertFalse(MemeTemplateCatalog.pick(forTerms: ["oh nothing"], from: templates, limit: 5).contains(4))
+        // The other phrases match from the start of a word: "side eyeing" is "side eye".
+        XCTAssertTrue(MemeTemplateCatalog.pick(forTerms: ["side eyeing"], from: popular, limit: 5).contains(2))
     }
 
     func testWordsThatMatchNothingFindNothing() {

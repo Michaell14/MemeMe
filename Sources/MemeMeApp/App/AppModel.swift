@@ -180,7 +180,7 @@ struct MoodReadout: Equatable {
     /// Web Discover is on (checked each time the panel opens); no key needed.
     @Published private(set) var showsTemplateRow: Bool = false
     /// The word the camera's search went by, under the mirror instead of the hint while live; nil when the hint
-    /// should show (nothing read yet, pins set, or the face lost or too far to read for a word that came from it).
+    /// should show (nothing read yet, pins set, or the face a word came from lost).
     @Published private(set) var readout: MoodReadout?
     @Published private(set) var pins: Set<FaceRegion> = []
     @Published private(set) var hint = PanelHint(title: HintCopy.promptTitle, subtitle: HintCopy.promptSubtitle, actionTitle: nil, action: nil)
@@ -194,7 +194,7 @@ struct MoodReadout: Equatable {
     @Published private(set) var holdProgress: Double = 0
     /// The pose behind the face search, named on the mirror: its word, or "your pose"; nil when the face alone made it.
     @Published private(set) var heldPose: PoseBadge?
-    /// Counts each pose caught (a held pose becoming the search), at most one per `poseCatchSpacing`: the mirror
+    /// Counts each pose caught (a new pose word, or a pose after the face alone, behind the search): the mirror
     /// flashes green when it changes.
     @Published private(set) var poseCatches = 0
     @Published private(set) var hotKeyAvailable: Bool = true
@@ -233,8 +233,6 @@ struct MoodReadout: Equatable {
     private static let faceBackDelay: TimeInterval = 1.0
     /// Shorter gaps in face detection are dropped frames, not the face leaving.
     private static let faceGap: TimeInterval = 0.3
-    /// The mirror flashes for a caught pose at most this often.
-    private static let poseCatchSpacing: TimeInterval = 1.5
     /// Typing that starts this soon after opening stops the camera instead of keeping the face token.
     private static let typingStopsCameraWindow: TimeInterval = 1.0
     /// A HUD says "Copying…" when fetching a web GIF takes longer than this.
@@ -267,7 +265,6 @@ struct MoodReadout: Equatable {
     private var standingBack = StandingBackDetector()
     /// The readout for the face search on show; `readout` is it when the hint has nothing more pressing to say.
     private var searchReadout: MoodReadout?
-    private var lastPoseCatchAt: TimeInterval?
     private var textBeganAt: TimeInterval?
     private var searchGeneration = 0
     private var imageGeneration = 0
@@ -564,8 +561,9 @@ struct MoodReadout: Equatable {
     func snap() {
         guard mode == .live, !showSetupCard, tracker.snap() else { return }
         if holdProgress != 0 { holdProgress = 0 }
+        let previousPose = heldPose
         runExpressionSearch(animate: true)
-        notePoseCaught(at: CACurrentMediaTime())
+        notePoseCaught(after: previousPose)
         refreshHint()
     }
 
@@ -977,17 +975,17 @@ struct MoodReadout: Equatable {
         updateFaceMissing(with: sample)
 
         if queryChanged {
+            let previousPose = heldPose
             runExpressionSearch(animate: true)
-            notePoseCaught(at: sample.timestamp)
+            notePoseCaught(after: previousPose)
         }
         refreshHint()
     }
 
-    /// A new search from a held pose flashes the mirror (not one from the face alone).
-    private func notePoseCaught(at timestamp: TimeInterval) {
-        guard heldPose != nil else { return }
-        if let last = lastPoseCatchAt, timestamp - last < AppModel.poseCatchSpacing { return }
-        lastPoseCatchAt = timestamp
+    /// A pose newly behind the search (another word, or a pose after the face alone) flashes the mirror; the same
+    /// pose held while only the face changes doesn't.
+    private func notePoseCaught(after previous: PoseBadge?) {
+        guard let heldPose, heldPose != previous else { return }
         poseCatches &+= 1
     }
 
@@ -1882,11 +1880,11 @@ struct MoodReadout: Equatable {
         }
     }
 
-    /// The search's word while live, unless pins (with their Clear) are set, or the face it came from is lost or too
-    /// far away to read: then the hint says so.
+    /// The search's word while live, unless pins (with their Clear) are set, or the face it came from is lost: then the
+    /// hint says so.
     private func computeReadout() -> MoodReadout? {
         guard mode == .live, pins.isEmpty, let searchReadout else { return nil }
-        if searchReadout.source == .face && (faceMissing || standingBack.isStandingBack) {
+        if searchReadout.source == .face && faceMissing {
             return nil
         }
         return searchReadout
@@ -1899,11 +1897,11 @@ struct MoodReadout: Equatable {
         case .warming:
             return PanelHint(title: HintCopy.warmingTitle, subtitle: HintCopy.warmingSubtitle, actionTitle: nil, action: nil)
         case .live:
-            // Standing back, the face is too small to read: say so before "Can't see your face".
-            if standingBack.isStandingBack {
-                return PanelHint(title: HintCopy.standingBackTitle, subtitle: HintCopy.standingBackSubtitle, actionTitle: nil, action: nil)
-            }
             if faceMissing {
+                // Standing back, the face is too small to read: that's fine, the pose is read.
+                if standingBack.isStandingBack {
+                    return PanelHint(title: HintCopy.standingBackTitle, subtitle: HintCopy.standingBackSubtitle, actionTitle: nil, action: nil)
+                }
                 return PanelHint(title: HintCopy.noFaceTitle, subtitle: HintCopy.noFaceSubtitle, actionTitle: nil, action: nil)
             }
             if !pins.isEmpty {
@@ -1953,7 +1951,6 @@ struct MoodReadout: Equatable {
         tracker = PeakHoldTracker(baseline: tracker.baseline)
         earlyMood.reset()
         standingBack.reset()
-        lastPoseCatchAt = nil
         if heldPose != nil { heldPose = nil }
         searchReadout = nil
         clearGiphyRow()

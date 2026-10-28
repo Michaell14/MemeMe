@@ -63,7 +63,8 @@ public enum Mood: String, CaseIterable, Codable, Hashable, Sendable {
 
 public enum MoodClassifier {
     /// Rules in this order (d = signed deviation from baseline.neutral; o = face.mouthOpenness; s = face.smile - 0.5):
-    /// 1. a pose described in detail (`PoseDescriptor`) with body language that has its own word → that word (`gestureMood`)
+    /// 1. a pose described in detail (`PoseDescriptor`), a clear gesture (strength ≥ `Ranker.gestureWithoutFace`), with
+    ///    body language that has its own word → that word (`gestureMood`; forearms on armrests have a shrug's shape)
     /// 2. face nil → .reaction
     /// 3. only for poses measured the old way (no descriptor):
     ///    pose.handsRaised ≥ 0.5 && o ≥ 0.35 → .screaming;  pose.activity ≥ 0.5 && s > 0.08 → .excited
@@ -78,7 +79,8 @@ public enum MoodClassifier {
     /// 12. face.headTilt ≥ 0.35 → .confused
     /// 13. else → .unimpressed
     public static func mood(for face: FaceFeatures?, pose: PoseFeatures?, baseline: RestingBaseline) -> Mood {
-        if let descriptor = pose?.descriptor, let gesture = gestureMood(descriptor, face: face, baseline: baseline) {
+        if let descriptor = pose?.descriptor, descriptor.gestureStrength >= Ranker.gestureWithoutFace,
+           let gesture = gestureMood(descriptor, face: face, baseline: baseline) {
             return gesture
         }
         guard let face = face else { return .reaction }
@@ -116,8 +118,8 @@ public enum MoodClassifier {
     /// 4. both hands beside the head (head ≤ 0.35, lift ≥ 0.5, out ≥ 0.09: not under the chin or over the face)
     ///    → mouth open ≥ 0.45 ? .screaming : .mindBlown
     /// 5. shape ohNo (hands on top of the head) → mouth open ≥ 0.45 ? .screaming : .ohNo
-    /// 6. a hand on the face (head ≤ 0.22, lift ≥ 0.5; ≤ 0.3 when the face is hidden; its upper arm below level,
-    ///    elbowLift < 0.42, so a dab's bent arm isn't one) with the eyes shut (≥ 0.25 below rest; heavy lids on a
+    /// 6. a hand on the face (head ≤ 0.22, lift ≥ 0.5; ≤ 0.3 when the face is hidden; not raised and reaching across
+    ///    from the other side, elbowLift ≥ 0.42 with cross ≥ 0.35, as a dab's bent arm does) with the eyes shut (≥ 0.25 below rest; heavy lids on a
     ///    propped head aren't enough) or the face hidden, mouth open < 0.35, no smile (≤ 0.05: a smile narrows the eyes
     ///    too) → .facepalm
     /// 7. wrists together (gap ≤ 0.12) in front, both lifts 0.3...0.75, clear of the chin (head > 0.3), not resting low
@@ -136,11 +138,12 @@ public enum MoodClassifier {
             let head: Double?
             let elbowLift: Double?
             let elbowBend: Double?
+            let cross: Double?
         }
         let left = Arm(lift: pose[.leftLift], out: pose[.leftOut], head: pose[.leftHead],
-                       elbowLift: pose[.leftElbowLift], elbowBend: pose[.leftElbowBend])
+                       elbowLift: pose[.leftElbowLift], elbowBend: pose[.leftElbowBend], cross: pose[.leftCross])
         let right = Arm(lift: pose[.rightLift], out: pose[.rightOut], head: pose[.rightHead],
-                        elbowLift: pose[.rightElbowLift], elbowBend: pose[.rightElbowBend])
+                        elbowLift: pose[.rightElbowLift], elbowBend: pose[.rightElbowBend], cross: pose[.rightCross])
         func both(_ test: (Arm) -> Bool) -> Bool { test(left) && test(right) }
         func either(_ test: (Arm) -> Bool) -> Bool { test(left) || test(right) }
 
@@ -181,7 +184,9 @@ public enum MoodClassifier {
         let reach = face == nil ? 0.3 : 0.22
         let handOnFace: (Arm) -> Bool = { arm in
             guard let head = arm.head, let lift = arm.lift else { return false }
-            return head <= reach && lift >= 0.5 && (arm.elbowLift ?? 0) < 0.42
+            // Not a dab's bent arm: raised and reaching across the face from the other side.
+            let acrossFromTheOtherSide = (arm.elbowLift ?? 0) >= 0.42 && (arm.cross ?? 0) >= 0.35
+            return head <= reach && lift >= 0.5 && !acrossFromTheOtherSide
         }
         if either(handOnFace) && (face == nil || eyeDeviation <= -0.25) && open < 0.35 && smile <= 0.05 {
             return .facepalm

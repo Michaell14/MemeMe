@@ -95,8 +95,8 @@ final class PoseDescriptorTests: XCTestCase {
         XCTAssertNil(oneArm[.wristGap])
         let match = PoseDescriptor.compare(both, oneArm)
         XCTAssertEqual(match.similarity, 1, accuracy: 0.01)
-        // Left arm 7 + tilt 0.5 + head rise 0.5 + left cross 1 + left elbow out 0.5, of 16.5 + both crosses and elbows 3.
-        XCTAssertEqual(match.coverage, 9.5 / 19.5, accuracy: 1e-9)
+        // Left arm 7 + tilt 0.5 + head rise 0.5 + left cross 1, elbow out 0.5 and forearm 0.5, of 16.5 + both arms' 4.
+        XCTAssertEqual(match.coverage, 10 / 20.5, accuracy: 1e-9)
     }
 
     func testATinyBodyOrNoShouldersHasNoDescriptor() {

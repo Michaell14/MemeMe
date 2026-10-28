@@ -53,6 +53,7 @@ final class PoseShapeDescriptorTests: XCTestCase {
         XCTAssertEqual(try value(crossed, .torsoLength), 0.675, accuracy: 0.002)
         XCTAssertEqual(try value(crossed, .leftLift), 0.271, accuracy: 0.002)
         XCTAssertEqual(try value(crossed, .leftElbowBend), 0.605, accuracy: 0.002)
+        XCTAssertEqual(try value(crossed, .leftForearmRise), 0.585, accuracy: 0.002)
 
         let akimbo = try descriptor(FullBodyPoses.handsOnHips)
         XCTAssertEqual(try value(akimbo, .leftElbowOut), 0.42, accuracy: 0.002)
@@ -95,7 +96,7 @@ final class PoseShapeDescriptorTests: XCTestCase {
 
     func testEveryNumberHasAWeight() {
         XCTAssertEqual(PoseDescriptor.weights.count, PoseDescriptor.count)
-        XCTAssertEqual(PoseDescriptor.count, 18)
+        XCTAssertEqual(PoseDescriptor.count, 20)
     }
 
     func testDescriptorsStoredWithThirteenNumbersStillLoadAndCompare() throws {
@@ -106,10 +107,10 @@ final class PoseShapeDescriptorTests: XCTestCase {
         XCTAssertEqual(decoded.values.count, PoseDescriptor.count)
         XCTAssertTrue(decoded.values[13...].allSatisfy { $0 == nil })
         XCTAssertEqual(PoseDescriptor.compare(current, current).coverage, 1, accuracy: 1e-9)
-        // The torso counts only when both have it: what's missing is the crossing and the elbows.
+        // The torso counts only when both have it: what's missing is the crossing, the elbows and the forearms.
         let match = PoseDescriptor.compare(current, decoded)
         XCTAssertEqual(match.similarity, 1, accuracy: 1e-9)
-        XCTAssertEqual(match.coverage, 16.5 / 19.5, accuracy: 1e-9)
+        XCTAssertEqual(match.coverage, 16.5 / 20.5, accuracy: 1e-9)
     }
 
     func testShapesCloseToRestGetTheShapeStrength() throws {
@@ -182,6 +183,28 @@ final class PoseShapeMoodTests: XCTestCase {
         let facepalm = TestPoses.body(left: TestPoses.onFace, right: TestPoses.rest.otherSide)
         XCTAssertEqual(gestureWord(makeFace(eye: 0.15), facepalm), .facepalm)
         XCTAssertEqual(gestureWord(nil, facepalm), .facepalm)
+        // A slap on the forehead with the elbow out at shoulder height: raised, but not reaching across like a dab.
+        let slap = TestPoses.body(left: TestArm(elbow: (x: 1.0, y: 0.1), wrist: (x: 0.25, y: 0.75)), right: TestPoses.rest.otherSide)
+        XCTAssertEqual(gestureWord(makeFace(eye: 0.15), slap), .facepalm)
+    }
+
+    func testTwoFingersOnTheCheekAreNoPeaceSign() throws {
+        var points = TestHands.pointing().points
+        points[.middlePIP] = PosePoint(x: 1.35, y: 0.1)
+        points[.middleDIP] = PosePoint(x: 1.6, y: 0.12)
+        points[.middleTip] = PosePoint(x: 1.85, y: 0.12)
+        let victory = HandJoints(points: points)
+        XCTAssertGreaterThan(try XCTUnwrap(HandShape(victory)).peace, 0.9)
+        let aroundTheFingertips = PoseBox(minX: 1.5, minY: 0, maxX: 2, maxY: 1)
+        XCTAssertEqual(try XCTUnwrap(HandShape(victory, faceBox: aroundTheFingertips)).peace, 0)
+    }
+
+    func testAWeakArmShapeDoesntReplaceTheFacesMood() throws {
+        // Forearms out on the chair's armrests have a shrug's shape, too weak to be a gesture: the face decides.
+        let armrests = TestPoses.features(TestPoses.both(TestArm(elbow: (x: 0.7, y: -0.8), wrist: (x: 0.8, y: -0.75))))
+        XCTAssertLessThan(armrests.gestureStrength, Ranker.gestureWithoutFace)
+        XCTAssertEqual(MoodClassifier.mood(for: TestFaces.surprise, pose: armrests, baseline: RestingBaseline()), .shocked)
+        XCTAssertNil(PoseBadge.of(ExpressionSample(face: TestFaces.surprise, pose: armrests, timestamp: 0), baseline: RestingBaseline()))
     }
 
     func testRestingPosturesHaveNoWord() {
@@ -194,6 +217,9 @@ final class PoseShapeMoodTests: XCTestCase {
             ("elbows wide, hands together on a desk", TestPoses.both(TestArm(elbow: (x: 1.0, y: -0.7), wrist: (x: 0.3, y: -0.9)))),
             ("hands behind the head", TestPoses.both(TestArm(elbow: (x: 0.95, y: 0.75), wrist: nil))),
             ("a phone at the chest", TestPoses.both(TestArm(elbow: (x: 0.55, y: -0.9), wrist: (x: 0.15, y: -0.45)))),
+            ("hands clasped behind the head, wrists seen", TestPoses.both(TestArm(elbow: (x: 0.95, y: 0.75), wrist: (x: 0.15, y: 0.9)))),
+            ("leaning on forearms folded on a desk", TestPoses.body(left: TestArm(elbow: (x: 0.62, y: -0.5), wrist: (x: -0.35, y: -0.7)),
+                                                                   right: TestArm(elbow: (x: -0.62, y: -0.5), wrist: (x: 0.35, y: -0.7)))),
         ]
         for (name, joints) in cases {
             XCTAssertNil(gestureWord(TestFaces.neutral, joints), name)
@@ -313,9 +339,10 @@ final class PoseShapeTrackingTests: XCTestCase {
     }
 
     func testAFaceSeenAndLostDoesntBreakAShapesHold() {
+        // A far face reads a little off rest: its frames point elsewhere than the face-less ones.
         let tracker = makeTracker()
         for step in 1...10 {
-            let face: FaceFeatures? = (step - 1) % 6 < 3 ? TestFaces.neutral : nil
+            let face: FaceFeatures? = (step - 1) % 6 < 3 ? makeFace(brow: 0.55, gaze: 0.2) : nil
             XCTAssertFalse(tracker.ingest(frame(face, step, FullBodyPoses.handsOnHips)), "step \(step)")
         }
         XCTAssertTrue(tracker.ingest(frame(nil, 11, FullBodyPoses.handsOnHips)))
@@ -346,6 +373,33 @@ final class PoseShapeTrackingTests: XCTestCase {
         XCTAssertTrue(tracker.ingest(frame(nil, 15, FullBodyPoses.handsOnHips)))
         XCTAssertEqual(word(tracker), .handsOnHips)
         XCTAssertEqual(tracker.queryIntensity, 0.48, accuracy: 1e-9)
+    }
+
+    func testAFaceCanChangeWhileAShapeIsHeld() {
+        // Arms crossed at the desk (no hips in view): a surprised face makes the search, then a smile replaces it.
+        let tracker = makeTracker()
+        let crossed = TestPoses.body(left: FullBodyPoses.crossedLeft, right: FullBodyPoses.crossedRight)
+        for step in 1...3 {
+            XCTAssertFalse(tracker.ingest(frame(TestFaces.surprise, step, crossed)))
+        }
+        XCTAssertTrue(tracker.ingest(frame(TestFaces.surprise, 4, crossed)))
+        for step in 5...14 {
+            XCTAssertFalse(tracker.ingest(frame(TestFaces.smile, step, crossed)), "step \(step)")
+        }
+        XCTAssertTrue(tracker.ingest(frame(TestFaces.smile, 15, crossed)))
+        XCTAssertEqual(tracker.query?.face, TestFaces.smile)
+    }
+
+    func testArmsCaughtRisingTakeTheWordTheyArriveAt() {
+        // Straight arms rising in front (strong, no word yet) for three frames, then up: the hold ends on "celebrate".
+        let tracker = makeTracker()
+        let rising = TestPoses.both(TestArm(elbow: (x: 0.72, y: 0.2), wrist: (x: 0.9, y: 0.5)))
+        XCTAssertNil(PoseDescriptor(rising).flatMap { MoodClassifier.gestureMood($0, face: nil, baseline: RestingBaseline()) })
+        for step in 1...3 {
+            XCTAssertFalse(tracker.ingest(frame(nil, step, rising)))
+        }
+        XCTAssertTrue(tracker.ingest(frame(nil, 4, TestPoses.both(TestPoses.up))))
+        XCTAssertEqual(word(tracker), .celebrate)
     }
 
     func testAFaceHasNoGrace() {

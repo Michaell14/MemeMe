@@ -213,7 +213,8 @@ public struct HandShape: Codable, Hashable, Sendable {
     }
 
     /// nil when the wrist or too few fingers were seen. With `faceBox`, a finger or thumb lying on the face (a finger up
-    /// the cheek while thinking, "shh", a thumb along the jaw) is no pointing or thumbs-up sign.
+    /// the cheek while thinking, "shh", a thumb along the jaw, two fingers propping the head) is no pointing,
+    /// thumbs-up or peace sign.
     public init?(_ hand: HandJoints, faceBox: PoseBox? = nil) {
         guard let wrist = hand[.wrist] else { return nil }
         // A finger is straight when its tip is clearly farther from the wrist than its middle joint, curled when closer.
@@ -257,11 +258,13 @@ public struct HandShape: Codable, Hashable, Sendable {
             thumbsUp = min(othersCurled, upright, above)
         }
         var point = index == nil ? 0 : all([extended(index), curled(middle), curled(ring), curled(little)], known: 3)
+        var peace = index == nil || middle == nil ? 0 : all([extended(index), extended(middle), curled(ring), curled(little)], known: 3)
         if let faceBox {
             if let tip = hand[.indexTip], faceBox.contains(tip) { point = 0 }
             if let tip = hand[.thumbTip], faceBox.contains(tip) { thumbsUp = 0 }
+            // Two fingers along the cheek or temple (a head propped while thinking) aren't a V.
+            if [hand[.indexTip], hand[.middleTip]].contains(where: { $0.map(faceBox.contains) ?? false }) { peace = 0 }
         }
-        let peace = index == nil || middle == nil ? 0 : all([extended(index), extended(middle), curled(ring), curled(little)], known: 3)
         self.init(thumbsUp: thumbsUp,
                   point: point,
                   openPalm: all(fingers.map(extended), known: 3),
@@ -303,7 +306,7 @@ public enum BodyShape: String, CaseIterable, Sendable {
     case dab, bolt, flex, ohNo, armsCrossed, tPose, handsOnHips, pickMe, hello, bow
 }
 
-/// A pose as 18 numbers (each 0...1, nil when a joint it needs wasn't seen) plus the hand's sign, measured in the
+/// A pose as 20 numbers (each 0...1, nil when a joint it needs wasn't seen) plus the hand's sign, measured in the
 /// body's own frame: from the middle of the shoulders, along the shoulder line, in shoulder widths. So the same pose
 /// gives the same numbers however large, tilted or framed the person is. Numbers are only ever appended: a descriptor
 /// stored with fewer reads the missing ones as not seen.
@@ -325,6 +328,9 @@ public struct PoseDescriptor: Codable, Hashable, Sendable {
         case leftElbowOut, rightElbowOut
         /// Shoulders to hips (0.5 per shoulder width): about 0.675 standing upright, short when bowing to the camera.
         case torsoLength
+        /// How much the forearm rises from the elbow to the wrist: 0.5 level, more with the wrist above the elbow
+        /// (arms crossed over the chest), less below it (forearms folded on a desk).
+        case leftForearmRise, rightForearmRise
     }
 
     public static let count = Dimension.allCases.count
@@ -414,7 +420,8 @@ public struct PoseDescriptor: Codable, Hashable, Sendable {
         let head = PosePoint.mean(joints.headPoints).map(local)
         var values = [Double?](repeating: nil, count: PoseDescriptor.count)
 
-        func measureArm(shoulder: BodyJoint, elbow: BodyJoint, wrist: BodyJoint, first: Dimension, cross: Dimension, elbowOut: Dimension) {
+        func measureArm(shoulder: BodyJoint, elbow: BodyJoint, wrist: BodyJoint, first: Dimension, cross: Dimension,
+                        elbowOut: Dimension, forearmRise: Dimension) {
             let base = first.rawValue
             let shoulderPoint = joints[shoulder].map(local)
             let elbowPoint = joints[elbow].map(local)
@@ -433,6 +440,9 @@ public struct PoseDescriptor: Codable, Hashable, Sendable {
             }
             if let elbowPoint {
                 values[elbowOut.rawValue] = abs(elbowPoint.x) / 2.5
+                if let wristPoint {
+                    values[forearmRise.rawValue] = 0.5 + (wristPoint.y - elbowPoint.y) / 2
+                }
             }
             guard let shoulderPoint, let elbowPoint else { return }
             let upperX = elbowPoint.x - shoulderPoint.x
@@ -451,9 +461,9 @@ public struct PoseDescriptor: Codable, Hashable, Sendable {
             values[base + 4] = 1 - acos(max(-1, min(1, cosAngle))) / Double.pi
         }
         measureArm(shoulder: .leftShoulder, elbow: .leftElbow, wrist: .leftWrist, first: .leftLift,
-                   cross: .leftCross, elbowOut: .leftElbowOut)
+                   cross: .leftCross, elbowOut: .leftElbowOut, forearmRise: .leftForearmRise)
         measureArm(shoulder: .rightShoulder, elbow: .rightElbow, wrist: .rightWrist, first: .rightLift,
-                   cross: .rightCross, elbowOut: .rightElbowOut)
+                   cross: .rightCross, elbowOut: .rightElbowOut, forearmRise: .rightForearmRise)
 
         if let left = joints[.leftWrist], let right = joints[.rightWrist] {
             values[Dimension.wristGap.rawValue] = left.distance(to: right) / scale / 3
@@ -477,6 +487,7 @@ public struct PoseDescriptor: Codable, Hashable, Sendable {
     private static let mirrorPairs: [(Dimension, Dimension)] = [
         (.leftLift, .rightLift), (.leftOut, .rightOut), (.leftHead, .rightHead), (.leftElbowLift, .rightElbowLift),
         (.leftElbowBend, .rightElbowBend), (.leftCross, .rightCross), (.leftElbowOut, .rightElbowOut),
+        (.leftForearmRise, .rightForearmRise),
     ]
 
     /// The same pose with the arms swapped (a mirrored image).
@@ -627,6 +638,7 @@ public struct PoseDescriptor: Codable, Hashable, Sendable {
         let bend: Double?
         let cross: Double?
         let elbowOut: Double?
+        let forearmRise: Double?
 
         /// Hanging or low (lift ≤ 0.4); with the wrist unseen, an elbow that isn't raised (or isn't seen either).
         var isLow: Bool {
@@ -637,12 +649,14 @@ public struct PoseDescriptor: Codable, Hashable, Sendable {
 
     private var leftArm: Arm {
         Arm(lift: self[.leftLift], out: self[.leftOut], head: self[.leftHead], elbowLift: self[.leftElbowLift],
-            bend: self[.leftElbowBend], cross: self[.leftCross], elbowOut: self[.leftElbowOut])
+            bend: self[.leftElbowBend], cross: self[.leftCross], elbowOut: self[.leftElbowOut],
+            forearmRise: self[.leftForearmRise])
     }
 
     private var rightArm: Arm {
         Arm(lift: self[.rightLift], out: self[.rightOut], head: self[.rightHead], elbowLift: self[.rightElbowLift],
-            bend: self[.rightElbowBend], cross: self[.rightCross], elbowOut: self[.rightElbowOut])
+            bend: self[.rightElbowBend], cross: self[.rightCross], elbowOut: self[.rightElbowOut],
+            forearmRise: self[.rightForearmRise])
     }
 
     /// The pose's shape when it is one with a word of its own, read from the body alone (no face), whichever arm does
@@ -652,13 +666,14 @@ public struct PoseDescriptor: Codable, Hashable, Sendable {
     /// - bolt: one arm straight up and out and the other drawn back (bend ≥ 0.3, lift 0.3...0.6, cross ≤ 0.3)
     /// - flex: both upper arms out near level (elbowLift 0.36...0.66), elbows bent ≥ 0.38, fists up (lift ≥ 0.5) beside
     ///   the head (head ≥ 0.36)
-    /// - ohNo: both hands on top of the head (head ≤ 0.35, lift ≥ 0.5 and above the head's centre), not both out at the
-    ///   temples (mind blown)
+    /// - ohNo: both hands on top of the head (head ≤ 0.35, lift ≥ 0.5 and clearly above the head's centre, by 0.07; hands
+    ///   clasped behind the head sit lower), not both out at the temples (mind blown)
     /// - armsCrossed: both wrists across the body (cross ≥ 0.27), elbows bent ≥ 0.3, wrists between the waist and the
-    ///   chest (lift ≤ 0.45; ≥ 0.12 standing, ≥ 0.21 with no hips seen, so forearms folded on a desk stay rest)
+    ///   chest (lift ≤ 0.45; ≥ 0.12 with hips in view; with none, ≥ 0.21 and each wrist above its elbow, forearmRise
+    ///   ≥ 0.52, so forearms folded on a desk, or leaned on, stay rest)
     /// - tPose: both arms straight (bend ≤ 0.2) out to the side (out ≥ 0.55) at shoulder height (lift 0.3...0.6,
     ///   elbowLift 0.38...0.65 when seen)
-    /// - handsOnHips: standing (hips seen, torso ≥ 0.5) with an elbow out past its wrist (elbowOut − out ≥ 0.1), raised
+    /// - handsOnHips: upright with the hips in view (torso ≥ 0.5) and an elbow out past its wrist (elbowOut − out ≥ 0.1), raised
     ///   (elbowLift ≥ 0.15) and the wrist at the waist (lift ≤ 0.32): both arms, or one (elbowLift ≥ 0.17) with the other
     ///   low
     /// - pickMe: one arm straight up (lift ≥ 0.75, bend ≤ 0.35, clear of the head) and the other low
@@ -703,7 +718,7 @@ public struct PoseDescriptor: Codable, Hashable, Sendable {
         let headLift = self[.headRise].map { (1.5 * $0 + 1.5) / 3.5 }
         let onTopOfHead: (Arm) -> Bool = { arm in
             guard let head = arm.head, let lift = arm.lift, let headLift else { return false }
-            return head <= 0.35 && lift >= 0.5 && lift >= headLift + 0.03
+            return head <= 0.35 && lift >= 0.5 && lift >= headLift + 0.07
         }
         let atTemples: (Arm) -> Bool = { arm in
             guard let head = arm.head, let lift = arm.lift, let out = arm.out else { return false }
@@ -715,7 +730,9 @@ public struct PoseDescriptor: Codable, Hashable, Sendable {
         let lowestCrossed = torso == nil ? 0.21 : 0.12
         let crossed: (Arm) -> Bool = { arm in
             guard let cross = arm.cross, let lift = arm.lift, let bend = arm.bend else { return false }
-            return cross >= 0.27 && lift >= lowestCrossed && lift <= 0.45 && bend >= 0.3
+            guard cross >= 0.27 && lift >= lowestCrossed && lift <= 0.45 && bend >= 0.3 else { return false }
+            // Without hips in view the body may be at a desk: crossed forearms rise to the wrists, folded ones don't.
+            return torso != nil || (arm.forearmRise ?? 0) >= 0.52
         }
         if both(crossed) {
             return .armsCrossed
@@ -761,7 +778,7 @@ public struct PoseDescriptor: Codable, Hashable, Sendable {
     // MARK: Similarity
 
     /// Indexed by `Dimension`.
-    static let weights: [Double] = [2, 1, 2, 1, 1, 2, 1, 2, 1, 1, 1.5, 0.5, 0.5, 1, 1, 0.5, 0.5, 0.5]
+    static let weights: [Double] = [2, 1, 2, 1, 1, 2, 1, 2, 1, 1, 1.5, 0.5, 0.5, 1, 1, 0.5, 0.5, 0.5, 0.5, 0.5]
     /// Per number: similarity falls to 0 at this difference.
     private static let tolerance = 0.25
 

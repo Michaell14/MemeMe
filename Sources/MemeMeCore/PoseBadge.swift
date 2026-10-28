@@ -6,15 +6,15 @@ public enum PoseBadge: Equatable, Sendable {
     case word(Mood)
     case pose
 
-    /// The badge for a query: the pose's word when it has one (the word the mood comes from, see
-    /// `MoodClassifier.mood`), "your pose" for a clear gesture without one (`Ranker.gestureWithoutFace`), else nil (the
-    /// face alone made the search).
+    /// The badge for a query: for a clear gesture (`Ranker.gestureWithoutFace`), the pose's word when it has one (the
+    /// word the mood comes from, see `MoodClassifier.mood`), else "your pose"; nil otherwise (the face alone made the
+    /// search, forearms on armrests included).
     public static func of(_ sample: ExpressionSample, baseline: RestingBaseline) -> PoseBadge? {
-        guard let pose = sample.pose else { return nil }
+        guard let pose = sample.pose, pose.gestureStrength >= Ranker.gestureWithoutFace else { return nil }
         if let descriptor = pose.descriptor, let word = MoodClassifier.gestureMood(descriptor, face: sample.face, baseline: baseline) {
             return .word(word)
         }
-        return pose.gestureStrength >= Ranker.gestureWithoutFace ? .pose : nil
+        return .pose
     }
 
     public var label: String {

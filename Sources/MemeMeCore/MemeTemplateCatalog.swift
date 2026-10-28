@@ -59,12 +59,18 @@ public enum MemeTemplateCatalog {
         let allWords = terms
             .flatMap { $0.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }) }
             .map(String.init)
-        let cleaned = allWords.filter { $0.count >= 2 }
-        guard limit > 0, !cleaned.isEmpty else { return [] }
-        let phrase = cleaned.joined(separator: " ")
-        // Whole words, one-letter ones too: "t-pose" is "t pose", "oh nothing" isn't "oh no".
+        guard limit > 0, allWords.contains(where: { $0.count >= 2 }) else { return [] }
+        let phrase = allWords.filter { $0.count >= 2 }.joined(separator: " ")
+        // Over all the words, one-letter ones too ("t-pose" is "t pose"), from the start of a word: "side eyeing" is
+        // "side eye"; a few end on a whole word ("oh nothing" isn't "oh no").
         let spaced = " " + allWords.joined(separator: " ") + " "
-        let moods = Set(cleaned.compactMap { moodWords[$0] } + multiWordMoods.filter { spaced.contains(" \($0.key) ") }.map(\.value))
+        let namedMoods = multiWordMoods.filter { key, _ in
+            spaced.contains(" \(key)" + (MemeTemplateCatalog.wholeWordMoods.contains(key) ? " " : ""))
+        }
+        // A mood's phrase finds the mood, not every name starting with its "no", "on" or "me".
+        let phraseWords = Set(namedMoods.keys.flatMap { $0.split(separator: " ").map(String.init) }.filter { $0.count <= 2 })
+        let cleaned = allWords.filter { $0.count >= 2 && !phraseWords.contains($0) }
+        let moods = Set(allWords.compactMap { moodWords[$0] } + namedMoods.map(\.value))
         let indexes = entryIndexes(for: templates)
         var entryFor: [Int: Entry] = [:]
         for (entryIndex, templateIndex) in indexes {
@@ -194,6 +200,9 @@ public enum MemeTemplateCatalog {
         "side eye": .sideEye, "mind blown": .mindBlown, "thumbs up": .thumbsUp, "t pose": .tPose,
         "arms crossed": .armsCrossed, "hands on hips": .handsOnHips, "oh no": .ohNo, "pick me": .pickMe,
     ]
+
+    /// Phrases whose last word starts many others ("oh nothing", "pick memes"): matched as whole words only.
+    private static let wholeWordMoods: Set<String> = ["oh no", "pick me"]
 
     /// Famous templates, most famous first. Ids are Imgflip's where known; names cover what Imgflip has called them.
     public static let entries: [Entry] = [
