@@ -160,6 +160,12 @@ public final class PeakHoldTracker {
         return true
     }
 
+    /// Drops the expression being held toward the query (keeps the query and the baseline): frames stopped coming in
+    /// for a while (the capture view was open), so the next one starts a new hold.
+    public func clearHold() {
+        clearCandidate()
+    }
+
     /// Clears query and candidate (keeps the baseline).
     public func reset() {
         query = nil
@@ -196,11 +202,13 @@ public final class PeakHoldTracker {
         return Entry(sample: sample, intensity: intensity, direction: VectorMath.normalized(direction))
     }
 
-    /// As strong as the query, and the arms or hand have reached a pose with a word of its own (a facepalm, say) where
-    /// the query, caught on the way there, had none. Gesture strength saturates before the hand gets to the face, so
-    /// the finished gesture is rarely stronger than the frame the hold caught mid-motion; it still replaces it.
+    /// The gesture alone is as strong as the query, and the arms or hand have reached a pose with a word of its own (a
+    /// facepalm, say) where the query, caught on the way there, had none. Gesture strength saturates before the hand
+    /// gets to the face, so the finished gesture is rarely stronger than the frame the hold caught mid-motion; it still
+    /// replaces it. A weak gesture (forearms on armrests reading as a shrug) never takes over a held face.
     private func completesGesture(_ entry: Entry) -> Bool {
-        guard let query, entry.intensity >= queryIntensity - 1e-9,
+        let strength = entry.sample.pose?.gestureStrength ?? 0
+        guard let query, strength >= PeakHoldTracker.minimumGesture, 0.8 * strength >= queryIntensity - 1e-9,
               let descriptor = entry.sample.pose?.descriptor,
               MoodClassifier.gestureMood(descriptor, face: entry.sample.face, baseline: baseline) != nil else { return false }
         guard let held = query.pose?.descriptor else { return true }

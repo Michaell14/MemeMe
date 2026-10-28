@@ -766,6 +766,7 @@ enum Pick: Equatable {
         committingSession = nil
         isCaptureOpen = true
         capture.activate()
+        tracker.clearHold()
         if holdProgress != 0 { holdProgress = 0 }
         earlyMood.reset()
     }
@@ -775,6 +776,13 @@ enum Pick: Equatable {
         guard isCaptureOpen else { return }
         capture.deactivate()
         isCaptureOpen = false
+        // The strip got no frames while the view was open: start the face-missing clock again, so a first frame
+        // without a face (looking down at Esc) isn't read as a long gap.
+        if mode == .live {
+            liveSince = CACurrentMediaTime()
+            faceMissing = false
+            faceBackSince = nil
+        }
         refreshHint()
     }
 
@@ -825,6 +833,8 @@ enum Pick: Equatable {
             guard let self else { return }
             let item = try? await self.friends.makeOwnSticker(fromCapture: url)
             if let item {
+                // Reopened meanwhile: the notice would cover the panel, and the sticker is in the library.
+                guard !self.isPanelVisible else { return }
                 HUDController.shared.show("Saved “\(item.displayName)” as a sticker", thumbnail: item.fileURL)
             } else {
                 HUDController.shared.show("Couldn’t find you in that one.")

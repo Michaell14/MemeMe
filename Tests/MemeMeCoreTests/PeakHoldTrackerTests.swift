@@ -192,6 +192,23 @@ final class PeakHoldTrackerTests: XCTestCase {
         XCTAssertEqual(tracker.lastSample?.timestamp, 0.2)
     }
 
+    func testClearHoldStartsTheNextHoldOver() {
+        let tracker = makeTracker()
+        XCTAssertFalse(tracker.ingest(frame(TestFaces.surprise, 1)))
+        XCTAssertFalse(tracker.ingest(frame(TestFaces.surprise, 2)))
+        XCTAssertGreaterThan(tracker.holdProgress, 0)
+
+        // The capture view was open for a while; the same face afterwards is held for the full 0.3 s again.
+        tracker.clearHold()
+        XCTAssertEqual(tracker.holdProgress, 0)
+        XCTAssertNil(tracker.candidate)
+        for step in 30...32 {
+            XCTAssertFalse(tracker.ingest(frame(TestFaces.surprise, step)), "step \(step)")
+        }
+        XCTAssertTrue(tracker.ingest(frame(TestFaces.surprise, 33)))
+        XCTAssertEqual(tracker.query?.timestamp, 3.3)
+    }
+
     func testLosingTheFaceClearsHoldProgress() {
         let tracker = makeTracker()
         XCTAssertFalse(tracker.ingest(frame(TestFaces.surprise, 1)))

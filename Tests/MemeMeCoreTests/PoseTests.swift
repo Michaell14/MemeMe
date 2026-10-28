@@ -556,6 +556,24 @@ final class PoseTrackingTests: XCTestCase {
         XCTAssertEqual(MoodClassifier.mood(for: nil, pose: query.pose, baseline: tracker.baseline), .facepalm)
     }
 
+    func testAWeakGestureWithAWordDoesntTakeOverAHeldFace() throws {
+        let tracker = PeakHoldTracker(baseline: RestingBaseline(sampleCount: 100))
+        let onDesk = TestPoses.features(TestPoses.both(TestArm(elbow: (x: 0.6, y: -0.8), wrist: (x: 0.3, y: -0.85))))
+        // Forearms out on the chair's armrests: a shrug's shape, but too weak to be a gesture.
+        let armrests = TestPoses.features(TestPoses.both(TestArm(elbow: (x: 0.7, y: -0.8), wrist: (x: 0.8, y: -0.75))))
+        XCTAssertLessThan(armrests.gestureStrength, Ranker.gestureWithoutFace)
+        XCTAssertEqual(MoodClassifier.gestureMood(try XCTUnwrap(armrests.descriptor), face: TestFaces.surprise, baseline: tracker.baseline), .shrug)
+        for step in 1...3 {
+            XCTAssertFalse(tracker.ingest(frame(TestFaces.surprise, step, pose: onDesk)))
+        }
+        XCTAssertTrue(tracker.ingest(frame(TestFaces.surprise, 4, pose: onDesk)))
+        for step in 5...15 {
+            XCTAssertFalse(tracker.ingest(frame(TestFaces.surprise, step, pose: armrests)), "step \(step)")
+        }
+        XCTAssertEqual(tracker.query?.timestamp, 0.4)
+        XCTAssertEqual(tracker.query?.pose, onDesk)
+    }
+
     func testSnapDuringAGestureHidingTheFaceKeepsTheGesture() {
         let tracker = PeakHoldTracker(baseline: RestingBaseline(sampleCount: 100))
         XCTAssertFalse(tracker.ingest(frame(TestFaces.surprise, 1, pose: nil)))
