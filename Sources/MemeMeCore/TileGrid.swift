@@ -1,9 +1,9 @@
 import Foundation
 
-/// The panel's tiles for keyboard focus: the user's memes (`ownRows` rows of `columns`), then the GIPHY row, then
-/// the classic memes row (the panel shows one of the two at a time, on its shelf). Slots are numbered row by row from
-/// 0; the GIPHY row starts at `giphyStart` however many memes there are, and the classic memes row one row later.
-/// Each row's tiles fill it from the left.
+/// The panel's tiles for keyboard focus, in the panel's three rows: the user's memes (`ownRows` rows of `columns`),
+/// then the classic memes row, then the GIPHY row. Slots are numbered row by row from 0; the classic memes row starts
+/// at `templateStart` however many memes there are, and the GIPHY row one row later. Each row's tiles fill it from the
+/// left.
 public struct TileGrid: Equatable, Sendable {
     public let columns: Int
     public let ownRows: Int
@@ -19,18 +19,21 @@ public struct TileGrid: Equatable, Sendable {
         self.templateCount = min(max(0, templateCount), self.columns)
     }
 
-    /// The first slot of the GIPHY row.
-    public var giphyStart: Int { columns * ownRows }
+    /// The first slot of the web rows, just past your memes (the classic memes row's first slot).
+    public var webStart: Int { columns * ownRows }
 
     /// The first slot of the classic memes row.
-    public var templateStart: Int { giphyStart + columns }
+    public var templateStart: Int { webStart }
 
-    /// The slot focus starts on: the first meme, else the first GIPHY tile, else the first classic meme; nil when
-    /// there are none.
+    /// The first slot of the GIPHY row.
+    public var giphyStart: Int { templateStart + columns }
+
+    /// The first tile, top to bottom: the first meme, else the first classic meme, else the first GIPHY tile; nil
+    /// when there are none.
     public var firstSlot: Int? {
         if ownCount > 0 { return 0 }
-        if giphyCount > 0 { return giphyStart }
         if templateCount > 0 { return templateStart }
+        if giphyCount > 0 { return giphyStart }
         return nil
     }
 
@@ -40,28 +43,21 @@ public struct TileGrid: Equatable, Sendable {
     }
 
     public func section(of slot: Int) -> Section {
-        if slot < giphyStart { return .own }
-        return slot < templateStart ? .giphy : .template
-    }
-
-    /// Where focus starts when only one of the web rows is on screen (they share one shelf): the first meme, else the
-    /// first slot of the row on show, filled or not, so ↵ never copies a tile that can't be seen.
-    public func startSlot(showing web: Section) -> Int {
-        if ownCount > 0 { return 0 }
-        return web == .template ? templateStart : giphyStart
+        if slot < templateStart { return .own }
+        return slot < giphyStart ? .template : .giphy
     }
 
     public func isFilled(_ slot: Int) -> Bool {
         if slot >= 0 && slot < ownCount { return true }
-        if slot >= giphyStart && slot < giphyStart + giphyCount { return true }
-        return slot >= templateStart && slot < templateStart + templateCount
+        if slot >= templateStart && slot < templateStart + templateCount { return true }
+        return slot >= giphyStart && slot < giphyStart + giphyCount
     }
 
     /// The slot an arrow key moves to: along the row, or to the nearest row above or below that has tiles
     /// (keeping the column when it can). nil when there is nowhere to go.
     public func move(from slot: Int, dx: Int, dy: Int) -> Int? {
         let rowCount = ownRows + 2
-        let current = min(max(0, slot), templateStart + columns - 1)
+        let current = min(max(0, slot), giphyStart + columns - 1)
         var row = current / columns
         var column = current % columns
         if dy != 0 {
@@ -84,8 +80,8 @@ public struct TileGrid: Equatable, Sendable {
     }
 
     private func tiles(inRow row: Int) -> Int {
-        if row == ownRows { return giphyCount }
-        if row == ownRows + 1 { return templateCount }
+        if row == ownRows { return templateCount }
+        if row == ownRows + 1 { return giphyCount }
         return min(max(ownCount - row * columns, 0), columns)
     }
 }

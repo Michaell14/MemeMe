@@ -72,6 +72,45 @@ final class CameraFilterTests: XCTestCase {
     func testFiltersHaveNames() {
         XCTAssertEqual(Set(CameraFilter.allCases.map(\.title)).count, CameraFilter.allCases.count)
         XCTAssertEqual(CameraFilter.allCases.first, CameraFilter.none)
+        XCTAssertTrue(CameraFilter.allCases.allSatisfy { $0.title.count <= 12 }, "Chip titles stay short")
+        // The looks come first, then the face filters, the dog first among them.
+        XCTAssertEqual(CameraFilter.allCases.first(where: \.followsFace), .dog)
+    }
+
+    /// A face small enough in the 160 px picture for what goes above the head (ears, a halo) to show: eyes 24 px apart.
+    private let smallFace = FaceAnchors(leftEye: CGPoint(x: 68, y: 80), rightEye: CGPoint(x: 92, y: 80),
+                                        mouth: CGPoint(x: 80, y: 56), mouthOpen: 0.2)
+
+    /// The 160 px picture's pixels, RGBA.
+    private func pixels(_ image: CIImage) -> [UInt8] {
+        var bytes = [UInt8](repeating: 0, count: 160 * 160 * 4)
+        context.render(image, toBitmap: &bytes, rowBytes: 160 * 4, bounds: CGRect(x: 0, y: 0, width: 160, height: 160),
+                       format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
+        return bytes
+    }
+
+    func testTheMouthFiltersWaitForAnOpenMouth() throws {
+        let picture = CIImage(cgImage: try TestImages.shapes(width: 160, height: 160))
+        var closed = smallFace
+        closed.mouthOpen = 0.02
+        XCTAssertEqual(closed.mouthOpenness, 0)
+        XCTAssertEqual(smallFace.mouthOpenness, 1)
+        // The rainbow pours only from an open mouth.
+        XCTAssertTrue(CameraFilter.rainbow.apply(to: picture, face: closed, time: 0) === picture)
+        XCTAssertNotEqual(pixels(CameraFilter.rainbow.apply(to: picture, face: smallFace, time: 0)), pixels(picture))
+        // The dog has its ears and nose either way, and its tongue out only with the mouth open.
+        let dogClosed = pixels(CameraFilter.dog.apply(to: picture, face: closed, time: 0))
+        let dogOpen = pixels(CameraFilter.dog.apply(to: picture, face: smallFace, time: 0))
+        XCTAssertNotEqual(dogClosed, pixels(picture))
+        XCTAssertNotEqual(dogOpen, dogClosed)
+    }
+
+    func testEveryFaceFilterDrawsOnAFace() throws {
+        let picture = CIImage(cgImage: try TestImages.shapes(width: 160, height: 160))
+        let original = pixels(picture)
+        for filter in CameraFilter.allCases where filter.followsFace {
+            XCTAssertNotEqual(pixels(filter.apply(to: picture, face: smallFace, time: 0)), original, "\(filter)")
+        }
     }
 }
 
@@ -90,6 +129,42 @@ final class CaptureGeometryTests: XCTestCase {
         XCTAssertEqual(anchors.eyeDistance, 160, accuracy: 1e-9)
         XCTAssertEqual(anchors.angle, 0, accuracy: 1e-9)
         XCTAssertEqual(anchors.mouthOpen, 0.1, accuracy: 1e-9)
+        // No nose from Vision: 55 % of the way from between the eyes (320, 240) to the mouth (320, 120).
+        XCTAssertEqual(anchors.nose.x, 320, accuracy: 1e-9)
+        XCTAssertEqual(anchors.nose.y, 174, accuracy: 1e-9)
+    }
+
+    func testATiltedHeadDoesntOpenAClosedMouth() {
+        func rotated(_ point: CGPoint, by angle: CGFloat) -> CGPoint {
+            let x = point.x - 0.5
+            let y = point.y - 0.5
+            return CGPoint(x: 0.5 + x * cos(angle) - y * sin(angle), y: 0.5 + x * sin(angle) + y * cos(angle))
+        }
+        let eyes = (CGPoint(x: 0.3, y: 0.6), CGPoint(x: 0.7, y: 0.6))
+        let closed = [CGPoint(x: 0.33, y: 0.25), CGPoint(x: 0.5, y: 0.25), CGPoint(x: 0.67, y: 0.25)]
+        let open = [CGPoint(x: 0.35, y: 0.25), CGPoint(x: 0.5, y: 0.32), CGPoint(x: 0.65, y: 0.25), CGPoint(x: 0.5, y: 0.18)]
+        for degrees in [0, 15, -20] as [CGFloat] {
+            let angle = degrees * .pi / 180
+            let gapClosed = FaceGeometry.lipGap(closed.map { rotated($0, by: angle) },
+                                                firstEye: rotated(eyes.0, by: angle), secondEye: rotated(eyes.1, by: angle))
+            XCTAssertEqual(gapClosed, 0, accuracy: 1e-9, "\(degrees)°")
+            let gapOpen = FaceGeometry.lipGap(open.map { rotated($0, by: angle) },
+                                              firstEye: rotated(eyes.0, by: angle), secondEye: rotated(eyes.1, by: angle))
+            XCTAssertEqual(gapOpen, 0.14, accuracy: 1e-9, "\(degrees)°")
+        }
+        // The eyes given the other way round (Vision's left eye is on the right of the picture) measure the same.
+        XCTAssertEqual(FaceGeometry.lipGap(open, firstEye: eyes.1, secondEye: eyes.0), 0.14, accuracy: 1e-9)
+        XCTAssertEqual(FaceGeometry.lipGap([CGPoint(x: 0.5, y: 0.3)], firstEye: eyes.0, secondEye: eyes.1), 0)
+    }
+
+    func testTheNoseMapsLikeTheEyes() {
+        var geometry = FaceGeometry(firstEye: CGPoint(x: 0.25, y: 0.5), secondEye: CGPoint(x: 0.5, y: 0.5),
+                                    mouth: CGPoint(x: 0.375, y: 0.25), mouthOpen: 0.1)
+        geometry.nose = CGPoint(x: 0.4, y: 0.375)
+        let anchors = FaceAnchors(geometry: geometry, imageWidth: 640, imageHeight: 480)
+        // x: 0.4 × 640 = 256 → 256 − 80 = 176 → 480 − 176 = 304; y: 0.375 × 480 = 180.
+        XCTAssertEqual(anchors.nose.x, 304, accuracy: 1e-9)
+        XCTAssertEqual(anchors.nose.y, 180, accuracy: 1e-9)
     }
 
     func testAboveFollowsTheTilt() {
@@ -107,6 +182,9 @@ final class CaptureGeometryTests: XCTestCase {
         XCTAssertEqual(half.rightEye, CGPoint(x: 15, y: 5))
         XCTAssertEqual(half.mouth, CGPoint(x: 2, y: 2))
         XCTAssertEqual(half.mouthOpen, 0.5, accuracy: 1e-9)
+        // Their noses, estimated from the eyes and mouths ((2.25, 0) and (8.95, 6.7)), meet half way too.
+        XCTAssertEqual(half.nose.x, (a.nose.x + b.nose.x) / 2, accuracy: 1e-9)
+        XCTAssertEqual(half.nose.y, (a.nose.y + b.nose.y) / 2, accuracy: 1e-9)
     }
 
     func testTheCaptureIsTheMirroredCenterSquare() throws {

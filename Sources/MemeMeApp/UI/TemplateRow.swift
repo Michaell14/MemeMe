@@ -3,7 +3,8 @@ import MemeMeCore
 import SwiftUI
 
 /// The classic memes row: six famous static meme templates (Distracted Boyfriend, Surprised Pikachu…) from Imgflip's
-/// list, picked on the Mac for your face's mood or the words you type; on the shelf (`WebShelf`) when it shows them.
+/// list, picked on the Mac for your face's mood or the words you type. The panel's middle row, between your memes and
+/// the GIFs, headed "Classic memes" with "from Imgflip".
 struct TemplateRow: View {
     @ObservedObject var model: AppModel
 
@@ -14,6 +15,17 @@ struct TemplateRow: View {
     }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            RowHeader("Classic memes") {
+                Text("from Imgflip")
+                    .font(.system(size: 11))
+                    .foregroundColor(Theme.mutedText)
+            }
+            tiles
+        }
+    }
+
+    private var tiles: some View {
         LazyVGrid(columns: columns, alignment: .leading, spacing: spacing) {
             ForEach(Array(model.templateResults.prefix(Theme.columns).enumerated()), id: \.element.id) { offset, template in
                 let slot = model.templateSlot(offset)

@@ -2,8 +2,8 @@ import AppKit
 import MemeMeCore
 import SwiftUI
 
-/// GIPHY's results for the face's mood or the typed words, below the user's memes and apart from them: one row, in
-/// GIPHY's own order, on the shelf (`WebShelf`, whose header carries "Powered by" and GIPHY's logo).
+/// GIPHY's results for the face's mood or the typed words: the panel's bottom row, under the classic memes and apart
+/// from your memes, in GIPHY's own order, headed "GIFs" with "Powered by" and GIPHY's logo.
 struct GiphyRow: View {
     @ObservedObject var model: AppModel
 
@@ -14,6 +14,15 @@ struct GiphyRow: View {
     }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            RowHeader("GIFs") {
+                PoweredByGiphyMark()
+            }
+            tiles
+        }
+    }
+
+    private var tiles: some View {
         LazyVGrid(columns: columns, alignment: .leading, spacing: spacing) {
             ForEach(Array(model.giphyResults.prefix(Theme.columns).enumerated()), id: \.element.id) { offset, gif in
                 let slot = model.giphySlot(offset)
