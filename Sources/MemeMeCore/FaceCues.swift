@@ -49,6 +49,18 @@ public struct FaceShape: Codable, Hashable, Sendable {
         self.tongue = tongue
     }
 
+    /// Whether the fields `cue` is read from were measured (without them it reads 0, which says nothing).
+    public func measures(_ cue: FaceCues.Cue) -> Bool {
+        switch cue {
+        case .tongueOut: return tongue != nil
+        case .wink: return leftEyeOpen != nil && rightEyeOpen != nil
+        case .raisedBrow: return leftBrowGap != nil && rightBrowGap != nil
+        case .pucker: return lipWidth != nil
+        case .smirk: return cornerTilt != nil
+        case .eyeRoll: return gazeUp != nil
+        }
+    }
+
     /// Every field, in a fixed order, for blending.
     static let fields: [WritableKeyPath<FaceShape, Double?>] = [
         \.leftEyeOpen, \.rightEyeOpen, \.leftBrowGap, \.rightBrowGap, \.lipWidth, \.lipHeight, \.lipOpening,

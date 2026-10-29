@@ -135,7 +135,9 @@ public struct Ranker: Sendable {
             var faceScore = (1 - poseWeight) * featureSim + poseWeight * poseSim
             if let cue = clearCue {
                 let share = Ranker.cueShare * cues[cue]
-                let cueSim = item.faceShape.map { FaceCues(shape: $0, rest: nil)[cue] } ?? 0.5
+                // Unknown (0.5) without a shape, or when the item's shape lacks what the cue is read from (colors
+                // that couldn't tell a tongue, say).
+                let cueSim = item.faceShape.flatMap { $0.measures(cue) ? FaceCues(shape: $0, rest: nil)[cue] : nil } ?? 0.5
                 faceScore = (1 - poseWeight) * (1 - share) * featureSim + poseWeight * poseSim
                     + (1 - poseWeight) * share * cueSim
             }

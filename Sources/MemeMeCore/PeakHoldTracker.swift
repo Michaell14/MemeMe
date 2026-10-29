@@ -61,6 +61,8 @@ public final class PeakHoldTracker {
         let word: Mood?
         /// The face's clear cue (`FaceCues.clearCue`: a tongue out, a wink, ...), else nil.
         let cue: FaceCues.Cue?
+        /// Each cue's strength, in `FaceCues.Cue.allCases` order (zeros without a shape).
+        let cueValues: [Double]
         let shape: BodyShape?
         /// Held up only by the shape's strength floor (hands on hips, arms crossed, a bow): the arms alone are near
         /// rest, and no hand sign or face carries it. Such a shape is held for `newExpressionHold`, so a frame or two
@@ -79,6 +81,8 @@ public final class PeakHoldTracker {
         var entries: [Entry]
         /// The run's first frame was a clear gesture: frames that miss it are bridged for `gestureGrace`.
         let isGesture: Bool
+        /// The run's first frame's clear cue: a frame showing another starts a run of its own (`keepsCue`).
+        let cue: FaceCues.Cue?
         /// When the run last took a frame.
         var lastAccepted: TimeInterval
         /// The frames skipped since then for lying outside the run (its grace), oldest first: a run started once the
@@ -173,7 +177,8 @@ public final class PeakHoldTracker {
         let continuesShape = entry.shape != nil && (run.map { existing in
             existing.entries.contains { $0.shape == entry.shape } && facesAgree(existing.first, sample)
         } ?? false)
-        if let existing = run, VectorMath.cosine(entry.direction, existing.direction) >= config.sameDirectionCosine || continuesShape {
+        if let existing = run, keepsCue(entry, existing.cue),
+           VectorMath.cosine(entry.direction, existing.direction) >= config.sameDirectionCosine || continuesShape {
             current = existing
             current.entries.append(entry)
             current.lastAccepted = sample.timestamp
@@ -187,11 +192,12 @@ public final class PeakHoldTracker {
             // The skipped frames just before this one that point its way: frames that point elsewhere (a face
             // flickering between two looks, say) give no head start.
             let lead = Array((run?.skipped ?? []).reversed().prefix { skipped in
-                VectorMath.cosine(skipped.direction, entry.direction) >= config.sameDirectionCosine
+                keepsCue(skipped, entry.cue)
+                    && VectorMath.cosine(skipped.direction, entry.direction) >= config.sameDirectionCosine
             }.reversed())
             current = Run(start: lead.first?.sample.timestamp ?? sample.timestamp, direction: entry.direction, first: sample,
                           entries: lead + [entry], isGesture: entry.strength >= PeakHoldTracker.minimumGesture,
-                          lastAccepted: sample.timestamp)
+                          cue: entry.cue, lastAccepted: sample.timestamp)
         }
 
         guard let best = PeakHoldTracker.bestEntry(in: current.entries) else {
@@ -343,6 +349,16 @@ public final class PeakHoldTracker {
                            cue: cues.clearCue)
     }
 
+    /// Whether a frame keeps a run's clear cue (`cue`): it shows the same one, or none while that one still shows at
+    /// `minimumCue` or more (a cue hovering around `FaceCues.clear` doesn't break its own hold). A cue the run didn't
+    /// start with starts a run of its own, so one frame of it never names a face held without it.
+    private func keepsCue(_ entry: Entry, _ cue: FaceCues.Cue?) -> Bool {
+        if entry.cue == cue { return true }
+        guard entry.cue == nil, let cue, let index = FaceCues.Cue.allCases.firstIndex(of: cue),
+              index < entry.cueValues.count else { return false }
+        return entry.cueValues[index] >= PeakHoldTracker.minimumCue
+    }
+
     /// A frame under a gate (no face and no clear gesture, or too little intensity): bridged within a gesture run's
     /// grace, though the frames skipped before it no longer lead into a new run; else the hold is over.
     private func skipUnderGate(at timestamp: TimeInterval) {
@@ -393,8 +409,10 @@ public final class PeakHoldTracker {
             && (descriptor?.armStrength ?? 0) < PeakHoldTracker.minimumGesture
             && (descriptor?.hand?.signStrength ?? 0) < 0.7
             && faceIntensity < intensity
+        let cueValues = face?.cues.map { $0 / PeakHoldTracker.cueWeight }
+            ?? [Double](repeating: 0, count: FaceCues.Cue.allCases.count)
         return Entry(sample: sample, intensity: intensity, direction: VectorMath.normalized(direction), strength: strength,
-                     word: word, cue: face?.cue, shape: shape, isCarriedByShape: isCarriedByShape)
+                     word: word, cue: face?.cue, cueValues: cueValues, shape: shape, isCarriedByShape: isCarriedByShape)
     }
 
     /// A clear gesture (at least `minimumGesture`) with a word the query doesn't have: a facepalm after the hold caught

@@ -402,6 +402,30 @@ final class PeakHoldTrackerTests: XCTestCase {
 
     // MARK: Relaxing in between
 
+    func testOneFrameOfACueDoesntNameAFaceHeldWithoutIt() {
+        // A smile is the search; a strong surprise is held from 1.0 s; at 1.6 s, just when its 0.6 s are up, one frame
+        // shows a smirk (0.6 against the fixed values). That frame starts a run of its own, so neither it nor the
+        // surprise becomes the search then; the surprise, held again from 1.7 s, does at 2.3 s.
+        let tracker = makeTracker()
+        for step in 1...3 {
+            XCTAssertFalse(tracker.ingest(frame(TestFaces.smile, step)), "step \(step)")
+        }
+        XCTAssertTrue(tracker.ingest(frame(TestFaces.smile, 4)))
+        for step in 10...15 {
+            XCTAssertFalse(tracker.ingest(frame(TestFaces.strongSurprise, step)), "step \(step)")
+        }
+        XCTAssertFalse(tracker.ingest(frame(TestFaces.strongSurprise, 16, shape: FaceShape(cornerTilt: 0.13))))
+        XCTAssertEqual(tracker.query?.face, TestFaces.smile)
+        XCTAssertEqual(tracker.holdProgress, 0)
+        for step in 17...22 {
+            XCTAssertFalse(tracker.ingest(frame(TestFaces.strongSurprise, step)), "step \(step)")
+            XCTAssertEqual(tracker.query?.face, TestFaces.smile, "step \(step)")
+        }
+        XCTAssertTrue(tracker.ingest(frame(TestFaces.strongSurprise, 23)))
+        XCTAssertEqual(tracker.query?.face, TestFaces.strongSurprise)
+        XCTAssertNil(tracker.query?.shape)
+    }
+
     func testRelaxingFirstLetsTheNextFaceReplaceAfterTheShortHold() {
         let tracker = makeTracker()
         establishSurprise(tracker)

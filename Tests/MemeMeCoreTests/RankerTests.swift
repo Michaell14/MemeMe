@@ -182,6 +182,11 @@ final class RankerTests: XCTestCase {
         XCTAssertEqual(results[0].score, 0.7 * (0.4675 * tongueFace + 0.15 + 0.3825) + 0.3, accuracy: 1e-9)
         XCTAssertEqual(results[1].score, 0.866125, accuracy: 1e-9)
         XCTAssertEqual(results[2].score, 0.73225, accuracy: 1e-9)
+
+        // A shape whose colors couldn't tell a tongue (no `tongue`) is unknown too, not "no tongue".
+        var colorless = cueItem("colorless", face: openMouth, tongue: nil, intensity: target)
+        colorless.faceShape = FaceShape(lipWidth: 0.8)
+        XCTAssertEqual(ranker.expressionScore(item: colorless, sample: tongueQuery, weights: .uniform), 0.866125, accuracy: 1e-9)
     }
 
     func testATongueOutQueryPrefersMemesNamedForIt() {
