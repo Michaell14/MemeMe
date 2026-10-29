@@ -88,6 +88,62 @@ final class MemeTemplatesTests: XCTestCase {
         XCTAssertEqual(WebQuery.words("so sad").label, "so sad")
     }
 
+    func testADescribedPoseBecomesOneGIPHYQueryOfItsWords() {
+        XCTAssertEqual(WebQuery.described(from: "Flexing"), .described("flexing"))
+        XCTAssertEqual(WebQuery.described(from: "  rock \n ON  "), .described("rock on"), "normalized like typed words")
+        XCTAssertNil(WebQuery.described(from: "ok"), "two letters find nothing useful and still cost a search")
+        XCTAssertNil(WebQuery.described(from: " - "))
+        XCTAssertNil(WebQuery.described(from: ""))
+        guard case let .described(long)? = WebQuery.described(from: String(repeating: "flex ", count: 20)) else {
+            return XCTFail("long words are cut, not dropped")
+        }
+        XCTAssertEqual(long, Array(repeating: "flex", count: 10).joined(separator: " "), "cut to 50 and trimmed")
+
+        let rockOn = WebQuery.described("rock on")
+        XCTAssertEqual(rockOn.searchTerms, "rock on", "only the few words naming the pose go to GIPHY")
+        XCTAssertEqual(rockOn.label, "rock on")
+        XCTAssertNotEqual(rockOn, .words("rock on"), "read by the camera, not typed")
+        XCTAssertFalse(rockOn.isTyped)
+        XCTAssertFalse(WebQuery.mood(.flex).isTyped)
+        XCTAssertTrue(WebQuery.words("rock on").isTyped)
+    }
+
+    @MainActor
+    func testADescribedPoseShowsTheTemplatesItsWordsNameThenTheMoodsAndPages() throws {
+        // Eleven plain templates, Surprised Pikachu (made for shocked) and Buff Doge (named by "flexing") last.
+        var list: [MemeTemplate] = []
+        for number in 1...11 {
+            let url = try XCTUnwrap(URL(string: "https://i.imgflip.com/plain\(number).jpg"))
+            list.append(MemeTemplate(id: "plain\(number)", name: "Plain Template \(number)", url: url, width: 500, height: 500))
+        }
+        let pikachuURL = try XCTUnwrap(URL(string: "https://i.imgflip.com/2kbn1e.jpg"))
+        list.append(MemeTemplate(id: "155067746", name: "Surprised Pikachu", url: pikachuURL, width: 1893, height: 1893))
+        let dogeURL = try XCTUnwrap(URL(string: "https://i.imgflip.com/43a45p.png"))
+        list.append(MemeTemplate(id: "247375501", name: "Buff Doge vs. Cheems", url: dogeURL, width: 937, height: 720))
+
+        // What the words name, then the face's mood's (shocked), then the most popular; each once.
+        let flexing = WebQuery.described("flexing")
+        let first = AppModel.pickTemplates(for: flexing, from: list, fallback: .shocked).map(\.name)
+        XCTAssertEqual(first, ["Buff Doge vs. Cheems", "Surprised Pikachu"] + (1...4).map { "Plain Template \($0)" })
+        XCTAssertEqual(AppModel.pickTemplates(for: flexing, from: list, page: 0, fallback: .shocked).map(\.name), first)
+        let second = AppModel.pickTemplates(for: flexing, from: list, page: 1, fallback: .shocked).map(\.name)
+        XCTAssertEqual(second, (5...10).map { "Plain Template \($0)" }, "the same words caught again turn the page")
+        let third = AppModel.pickTemplates(for: flexing, from: list, page: 2, fallback: .shocked).map(\.name)
+        XCTAssertEqual(third.count, Theme.columns, "wrapping around, the row stays full")
+        XCTAssertEqual(Set(first + second + third), Set(list.map(\.name)), "every template turns up within three pages")
+
+        // Words that name nothing are never an empty row: the face's mood's templates, paged the same way.
+        let unnamed = WebQuery.described("zorblax wiggle")
+        for page in 0...2 {
+            XCTAssertEqual(AppModel.pickTemplates(for: unnamed, from: list, page: page, fallback: .shocked).map(\.name),
+                           AppModel.pickTemplates(for: .mood(.shocked), from: list, page: page).map(\.name))
+        }
+        XCTAssertEqual(AppModel.pickTemplates(for: unnamed, from: list).map(\.name),
+                       AppModel.pickTemplates(for: .mood(.reaction), from: list).map(\.name),
+                       "without a face, the most popular")
+        XCTAssertTrue(AppModel.pickTemplates(for: flexing, from: []).isEmpty)
+    }
+
     @MainActor
     func testTheRowPicksTemplatesForAMoodOrWords() throws {
         let list = try XCTUnwrap(MemeTemplates.parseList(Data(listJSON.utf8)))

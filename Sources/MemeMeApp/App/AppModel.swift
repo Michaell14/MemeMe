@@ -124,6 +124,19 @@ struct MoodReadout: Equatable {
 
     let word: String
     let source: Source
+    /// The on-device model named the pose (`PoseNaming`); the mirror shows sparkles. False for a mood's word and for
+    /// the rule's phrase for a pose (`PoseDescription.phrase`).
+    var named: Bool = false
+}
+
+/// The words a pose with no word of its own was searched by, kept for the query they were found for so re-showing it
+/// (pins, Esc, a library change, back from typing) searches the same words and never asks the model again.
+private struct DescribedPhrase {
+    /// The held query's `ExpressionSample.timestamp`.
+    let timestamp: TimeInterval
+    let phrase: String
+    /// The on-device model named it; else it is the rule's phrase.
+    let named: Bool
 }
 
 /// Orchestrates the panel: camera → peak-hold → mood → your memes ranked and the GIPHY row, typed and image queries,
@@ -196,6 +209,9 @@ struct MoodReadout: Equatable {
     let friends: FriendService
     /// Update checks and the one-click install; disabled when the bundle has no feed URL (local builds, tests).
     let updates: UpdateChecker
+    /// Names a clear gesture with no word of its own (`PoseDescription`) with the on-device model, where the Mac has
+    /// one; the rule's phrase stands where it doesn't.
+    private let poseNamer: any PoseNaming
 
     var onRequestClose: (() -> Void)?
 
@@ -270,11 +286,22 @@ struct MoodReadout: Equatable {
     /// Which of `giphyFound` the row shows (`WebDiscover.page`): a new face caught with the same mood turns to the
     /// next ones. 0 for each new query and each time the panel opens.
     private var giphyPage = 0
+    /// The GIPHY row waits for the held pose's name (`awaitGiphyName`): it shows it is loading, and keeps what it found
+    /// for `giphyQuery` so a name that comes out the same words turns their page.
+    private var giphyAwaitsName = false
     private var templateTask: Task<Void, Never>?
     private var templateGeneration = 0
     /// Which of the mood's templates the classic memes row shows (`MemeTemplateCatalog.pick(for:from:limit:page:)`),
     /// turned like `giphyPage`.
     private var templatePage = 0
+    /// The face's mood whose templates follow those a described pose's words name (`pickTemplates`).
+    private var templateFallback: Mood = .reaction
+    /// Asks the on-device model for the held pose's name (`PoseNaming.name`), then searches the web rows with it.
+    private var describeTask: Task<Void, Never>?
+    /// The held query (`ExpressionSample.timestamp`) `describeTask` asks about.
+    private var describingTimestamp: TimeInterval?
+    /// The words the held query's pose was searched by, once known.
+    private var describedPhrase: DescribedPhrase?
     private var cleanupTask: Task<Void, Never>?
     private var imageTask: Task<Void, Never>?
     private var cameraAccessTask: Task<Void, Never>?
@@ -290,8 +317,14 @@ struct MoodReadout: Equatable {
 
     /// `webCacheRoot`: where web discovery keeps its cache (nil = ~/Library/Caches/MemeMe/Web); tests pass a temp folder,
     /// and the classic memes keep theirs next to it ("Templates").
-    init(store: LibraryStore, webCacheRoot: URL?) {
+    /// `poseNamer`: names poses with no word of their own (nil = `PoseNamer`, the on-device model); tests pass a stand-in.
+    init(store: LibraryStore, webCacheRoot: URL?, poseNamer: (any PoseNaming)? = nil) {
         self.store = store
+        if let poseNamer {
+            self.poseNamer = poseNamer
+        } else {
+            self.poseNamer = PoseNamer()
+        }
         let camera = CameraController()
         self.camera = camera
         self.capture = CaptureModel(camera: camera)
@@ -925,6 +958,7 @@ struct MoodReadout: Equatable {
             mode = .live
             liveSince = sample.timestamp
             faceMissing = false
+            warmPoseNamer()
         }
         // In text, image and more-like modes the camera only feeds the (dimmed) mirror; in the capture view it
         // only feeds the capture picture.
@@ -936,9 +970,12 @@ struct MoodReadout: Equatable {
 
         standingBack.observe(bodyWidth: camera.bodyWidth, at: sample.timestamp)
         let queryChanged = tracker.ingest(sample)
-        // Search the web for the expression being held, so its results are in by the time the hold completes.
-        let candidateMood = tracker.candidate.map {
-            MoodClassifier.mood(for: $0.face, pose: $0.pose, shape: $0.shape, baseline: tracker.baseline)
+        // Search the web for the expression being held, so its results are in by the time the hold completes. Not for
+        // a clear gesture with no word of its own: it is searched by the words describing it, known once it is held,
+        // and its face's mood would spend one of GIPHY's searches on GIFs never shown.
+        let candidateMood = tracker.candidate.flatMap { candidate -> Mood? in
+            if case .pose? = PoseBadge.of(candidate, baseline: tracker.baseline) { return nil }
+            return MoodClassifier.mood(for: candidate.face, pose: candidate.pose, shape: candidate.shape, baseline: tracker.baseline)
         }
         if let mood = earlyMood.observe(candidateMood, at: sample.timestamp) {
             web.warm(mood)
@@ -1021,6 +1058,14 @@ struct MoodReadout: Equatable {
         mode = .live
         liveSince = CACurrentMediaTime()
         faceMissing = false
+        warmPoseNamer()
+    }
+
+    /// The camera went live: the on-device model loads now (where the Mac has one), so the first pose with no word of
+    /// its own is named without waiting for it.
+    private func warmPoseNamer() {
+        guard poseNamer.isAvailable else { return }
+        poseNamer.prewarm()
     }
 
     /// Asks for camera access (the app is activated just for the system alert), then switches to the camera.
@@ -1095,6 +1140,13 @@ struct MoodReadout: Equatable {
     /// (often already searched while the face was being held), the classic memes row the templates for it.
     /// `newQuery`: the tracker just caught a new face (or Space snapped one), so web rows already showing its mood turn
     /// to their next GIFs and templates; re-showing the same face (pins, Esc, library changes) leaves them as they are.
+    ///
+    /// A clear gesture with no word of its own (`PoseDescription.of`) is searched by the words describing it instead of
+    /// the face's mood: the on-device model's name for it, else the rule's phrase ("flexing", "rock on"). Your memes are
+    /// ranked at once with the words known now (`heldPoseWords`). When the model can name the pose and was never asked
+    /// about it, the web rows wait for its answer (`describe`, at most `PoseNamer.timeout`): the GIPHY row shows it is
+    /// loading, the classic memes keep what they show. Re-showing the same query searches the words found for it
+    /// (`describedPhrase`) and never asks again.
     private func runExpressionSearch(animate: Bool, newQuery: Bool = false) {
         guard let sample = tracker.query else {
             showRecentResults()
@@ -1104,11 +1156,22 @@ struct MoodReadout: Equatable {
         let mood = MoodClassifier.mood(for: sample.face, pose: sample.pose, shape: sample.shape, baseline: tracker.baseline)
         let badge = PoseBadge.of(sample, baseline: tracker.baseline)
         if heldPose != badge { heldPose = badge }
+        let describedPose = PoseDescription.of(sample, baseline: tracker.baseline)
+        // A question about another query (or about a pose no longer described) is dropped; one about this query goes on.
+        if describedPose == nil || describingTimestamp != sample.timestamp {
+            cancelDescribing()
+        }
+        let poseWords = describedPose.map { heldPoseWords(for: $0, timestamp: sample.timestamp) }
         switch badge {
         case .word?:
             searchReadout = MoodReadout(word: mood.label, source: .pose)
         case .pose?:
-            searchReadout = MoodReadout(word: mood.label, source: sample.face == nil ? .pose : .faceAndPose)
+            let source: MoodReadout.Source = sample.face == nil ? .pose : .faceAndPose
+            if let poseWords {
+                searchReadout = MoodReadout(word: poseWords.phrase, source: source, named: poseWords.named)
+            } else {
+                searchReadout = MoodReadout(word: mood.label, source: source)
+            }
         case nil:
             // No face and no pose word reads "reaction": nothing worth showing.
             searchReadout = mood == .reaction ? nil : MoodReadout(word: mood.label, source: .face)
@@ -1119,10 +1182,106 @@ struct MoodReadout: Equatable {
         searchGeneration += 1
 
         let ranker = Ranker(baseline: tracker.baseline)
-        let ranked = ranker.rank(ownItems, query: .expression(sample, weights: weights), people: store.people, limit: limit)
+        let phraseWords = poseWords.map { [$0.phrase] } ?? []
+        let ranked = ranker.rank(ownItems, query: .expression(sample, weights: weights, words: phraseWords),
+                                 people: store.people, limit: limit)
         setResults(ranked, animateNew: animate, resetFocus: true)
-        showGiphy(for: .mood(mood), turningPage: newQuery)
-        showTemplates(for: .mood(mood), turningPage: newQuery)
+        guard let description = describedPose, let described = poseWords else {
+            showGiphy(for: .mood(mood), turningPage: newQuery)
+            showTemplates(for: .mood(mood), turningPage: newQuery)
+            return
+        }
+        guard described.waits else {
+            // The words are settled for this query: a question still running about it changes nothing.
+            cancelDescribing()
+            let query = WebQuery.described(from: described.phrase) ?? .mood(mood)
+            showGiphy(for: query, turningPage: newQuery)
+            showTemplates(for: query, turningPage: newQuery, fallback: mood)
+            return
+        }
+        // The model's words come within `PoseNamer.timeout`: GIFs for the rule's phrase or the face's mood would cost
+        // one of GIPHY's searches and be replaced at once.
+        awaitGiphyName()
+        if templateQuery == nil {
+            showTemplates(for: .mood(mood))
+        }
+        if describeTask == nil {
+            describe(description, of: sample, mood: mood, animate: animate, newQuery: newQuery)
+        }
+    }
+
+    /// The words the held pose is searched by now, and whether its web rows wait for the model: the words kept for
+    /// this query (`describedPhrase`), else `describedWords(for:namer:)`'s, kept for the query unless they wait.
+    private func heldPoseWords(for description: PoseDescription,
+                               timestamp: TimeInterval) -> (phrase: String, named: Bool, waits: Bool) {
+        if let kept = describedPhrase, kept.timestamp == timestamp {
+            return (phrase: kept.phrase, named: kept.named, waits: false)
+        }
+        let words = AppModel.describedWords(for: description, namer: poseNamer)
+        if !words.waits {
+            describedPhrase = DescribedPhrase(timestamp: timestamp, phrase: words.phrase, named: words.named)
+        }
+        return words
+    }
+
+    /// What a described pose is searched by when it is held: the model's name for it when it gave one before
+    /// (`named`); the rule's phrase (`PoseDescription.phrase`) when the model had no name for it or the Mac has no
+    /// model; the rule's phrase with `waits` when the model can name the pose and was never asked about it, so the web
+    /// rows wait for its answer.
+    static func describedWords(for description: PoseDescription,
+                               namer: any PoseNaming) -> (phrase: String, named: Bool, waits: Bool) {
+        if let asked = namer.cachedName(for: description) {
+            return (phrase: asked ?? description.phrase, named: asked != nil, waits: false)
+        }
+        return (phrase: description.phrase, named: false, waits: namer.isAvailable)
+    }
+
+    /// Asks the model for the held pose's name, then shows it: the readout (with sparkles), your memes ranked with its
+    /// words when they aren't the rule's phrase, and the GIPHY row and the classic memes for them. An answer for a
+    /// query no longer shown (a new face or pose, the panel closed or reopened, typing, the capture view) is dropped;
+    /// the model keeps it for the next time the pose is held.
+    private func describe(_ description: PoseDescription, of sample: ExpressionSample, mood: Mood, animate: Bool,
+                          newQuery: Bool) {
+        let session = sessionID
+        let timestamp = sample.timestamp
+        let source: MoodReadout.Source = sample.face == nil ? .pose : .faceAndPose
+        describingTimestamp = timestamp
+        describeTask = Task { [weak self] in
+            guard let self else { return }
+            let name = await self.poseNamer.name(description)
+            guard !Task.isCancelled, session == self.sessionID else { return }
+            self.describeTask = nil
+            self.describingTimestamp = nil
+            guard self.isPanelVisible, self.mode == .live, !self.isCaptureOpen, self.resultSource == .expression,
+                  self.tracker.query?.timestamp == timestamp else {
+                self.stopAwaitingGiphyName()
+                return
+            }
+            let phrase = name ?? description.phrase
+            let named = name != nil
+            self.describedPhrase = DescribedPhrase(timestamp: timestamp, phrase: phrase, named: named)
+            self.searchReadout = MoodReadout(word: phrase, source: source, named: named)
+            if phrase != description.phrase {
+                // Your memes were ranked by the rule's phrase; the model's words may name others.
+                self.searchGeneration += 1
+                let ranker = Ranker(baseline: self.tracker.baseline)
+                let ranked = ranker.rank(self.ownItems, query: .expression(sample, weights: self.currentWeights, words: [phrase]),
+                                         people: self.store.people, limit: self.limit)
+                self.setResults(ranked, animateNew: animate, resetFocus: false)
+            }
+            let query = WebQuery.described(from: phrase) ?? .mood(mood)
+            self.showGiphy(for: query, turningPage: newQuery)
+            self.showTemplates(for: query, turningPage: newQuery, fallback: mood)
+            self.refreshHint()
+        }
+    }
+
+    /// Stops waiting for the held pose's name (a new query, the panel closing). The model still answers, and keeps the
+    /// answer for the next time the pose is held.
+    private func cancelDescribing() {
+        describeTask?.cancel()
+        describeTask = nil
+        describingTimestamp = nil
     }
 
     // MARK: - GIPHY row
@@ -1130,9 +1289,21 @@ struct MoodReadout: Equatable {
     /// Shows GIPHY's results for `query` in the GIPHY row: at once when searched in the last 10 minutes, else when
     /// the search answers. The same query already showing (or loading) is left alone, unless `turningPage` (a new face
     /// caught with the same mood): then the row shows the next `Theme.columns` of GIPHY's results, wrapping around.
+    /// After waiting for a pose's name (`awaitGiphyName`), words that came out the same as the row's show its GIFs
+    /// again, turned the same way.
     private func showGiphy(for query: WebQuery, turningPage: Bool = false) {
         guard showsGiphyRow else { return }
-        if query == giphyQuery && (isGiphyLoading || !giphyResults.isEmpty) {
+        if giphyAwaitsName {
+            giphyAwaitsName = false
+            if query == giphyQuery && !giphyFound.isEmpty {
+                if isGiphyLoading { isGiphyLoading = false }
+                if turningPage && giphyFound.count > Theme.columns {
+                    giphyPage += 1
+                }
+                showGiphyPage()
+                return
+            }
+        } else if query == giphyQuery && (isGiphyLoading || !giphyResults.isEmpty) {
             if turningPage && !isGiphyLoading && giphyFound.count > Theme.columns {
                 giphyPage += 1
                 showGiphyPage()
@@ -1193,12 +1364,42 @@ struct MoodReadout: Equatable {
         giphyTask = nil
         giphyWordsTask?.cancel()
         giphyWordsTask = nil
+        giphyAwaitsName = false
         giphyFound = []
         giphyPage = 0
         if !giphyResults.isEmpty { giphyResults = [] }
         if giphyQuery != nil { giphyQuery = nil }
         if isGiphyLoading { isGiphyLoading = false }
         if giphyUnavailable { giphyUnavailable = false }
+    }
+
+    /// The GIPHY row while the held pose is being named (`describe`): empty and loading, as for a new query, until
+    /// `showGiphy` gets the name's words. A search still answering for the row is dropped from it (WebDiscover keeps
+    /// its results); what the row found before stays in `giphyFound`, so a name that comes out the same words turns
+    /// their page.
+    private func awaitGiphyName() {
+        guard showsGiphyRow else { return }
+        giphyGeneration += 1
+        giphyTask?.cancel()
+        giphyTask = nil
+        giphyAwaitsName = true
+        if giphyUnavailable { giphyUnavailable = false }
+        if !giphyResults.isEmpty { giphyResults = [] }
+        if !isGiphyLoading { isGiphyLoading = true }
+        normalizeFocus()
+    }
+
+    /// The held pose's name won't be shown (the search moved on: typing, the capture view): the GIPHY row shows what
+    /// it had again, searching its query again (or joining that search) when the wait dropped it before it answered.
+    private func stopAwaitingGiphyName() {
+        guard giphyAwaitsName else { return }
+        giphyAwaitsName = false
+        if isGiphyLoading { isGiphyLoading = false }
+        if let query = giphyQuery, giphyFound.isEmpty {
+            showGiphy(for: query)
+        } else {
+            showGiphyPage()
+        }
     }
 
     /// The GIPHY row follows typed words once typing pauses (at once when GIPHY answered them in the last 10
@@ -1223,13 +1424,16 @@ struct MoodReadout: Equatable {
 
     /// Shows the templates for `query` (picked on the Mac from Imgflip's list): at once from the list kept from
     /// earlier, else once Imgflip answers. The same query already showing (or loading) is left alone, unless
-    /// `turningPage` (a new face caught with the same mood): then the row shows the mood's next templates.
-    private func showTemplates(for query: WebQuery, turningPage: Bool = false) {
+    /// `turningPage` (a new face caught with the same mood, or a pose with the same words): then the row shows the
+    /// mood's (or the words') next templates. `fallback`: the face's mood, whose templates follow those a described
+    /// pose's words name (`pickTemplates`).
+    private func showTemplates(for query: WebQuery, turningPage: Bool = false, fallback: Mood = .reaction) {
         guard showsTemplateRow else { return }
         if query == templateQuery && (isTemplatesLoading || !templateResults.isEmpty) {
-            if turningPage, !isTemplatesLoading, case .mood = query, let list = templates.cachedList {
+            if turningPage, !isTemplatesLoading, !query.isTyped, let list = templates.cachedList {
                 templatePage += 1
-                setTemplateResults(AppModel.pickTemplates(for: query, from: list, page: templatePage))
+                setTemplateResults(AppModel.pickTemplates(for: query, from: list, page: templatePage,
+                                                          fallback: templateFallback))
             }
             return
         }
@@ -1238,11 +1442,12 @@ struct MoodReadout: Equatable {
         templateTask?.cancel()
         templateTask = nil
         templateQuery = query
+        templateFallback = fallback
         templatePage = 0
         if templatesUnavailable { templatesUnavailable = false }
         if let list = templates.cachedList {
             if isTemplatesLoading { isTemplatesLoading = false }
-            setTemplateResults(AppModel.pickTemplates(for: query, from: list, page: templatePage))
+            setTemplateResults(AppModel.pickTemplates(for: query, from: list, page: templatePage, fallback: fallback))
         } else {
             setTemplateResults([])
             isTemplatesLoading = true
@@ -1258,13 +1463,17 @@ struct MoodReadout: Equatable {
                 if self.templateResults.isEmpty { self.templatesUnavailable = true }
                 return
             }
-            self.setTemplateResults(AppModel.pickTemplates(for: query, from: list, page: self.templatePage))
+            self.setTemplateResults(AppModel.pickTemplates(for: query, from: list, page: self.templatePage,
+                                                           fallback: fallback))
         }
     }
 
     /// The classic memes row for `query`: for a mood, its `page`th group of `Theme.columns` templates (page 0 the ones
-    /// made for it, then the most popular; later pages the next ones, wrapping around); for words, the best matches.
-    static func pickTemplates(for query: WebQuery, from list: [MemeTemplate], page: Int = 0) -> [MemeTemplate] {
+    /// made for it, then the most popular; later pages the next ones, wrapping around); for words, the best matches;
+    /// for a described pose, the templates its words name, then `fallback`'s (the face's mood: those made for it, then
+    /// the most popular), paged like a mood's, so the row is never empty.
+    static func pickTemplates(for query: WebQuery, from list: [MemeTemplate], page: Int = 0,
+                              fallback: Mood = .reaction) -> [MemeTemplate] {
         let refs = list.map(\.ref)
         let indexes: [Int]
         switch query {
@@ -1272,6 +1481,9 @@ struct MoodReadout: Equatable {
             indexes = MemeTemplateCatalog.pick(for: mood, from: refs, limit: Theme.columns, page: page)
         case let .words(text):
             indexes = MemeTemplateCatalog.pick(forTerms: [text], from: refs, limit: Theme.columns)
+        case let .described(phrase):
+            indexes = MemeTemplateCatalog.pick(forDescription: phrase, mood: fallback, from: refs, limit: Theme.columns,
+                                               page: page)
         }
         return indexes.map { list[$0] }
     }
@@ -1289,6 +1501,7 @@ struct MoodReadout: Equatable {
         templateTask?.cancel()
         templateTask = nil
         templatePage = 0
+        templateFallback = .reaction
         if !templateResults.isEmpty { templateResults = [] }
         if templateQuery != nil { templateQuery = nil }
         if isTemplatesLoading { isTemplatesLoading = false }
@@ -1957,6 +2170,8 @@ struct MoodReadout: Equatable {
         standingBack.reset()
         if heldPose != nil { heldPose = nil }
         searchReadout = nil
+        cancelDescribing()
+        describedPhrase = nil
         clearGiphyRow()
         showsGiphyRow = store.settings.webDiscoverEnabled && web.hasAPIKey
         clearTemplateRow()
@@ -1986,6 +2201,7 @@ struct MoodReadout: Equatable {
         templateTask?.cancel()
         templateTask = nil
         templateGeneration += 1
+        cancelDescribing()
         imageTask?.cancel()
         imageTask = nil
         cameraAccessTask?.cancel()

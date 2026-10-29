@@ -197,7 +197,8 @@ struct MirrorColumn: View {
 }
 
 /// The word the camera's search went by, large, and what it was read from ("your face", "your pose"). Dims while a
-/// new expression is being held toward replacing it.
+/// new expression is being held toward replacing it. Sparkles stand before the caption when the on-device model named
+/// a pose with no word of its own ("flexing", "rock on"); the rule's phrase for it shows the pose's figure.
 private struct ReadoutView: View {
     let readout: MoodReadout
     let isDimmed: Bool
@@ -212,7 +213,7 @@ private struct ReadoutView: View {
                 .contentTransition(.opacity)
                 .opacity(isDimmed ? 0.45 : 1)
             HStack(spacing: 4) {
-                Image(systemName: readout.source == .face ? "face.smiling" : "figure.arms.open")
+                Image(systemName: symbolName)
                     .font(.system(size: 10))
                     .accessibilityHidden(true)
                 Text(verbatim: caption)
@@ -226,6 +227,11 @@ private struct ReadoutView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(verbatim: "Reading \(readout.word) from \(caption)"))
+    }
+
+    private var symbolName: String {
+        if readout.named { return "sparkles" }
+        return readout.source == .face ? "face.smiling" : "figure.arms.open"
     }
 
     private var caption: String {

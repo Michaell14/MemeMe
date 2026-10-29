@@ -29,6 +29,10 @@ jobs:
     env:
       # The Developer ID team that signs releases; the updater only takes builds from it.
       DEVELOPER_TEAM_ID: XG6X9X3J6V
+      # Xcode 26.3 and its macOS 26 SDK, for Apple's on-device model (FoundationModels), which names poses that have
+      # no word of their own; the runner's default Xcode 16.4 has no such framework. The runner stays on macOS 15,
+      # where the framework doesn't exist, so the tests also show that the app loads without it.
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
     steps:
       - name: Check out
         uses: actions/checkout@v4
@@ -38,7 +42,14 @@ jobs:
           fetch-depth: 0
 
       - name: Toolchain
-        run: swift --version
+        run: |
+          if [[ ! -d "$DEVELOPER_DIR" ]]; then
+            echo "::error::$DEVELOPER_DIR is not on this runner; set DEVELOPER_DIR to an Xcode 26 the runner image lists"
+            exit 1
+          fi
+          xcodebuild -version
+          echo "macOS SDK $(xcrun --sdk macosx --show-sdk-version)"
+          swift --version
 
       - name: Version
         id: version
@@ -117,6 +128,45 @@ jobs:
 
       - name: Build
         run: swift build
+
+      # FoundationModels exists only on macOS 26, and MemeMe runs on macOS 14 and later, so the framework must be
+      # weak-linked: a strong link keeps the app (and the test bundle) from loading on macOS 14 and 15. Swift links it
+      # weakly by itself only while every use is inside #if canImport(FoundationModels) and a macOS 26 availability
+      # check, so this fails on a stray use, before the tests would fail to load. The arm64 slice must link it (else
+      # the app was built without the macOS 26 SDK); another slice may leave it out, but never link it strongly. The
+      # script stays in $RUNNER_TEMP for the same check on the app's universal binary after "Build MemeMe.app".
+      - name: Check FoundationModels is weak-linked
+        run: |
+          checker="$RUNNER_TEMP/check-weak-link.sh"
+          cat > "$checker" << 'CHECKER'
+          #!/usr/bin/env bash
+          # check-weak-link.sh BINARY: fails unless BINARY's arm64 slice links FoundationModels and no slice links it
+          # with anything but LC_LOAD_WEAK_DYLIB.
+          set -euo pipefail
+          binary="$1"
+          failed=0
+          for arch in $(lipo -archs "$binary"); do
+            # The load command of each library in FoundationModels.framework ("cmd" comes before "name" in each).
+            commands="$(otool -arch "$arch" -l "$binary" \
+              | awk '$1 == "cmd" { cmd = $2 } $1 == "name" && $2 ~ /\/FoundationModels\.framework\// { print cmd }')"
+            if [[ -z "$commands" ]]; then
+              if [[ "$arch" == "arm64" ]]; then
+                echo "::error::$binary ($arch) doesn't link FoundationModels: it was built without the macOS 26 SDK (check DEVELOPER_DIR)"
+                failed=1
+              else
+                echo "$binary ($arch): no FoundationModels"
+              fi
+            elif grep -qvx 'LC_LOAD_WEAK_DYLIB' <<< "$commands"; then
+              echo "::error::$binary ($arch) links FoundationModels strongly (${commands//$'\n'/, }), so it can't load on macOS 14 or 15: keep every use of FoundationModels inside #if canImport(FoundationModels) and a macOS 26 availability check"
+              failed=1
+            else
+              echo "$binary ($arch): FoundationModels is weak-linked"
+            fi
+          done
+          exit "$failed"
+          CHECKER
+          chmod +x "$checker"
+          "$checker" "$(swift build --show-bin-path)/MemeMe"
 
       - name: Test
         run: swift test
@@ -229,6 +279,11 @@ jobs:
           fi
           chmod +x scripts/build-app.sh
           ./scripts/build-app.sh
+
+      # The shipped binary, every slice of it (see "Check FoundationModels is weak-linked").
+      - name: Check MemeMe.app links FoundationModels weakly
+        run: |
+          "$RUNNER_TEMP/check-weak-link.sh" build/MemeMe.app/Contents/MacOS/MemeMe
 
       # The app is notarized and stapled before it goes into the DMG, so it passes Gatekeeper offline
       # wherever it is copied, including when the updater installs it.

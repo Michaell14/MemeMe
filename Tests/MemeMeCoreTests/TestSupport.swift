@@ -207,6 +207,27 @@ enum TestHands {
         return hand(points, offset: PosePoint(x: 0, y: 0))
     }
 
+    /// A fist: every finger curled, the thumb tucked across them.
+    static func fist() -> HandJoints {
+        var points = curledFingers
+        points[.wrist] = PosePoint(x: 0, y: 0)
+        points[.thumbCMC] = PosePoint(x: 0.2, y: 0.25)
+        points[.thumbMP] = PosePoint(x: 0.45, y: 0.45)
+        points[.thumbIP] = PosePoint(x: 0.7, y: 0.5)
+        points[.thumbTip] = PosePoint(x: 0.9, y: 0.45)
+        return hand(points, offset: PosePoint(x: 0, y: 0))
+    }
+
+    /// Horns ("rock on"): `pointing()` with the little finger straightened too, the middle and ring curled under the
+    /// tucked thumb.
+    static func rockOn() -> HandJoints {
+        var points = pointing().points
+        points[.littlePIP] = PosePoint(x: 1.1, y: -0.38)
+        points[.littleDIP] = PosePoint(x: 1.32, y: -0.42)
+        points[.littleTip] = PosePoint(x: 1.55, y: -0.46)
+        return HandJoints(points: points)
+    }
+
     /// All fingers straight up.
     static func openPalm() -> HandJoints {
         var points: [HandJoint: PosePoint] = [.wrist: PosePoint(x: 0, y: 0)]

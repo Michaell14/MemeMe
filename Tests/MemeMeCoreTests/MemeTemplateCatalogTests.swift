@@ -153,6 +153,113 @@ final class MemeTemplateCatalogTests: XCTestCase {
         XCTAssertEqual(MemeTemplateCatalog.pick(forTerms: ["pikachu"], from: popular, limit: 5), [3])
     }
 
+    // MARK: Described poses
+
+    /// Imgflip's order, with the templates a described pose's words could wrongly find first: The Rock ("rock on"), One
+    /// Does Not Simply and Bernie's "Once" ("on"), Epic Handshake ("hand"), The Rock Eyebrow Raise ("raise hand"; found
+    /// by name) and Spongebob Ight Imma Head Out ("head").
+    private let poseTemplates = [
+        TemplateRef(id: "21735", name: "The Rock Driving"),
+        TemplateRef(id: "61579", name: "One Does Not Simply"),
+        TemplateRef(id: "135256802", name: "Epic Handshake"),
+        TemplateRef(id: "777", name: "The Rock Eyebrow Raise"),
+        TemplateRef(id: "222403160", name: "Bernie I Am Once Again Asking For Your Support"),
+        TemplateRef(id: "196652226", name: "Spongebob Ight Imma Head Out"),
+        TemplateRef(id: "89370399", name: "Roll Safe Think About It"),
+        TemplateRef(id: "247375501", name: "Buff Doge vs. Cheems"),
+        TemplateRef(id: "61544", name: "Success Kid"),
+        TemplateRef(id: "61516", name: "Philosoraptor"),
+        TemplateRef(id: "110163934", name: "I Bet He's Thinking About Other Women"),
+        TemplateRef(id: "100777631", name: "Is This A Pigeon"),
+        TemplateRef(id: "155067746", name: "Surprised Pikachu"),
+        TemplateRef(id: "999", name: "Some Unknown Template"),
+    ]
+
+    func testRockOnIsExcitedNotTheRock() {
+        // Excited or celebrating: Buff Doge and Success Kid (first), Epic Handshake (second); then the popular rest,
+        // The Rock and One Does Not Simply among them.
+        let rockOn = MemeTemplateCatalog.pick(forDescription: "rock on", mood: .reaction, from: poseTemplates, limit: 6)
+        XCTAssertEqual(rockOn, [7, 8, 2, 0, 1, 3])
+        XCTAssertEqual(MemeTemplateCatalog.pick(forDescription: "Rock on!", mood: .reaction, from: poseTemplates, limit: 6),
+                       rockOn)
+    }
+
+    func testStopwordsAndBodyWordsFindNothing() {
+        // "on" and "one" aren't One Does Not Simply or Bernie's "Once", "hand" isn't Epic Handshake, "head" isn't Ight
+        // Imma Head Out: alone they fall back to the mood's order.
+        for phrase in ["on", "one", "hand", "hands", "head", "the left arm", "strike a pose", ""] {
+            XCTAssertEqual(MemeTemplateCatalog.pick(forDescription: phrase, mood: .reaction, from: poseTemplates, limit: 5),
+                           MemeTemplateCatalog.pick(for: .reaction, from: poseTemplates, limit: 5), phrase)
+        }
+        // A pose's phrase names its moods, not the names starting with its words: "hand on chin" is confused
+        // (Philosoraptor, Is This A Pigeon), not Epic Handshake; "raise hand" has no template of its own, and isn't The
+        // Rock Eyebrow Raise.
+        XCTAssertEqual(MemeTemplateCatalog.pick(forDescription: "hand on chin", mood: .reaction, from: poseTemplates, limit: 3),
+                       [9, 11, 0])
+        XCTAssertEqual(MemeTemplateCatalog.pick(forDescription: "raise hand", mood: .reaction, from: poseTemplates, limit: 5),
+                       MemeTemplateCatalog.pick(for: .reaction, from: poseTemplates, limit: 5))
+    }
+
+    func testADescribedPosesWordsPutItsTemplatesFirst() {
+        // "thinking": Philosoraptor (searched by it, and confused first), I Bet He's Thinking (in its name), Roll Safe
+        // (searched by it), Is This A Pigeon (confused first); then shocked's order: Surprised Pikachu, The Rock Driving.
+        XCTAssertEqual(MemeTemplateCatalog.pick(forDescription: "thinking", mood: .shocked, from: poseTemplates, limit: 6),
+                       [9, 10, 6, 11, 12, 0])
+        // "flexing" is flex: Buff Doge, then shocked's.
+        XCTAssertEqual(MemeTemplateCatalog.pick(forDescription: "flexing", mood: .shocked, from: poseTemplates, limit: 3),
+                       [7, 12, 0])
+        for phrase in ["flex", "Flexing!", "muscles", "bicep"] {
+            XCTAssertEqual(MemeTemplateCatalog.pick(forDescription: phrase, mood: .reaction, from: poseTemplates, limit: 1),
+                           [7], phrase)
+        }
+        for word in ["horns", "flexing", "bicep", "salute", "pondering"] {
+            XCTAssertTrue(MemeTemplateCatalog.isMemeWord(word), word)
+        }
+    }
+
+    func testAnUnknownPhraseFallsBackToTheMoodsOrder() {
+        for page in 0..<4 {
+            XCTAssertEqual(MemeTemplateCatalog.pick(forDescription: "strike a pose", mood: .shocked, from: poseTemplates,
+                                                    limit: 5, page: page),
+                           MemeTemplateCatalog.pick(for: .shocked, from: poseTemplates, limit: 5, page: page), "page \(page)")
+            XCTAssertEqual(MemeTemplateCatalog.pick(forDescription: "zzzz", mood: .reaction, from: popular, limit: 5, page: page),
+                           MemeTemplateCatalog.pick(for: .reaction, from: popular, limit: 5, page: page), "page \(page)")
+        }
+        XCTAssertEqual(MemeTemplateCatalog.pick(forDescription: "strike a pose", mood: .sad, from: popular, limit: 5),
+                       [4, 5, 0, 1, 2])
+        // Never empty while there are templates; nothing to pick from, or no room, is nothing.
+        for phrase in ["strike a pose", "rock on", "", "!!"] {
+            for mood in [Mood.reaction, .sad, .flex] {
+                XCTAssertFalse(MemeTemplateCatalog.pick(forDescription: phrase, mood: mood, from: popular, limit: 1).isEmpty,
+                               "\(phrase) \(mood)")
+            }
+        }
+        XCTAssertEqual(MemeTemplateCatalog.pick(forDescription: "rock on", mood: .excited, from: [], limit: 5), [])
+        XCTAssertEqual(MemeTemplateCatalog.pick(forDescription: "rock on", mood: .excited, from: popular, limit: 0), [])
+    }
+
+    func testDescribedPagesWrapAroundWithoutRepeats() {
+        // Buff Doge, then shocked's (Surprised Pikachu, The Rock Driving), then the popular rest: all 14, each once.
+        let order = [7, 12, 0, 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 13]
+        func flexing(page: Int, limit: Int = 6) -> [Int] {
+            MemeTemplateCatalog.pick(forDescription: "flexing", mood: .shocked, from: self.poseTemplates, limit: limit,
+                                     page: page)
+        }
+        XCTAssertEqual(MemeTemplateCatalog.pick(forDescription: "flexing", mood: .shocked, from: poseTemplates, limit: 6),
+                       flexing(page: 0))
+        XCTAssertEqual(flexing(page: 0), Array(order[0..<6]))
+        XCTAssertEqual(flexing(page: 1), Array(order[6..<12]))
+        XCTAssertEqual(flexing(page: 2), [11, 13, 7, 12, 0, 1])
+        XCTAssertEqual(flexing(page: -1), flexing(page: 0))
+        XCTAssertEqual(flexing(page: 3, limit: 20), order, "fewer templates than a page: every page is all of them")
+        for page in 0..<order.count {
+            let shown = flexing(page: page)
+            XCTAssertEqual(Set(shown).count, 6, "page \(page) repeats a template")
+            // The same wrap as a mood's pages: the page'th group of 6 from the order.
+            XCTAssertEqual(shown, (0..<6).map { order[(page * 6 + $0) % order.count] }, "page \(page)")
+        }
+    }
+
     func testTheTableIsWellFormed() {
         var ids = Set<String>()
         var names = Set<String>()
@@ -171,6 +278,13 @@ final class MemeTemplateCatalogTests: XCTestCase {
         let withoutTemplates: Set<Mood> = [.reaction, .tPose, .dab, .handsOnHips, .armsCrossed, .pickMe, .hello, .peace, .bow]
         for mood in Mood.allCases where !withoutTemplates.contains(mood) {
             XCTAssertTrue(MemeTemplateCatalog.entries.contains { $0.moods.contains(mood) }, "\(mood)")
+        }
+        // A described pose's words: lowercase, one space apart, naming moods (each once) other than no face at all.
+        for (phrase, moods) in MemeTemplateCatalog.describedPoses {
+            XCTAssertEqual(phrase, phrase.lowercased().split(separator: " ").joined(separator: " "), phrase)
+            XCTAssertFalse(moods.isEmpty, phrase)
+            XCTAssertFalse(moods.contains(.reaction), phrase)
+            XCTAssertEqual(Set(moods).count, moods.count, phrase)
         }
     }
 }

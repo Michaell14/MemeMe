@@ -1,0 +1,185 @@
+import Foundation
+import XCTest
+@testable import MemeMeCore
+
+final class PoseDescriptionTests: XCTestCase {
+    /// `FullBodyPoses.flex`'s arm on one side only, the other hanging: one arm flexed beside the head.
+    private static let flexedArm = TestArm(elbow: (x: 1.25, y: 0.1), wrist: (x: 1.0, y: 0.85))
+    private let oneArmFlexed = TestPoses.body(left: TestPoses.rest, right: PoseDescriptionTests.flexedArm.otherSide)
+    private let baseline = RestingBaseline()
+
+    private func sample(_ joints: BodyJoints, hand: HandShape? = nil, face: FaceFeatures? = nil) -> ExpressionSample {
+        ExpressionSample(face: face, pose: TestPoses.features(joints, hand: hand), timestamp: 0)
+    }
+
+    private func describe(_ joints: BodyJoints, hand: HandShape? = nil, face: FaceFeatures? = nil,
+                          file: StaticString = #filePath, line: UInt = #line) throws -> PoseDescription {
+        try XCTUnwrap(PoseDescription.of(sample(joints, hand: hand, face: face), baseline: baseline),
+                      "a clear gesture with no word is described", file: file, line: line)
+    }
+
+    /// Never a side: Vision's sides aren't checked against the mirror, and memes may be flipped.
+    private func assertNoSides(_ description: PoseDescription, file: StaticString = #filePath, line: UInt = #line) {
+        let words = description.key.lowercased().split(whereSeparator: { !$0.isLetter }).map { String($0) }
+        XCTAssertFalse(words.contains("left"), description.key, file: file, line: line)
+        XCTAssertFalse(words.contains("right"), description.key, file: file, line: line)
+    }
+
+    // MARK: Describing
+
+    func testOneArmFlexedBesideTheHeadIsFlexingWithAFistOrNoHandRead() throws {
+        let hands: [(String, HandShape?)] = [
+            ("no hand read", nil),
+            ("a fist", HandShape(fist: 1)),
+            ("a fist read from its joints", try XCTUnwrap(HandShape(TestHands.fist()))),
+        ]
+        for (name, hand) in hands {
+            XCTAssertNil(try XCTUnwrap(PoseDescriptor(oneArmFlexed, hand: hand)).bodyShape, "\(name): hello needs an open palm")
+            XCTAssertEqual(PoseBadge.of(sample(oneArmFlexed, hand: hand), baseline: baseline), .pose, "\(name): a pose without a word")
+            let description = try describe(oneArmFlexed, hand: hand)
+            XCTAssertEqual(description.phrase, "flexing", name)
+            XCTAssertTrue(description.facts.contains { $0.contains("bent") && $0.contains("head") },
+                          "\(name): the arm's fact tells the bent elbow and the head: \(description.key)")
+            XCTAssertEqual(description.facts.first?.hasPrefix("One arm:"), true, "\(name): the flexed arm first: \(description.key)")
+            XCTAssertTrue(description.facts.contains("The other arm hangs at the side."), "\(name): \(description.key)")
+            assertNoSides(description)
+        }
+        XCTAssertTrue(try describe(oneArmFlexed).facts.contains("Hands: not seen."))
+        XCTAssertTrue(try describe(oneArmFlexed, hand: HandShape(fist: 1)).facts.contains("One hand: a fist."))
+    }
+
+    func testTheSameArmWithAnOpenPalmSaysHello() throws {
+        let palm = try XCTUnwrap(HandShape(TestHands.openPalm()))
+        XCTAssertEqual(PoseDescriptor(oneArmFlexed, hand: palm)?.bodyShape, .hello)
+        XCTAssertEqual(PoseBadge.of(sample(oneArmFlexed, hand: palm), baseline: baseline), .word(.hello))
+        XCTAssertNil(PoseDescription.of(sample(oneArmFlexed, hand: palm), baseline: baseline), "a pose with a word isn't described")
+    }
+
+    func testEitherArmAndAFlippedImageReadTheSame() throws {
+        let flexed = try describe(oneArmFlexed)
+        let otherArm = try describe(TestPoses.body(left: PoseDescriptionTests.flexedArm, right: TestPoses.rest.otherSide))
+        let flipped = try describe(TestPoses.body(left: TestPoses.rest, right: PoseDescriptionTests.flexedArm.otherSide,
+                                                  mirrored: true))
+        XCTAssertEqual(otherArm, flexed)
+        XCTAssertEqual(flipped, flexed)
+    }
+
+    func testAHandOnTheChinIsThinking() throws {
+        // A hand on the face below the head's centre, the eyes open (shut, it would be a facepalm, which has its word).
+        let chin = TestPoses.body(left: TestPoses.onFace, right: TestPoses.rest.otherSide)
+        let description = try describe(chin, face: TestFaces.neutral)
+        XCTAssertEqual(description.phrase, "thinking")
+        XCTAssertTrue(description.facts.contains { $0.contains("hand on the face at the chin") }, description.key)
+        XCTAssertFalse(description.key.contains("Face:"), "a calm face says nothing: \(description.key)")
+        assertNoSides(description)
+        XCTAssertNil(PoseDescription.of(sample(chin, face: makeFace(eye: 0.15)), baseline: baseline), "a facepalm")
+    }
+
+    func testAHandOnTopOfTheHeadIsHandOnHead() throws {
+        // Oh no's arm on one side only.
+        let description = try describe(TestPoses.body(left: TestArm(elbow: (x: 1.0, y: 0.75), wrist: (x: 0.18, y: 1.15)),
+                                                      right: TestPoses.rest.otherSide), face: TestFaces.neutral)
+        XCTAssertEqual(description.phrase, "hand on head")
+        XCTAssertTrue(description.key.contains("hand on top of the head"), description.key)
+    }
+
+    func testArmsOutInFrontAreDescribed() throws {
+        let description = try describe(FullBodyPoses.zombie, face: TestFaces.neutral)
+        XCTAssertFalse(description.phrase.isEmpty)
+        XCTAssertEqual(description.phrase, "strike a pose", "no rule names it; the model may")
+        XCTAssertEqual(description.facts.first, "Both arms: arm straight, reaching toward the camera, hand at shoulder height.")
+        assertNoSides(description)
+    }
+
+    func testPosesWithAWordAndRestingArmsAreNotDescribed() {
+        XCTAssertNil(PoseDescription.of(sample(FullBodyPoses.tPose), baseline: baseline), "a t-pose has its word")
+        XCTAssertNil(PoseDescription.of(sample(FullBodyPoses.flex), baseline: baseline), "both arms flexed is flex")
+        XCTAssertNil(PoseDescription.of(sample(TestPoses.both(TestPoses.rest), hand: HandShape(point: 1)), baseline: baseline),
+                     "pointing has its word")
+        XCTAssertNil(PoseDescription.of(sample(TestPoses.both(TestPoses.rest), face: TestFaces.neutral), baseline: baseline),
+                     "arms at rest are no gesture")
+        XCTAssertNil(PoseDescription.of(ExpressionSample(face: TestFaces.surprise, timestamp: 0), baseline: baseline), "a face alone")
+    }
+
+    // MARK: Hands
+
+    func testHornsAreRockOn() throws {
+        let rockOn = try XCTUnwrap(HandShape(TestHands.rockOn()))
+        let description = try describe(TestPoses.both(TestPoses.rest), hand: rockOn, face: TestFaces.neutral)
+        XCTAssertEqual(description.phrase, "rock on")
+        XCTAssertEqual(description.facts.first, "One hand: index and little fingers straight, the others curled.",
+                       "the hand tells the most, so it comes first")
+        XCTAssertTrue(description.facts.contains("Both arms hang at the side."), description.key)
+        assertNoSides(description)
+        // Fingertips on the face (a finger up the cheek) are no sign: with the arms down, no gesture at all.
+        let onFace = try XCTUnwrap(HandShape(TestHands.rockOn(), faceBox: PoseBox(minX: 1.5, minY: 0, maxX: 2, maxY: 1)))
+        XCTAssertNil(PoseDescription.of(sample(TestPoses.both(TestPoses.rest), hand: onFace, face: TestFaces.neutral),
+                                        baseline: baseline))
+    }
+
+    func testOtherFingerPatternsAndTheirWords() throws {
+        let cases: [(fingers: [Double?], phrase: String, fact: String)] = [
+            ([1, 0, 0, 0, 1], "hang loose", "One hand: thumb and little finger straight, the others curled."),
+            ([1, 1, 0, 0, 0], "finger guns", "One hand: thumb and index finger straight, the others curled."),
+            ([1, 1, 0, 0, 1], "love you", "One hand: thumb, index and little fingers straight, the others curled."),
+            // Three fingers up has no phrase of its own: the arms (at rest) give none either.
+            ([0, 1, 1, 1, 0], "strike a pose", "One hand: index, middle and ring fingers straight, the others curled."),
+            ([nil, 1, 0.5, 0, 0], "strike a pose", "One hand: index finger straight, middle finger half bent, ring and little fingers curled."),
+        ]
+        for (fingers, phrase, fact) in cases {
+            let description = try describe(TestPoses.both(TestPoses.rest), hand: HandShape(fingers: fingers))
+            XCTAssertEqual(description.phrase, phrase, fact)
+            XCTAssertEqual(description.facts.first, fact)
+        }
+    }
+
+    // MARK: Face, key and phrase
+
+    func testTheFaceIsToldWhenSomethingAboutItStandsOut() throws {
+        let shouting = try describe(oneArmFlexed, face: makeFace(brow: 0.6, mouth: 0.5))
+        XCTAssertEqual(shouting.facts.last, "Face: mouth wide open, eyebrows raised.")
+        XCTAssertEqual(shouting.phrase, "flexing", "the phrase is the pose's")
+        XCTAssertFalse(try describe(oneArmFlexed, face: TestFaces.neutral).key.contains("Face:"), "a calm face says nothing")
+        XCTAssertEqual(try describe(oneArmFlexed).facts.last, "Face: not seen.")
+    }
+
+    func testTheKeyIsTheSameForNearlyTheSamePose() throws {
+        let flexed = try describe(oneArmFlexed)
+        let nearly = try describe(TestPoses.body(left: TestPoses.rest,
+                                                 right: TestArm(elbow: (x: 1.27, y: 0.12), wrist: (x: 1.02, y: 0.83)).otherSide))
+        XCTAssertEqual(nearly.key, flexed.key)
+        XCTAssertEqual(flexed.key, flexed.facts.joined(separator: "\n"))
+        let thinking = try describe(TestPoses.body(left: TestPoses.onFace, right: TestPoses.rest.otherSide), face: TestFaces.neutral)
+        XCTAssertNotEqual(thinking.key, flexed.key)
+    }
+
+    func testThePhraseIsNeverEmpty() {
+        XCTAssertEqual(PoseDescription(facts: ["Both arms hang at the side."], phrase: "").phrase, "strike a pose")
+        XCTAssertEqual(PoseDescription(facts: [], phrase: "flexing").phrase, "flexing")
+    }
+
+    // MARK: Cleaning a model's name
+
+    func testAModelsNameIsCleanedToAFewLowercaseWords() {
+        XCTAssertEqual(PoseDescription.cleanName("Flexing."), "flexing")
+        let sentence = PoseDescription.cleanName("The person is flexing their bicep")
+        XCTAssertEqual(sentence?.hasPrefix("flexing"), true, String(describing: sentence))
+        XCTAssertLessThanOrEqual(sentence?.split(separator: " ").count ?? 99, 3, String(describing: sentence))
+        XCTAssertEqual(PoseDescription.cleanName("\"rock on\""), "rock on")
+        XCTAssertEqual(PoseDescription.cleanName("\u{201C}Rock on!\u{201D}"), "rock on")
+        XCTAssertEqual(PoseDescription.cleanName("It\u{2019}s a salute."), "salute")
+        XCTAssertEqual(PoseDescription.cleanName("  finger-guns  "), "finger-guns")
+        XCTAssertEqual(PoseDescription.cleanName("Thinking\nThe person rests their chin on one hand."), "thinking",
+                       "the first line only")
+    }
+
+    func testRefusalsAndScrapsAreNoName() {
+        XCTAssertNil(PoseDescription.cleanName("Sorry, I can't help with that"))
+        XCTAssertNil(PoseDescription.cleanName("I cannot identify people."))
+        XCTAssertNil(PoseDescription.cleanName("As an AI, I am unable to see images."))
+        XCTAssertNil(PoseDescription.cleanName(""))
+        XCTAssertNil(PoseDescription.cleanName("ok"), "fewer than 3 letters")
+        XCTAssertNil(PoseDescription.cleanName("..."))
+        XCTAssertNil(PoseDescription.cleanName("supercalifragilistic expialidocious extravaganza"), "longer than 30 characters")
+    }
+}

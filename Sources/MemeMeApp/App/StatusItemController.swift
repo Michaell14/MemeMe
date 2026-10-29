@@ -406,7 +406,7 @@ import SwiftUI
     @objc private func setGiphyAPIKey(_ sender: Any?) {
         let alert = NSAlert()
         alert.messageText = "GIPHY API Key"
-        alert.informativeText = "Paste a key from developers.giphy.com to find reaction GIFs on the web. Only the mood word for your face, or the words you type in the search field (without filter words or your people’s names), is sent. Leave it empty to use the key this build came with, if any."
+        alert.informativeText = "Paste a key from developers.giphy.com to find reaction GIFs on the web. Only the mood word for your face, a few words naming your pose (made on your Mac), or the words you type in the search field (without filter words or your people’s names), is sent. Leave it empty to use the key this build came with, if any."
         alert.addButton(withTitle: "Save")
         alert.addButton(withTitle: "Cancel")
 

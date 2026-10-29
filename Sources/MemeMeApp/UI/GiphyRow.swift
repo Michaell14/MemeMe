@@ -2,8 +2,9 @@ import AppKit
 import MemeMeCore
 import SwiftUI
 
-/// GIPHY's results for the face's mood or the typed words: the panel's bottom row, under the classic memes and apart
-/// from your memes, in GIPHY's own order, headed "GIFs" with "Powered by" and GIPHY's logo.
+/// GIPHY's results for the face's mood, the words naming a pose with no word of its own ("flexing", "rock on") or the
+/// typed words: the panel's bottom row, under the classic memes and apart from your memes, in GIPHY's own order,
+/// headed "GIFs" with "Powered by" and GIPHY's logo.
 struct GiphyRow: View {
     @ObservedObject var model: AppModel
 

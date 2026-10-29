@@ -241,6 +241,69 @@ final class RankerTests: XCTestCase {
         XCTAssertFalse(Ranker.mentions(.wink, in: makeItem(name: "cat", source: "wink folder")))
     }
 
+    // MARK: Described poses
+
+    func testTheWordsAPoseWasDescribedByAddTheWordBonusOnce() {
+        let openMouth = makeFace(mouth: 0.35)
+        let target = intensity(openMouth)
+        let cat = cueItem("cat", face: openMouth, tongue: nil, intensity: target)
+        let flexing = cueItem("dog flexing", face: openMouth, tongue: nil, intensity: target)
+        let named = cueItem("Tongue out", face: openMouth, tongue: nil, intensity: target)
+        let plainQuery = ExpressionSample(face: openMouth, timestamp: 0)
+        let tongueQuery = ExpressionSample(face: openMouth, shape: tongueShape, timestamp: 0)
+
+        // Words a meme doesn't say change nothing; one it says is +0.05, and ranks it first.
+        let catScore = ranker.expressionScore(item: cat, sample: plainQuery, weights: .uniform, words: ["flex"])
+        XCTAssertEqual(catScore, ranker.expressionScore(item: cat, sample: plainQuery, weights: .uniform))
+        XCTAssertEqual(ranker.expressionScore(item: flexing, sample: plainQuery, weights: .uniform, words: ["flex"]) - catScore,
+                       0.05, accuracy: 1e-9)
+        let results = ranker.rank([cat, flexing], query: .expression(plainQuery, weights: .uniform, words: ["flex"]))
+        XCTAssertEqual(names(results), ["dog flexing", "cat"])
+        XCTAssertEqual(results[0].score - results[1].score, 0.05, accuracy: 1e-9)
+
+        // The cue and the words both say it: still +0.05, once.
+        let tongueCat = ranker.expressionScore(item: cat, sample: tongueQuery, weights: .uniform, words: ["tongue out"])
+        let both = ranker.expressionScore(item: named, sample: tongueQuery, weights: .uniform, words: ["tongue out"])
+        XCTAssertEqual(both - tongueCat, 0.05, accuracy: 1e-9)
+        XCTAssertEqual(both, ranker.expressionScore(item: named, sample: tongueQuery, weights: .uniform), accuracy: 1e-9)
+        XCTAssertEqual(ranker.expressionScore(item: named, sample: tongueQuery, weights: .uniform, words: ["tongue", "out"]),
+                       both, accuracy: 1e-9)
+
+        // A meme without a readable face too: 0.25 + 0.3 × fit + 0.05.
+        let faceless = cueItem("flexing gif", face: nil, tongue: nil, intensity: 0.5)
+        XCTAssertEqual(ranker.expressionScore(item: faceless, sample: plainQuery, weights: .uniform, words: ["flexing"]),
+                       0.25 + 0.3 * (1 - abs(0.5 - target)) + 0.05, accuracy: 1e-9)
+    }
+
+    func testDescribedWordsMatchWholeWordsAndLongPrefixesOnly() {
+        // From 4 letters a word also starts one ("flex" finds "flexing"), in the name, text or labels, any case.
+        XCTAssertTrue(Ranker.mentions(words: ["flex"], in: makeItem(name: "Flexing cat")))
+        XCTAssertTrue(Ranker.mentions(words: ["FLEX"], in: makeItem(name: "x", text: "do you even flex")))
+        XCTAssertTrue(Ranker.mentions(words: ["flex"], in: makeItem(name: "x", labels: ["flexing"])))
+        XCTAssertTrue(Ranker.mentions(words: ["rock", "on"], in: makeItem(name: "Rock")))
+        // A word ending in "ing" finds its stem too: "flexing" a meme named "flex", "thinking" one named "think" but
+        // not "thin".
+        XCTAssertTrue(Ranker.mentions(words: ["flexing"], in: makeItem(name: "buff_flex")))
+        XCTAssertTrue(Ranker.mentions(words: ["thinking"], in: makeItem(name: "think about it")))
+        XCTAssertFalse(Ranker.mentions(words: ["thinking"], in: makeItem(name: "thin crust")))
+        // Never inside a word, and shorter words only whole.
+        XCTAssertFalse(Ranker.mentions(words: ["arm"], in: makeItem(name: "farm life")))
+        XCTAssertFalse(Ranker.mentions(words: ["lex"], in: makeItem(name: "flexing")))
+        XCTAssertFalse(Ranker.mentions(words: ["flex"], in: makeItem(name: "reflex")))
+        XCTAssertFalse(Ranker.mentions(words: ["ram"], in: makeItem(name: "rampage")))
+        XCTAssertTrue(Ranker.mentions(words: ["ram"], in: makeItem(name: "ram")))
+        // Stopwords and body and side words never count.
+        XCTAssertFalse(Ranker.mentions(words: ["arm"], in: makeItem(name: "arm day")))
+        XCTAssertFalse(Ranker.mentions(words: ["strike a pose"], in: makeItem(name: "a pose to strike")))
+        XCTAssertFalse(Ranker.mentions(words: ["arm", "on", "the", "left"], in: makeItem(name: "on the left arm")))
+        XCTAssertFalse(Ranker.mentions(words: ["hand on head"], in: makeItem(name: "Epic Handshake", text: "head out")))
+        XCTAssertFalse(Ranker.mentions(words: ["rock on"], in: makeItem(name: "One Does Not Simply")))
+        XCTAssertTrue(Ranker.mentions(words: ["rock on"], in: makeItem(name: "rock on dude")))
+        // Not the source, and nothing without words.
+        XCTAssertFalse(Ranker.mentions(words: ["flex"], in: makeItem(name: "cat", source: "flex folder")))
+        XCTAssertFalse(Ranker.mentions(words: [], in: makeItem(name: "flex")))
+    }
+
     // MARK: Text
 
     /// A small library spanning months, kinds and tiers.

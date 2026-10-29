@@ -49,7 +49,7 @@ public final class PeakHoldTracker {
     /// Timestamp of the last sample that had a face or a gesture strong enough to stand in for one.
     public private(set) var lastSeenTimestamp: TimeInterval?
 
-    /// A frame with its effective intensity and unit direction (7 signed face deviations + 9 gesture numbers + 6 face
+    /// A frame with its effective intensity and unit direction (7 signed face deviations + 10 gesture numbers + 6 face
     /// cues).
     private struct Entry {
         let sample: ExpressionSample
@@ -386,8 +386,8 @@ public final class PeakHoldTracker {
     /// intensity = max(face intensity, 0.8 × gesture strength when ≥ 0.4, 0.8 × the face's strongest cue when ≥ 0.3);
     /// direction = the face's signed deviations (zeros without a face) + the pose's gesture numbers × 0.5 × its gesture
     /// strength, so arms at rest or on a desk coming into view don't turn the same face into a new expression (a pose
-    /// measured the old way: [activity, 0, 0, 0, 0, 0, 0, 0, 0]) + the face's cues × 0.8 (zeros without a shape), so a
-    /// tongue out on a held smile points elsewhere. The cues are read against the resting shape (`FaceCues`).
+    /// measured the old way: [activity, 0, 0, 0, 0, 0, 0, 0, 0, 0]) + the face's cues × 0.8 (zeros without a shape), so
+    /// a tongue out on a held smile points elsewhere. The cues are read against the resting shape (`FaceCues`).
     private func makeEntry(for sample: ExpressionSample) -> Entry {
         let face = faceReading(of: sample)
         let faceIntensity = face?.intensity ?? 0
@@ -400,7 +400,7 @@ public final class PeakHoldTracker {
         if let descriptor {
             direction += descriptor.gestureDirection.map { 0.5 * strength * $0 }
         } else {
-            direction += [sample.pose?.activity ?? 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            direction += [sample.pose?.activity ?? 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         }
         direction += face?.cues ?? [Double](repeating: 0, count: FaceCues.Cue.allCases.count)
         let word = gesture > 0 ? descriptor.flatMap { MoodClassifier.gestureMood($0, face: sample.face, baseline: baseline) } : nil

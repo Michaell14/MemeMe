@@ -53,9 +53,9 @@ struct MemeTemplate: Codable, Hashable, Sendable {
 
 /// Imgflip's list of popular meme templates (Distracted Boyfriend, Drake, Surprised Pikachu…), for the classic memes
 /// row. The list is public and the same for everyone: it is fetched at most once a day (no key, nothing about you in
-/// the request) and kept in ~/Library/Caches/MemeMe/Templates. Which templates fit a face or typed words is decided
-/// on the Mac (`MemeTemplateCatalog`), so neither leaves it. Images load from Imgflip through ordinary HTTP caching;
-/// one you copy or drag goes to a short-lived file. Off with Web Discover.
+/// the request) and kept in ~/Library/Caches/MemeMe/Templates. Which templates fit a face, a described pose or typed
+/// words is decided on the Mac (`MemeTemplateCatalog`), so none of them goes to Imgflip. Images load from Imgflip
+/// through ordinary HTTP caching; one you copy or drag goes to a short-lived file. Off with Web Discover.
 @MainActor final class MemeTemplates {
     /// How long the list is used before asking Imgflip again (an older one is still used when Imgflip doesn't answer).
     static let listLifetime: TimeInterval = 24 * 3600

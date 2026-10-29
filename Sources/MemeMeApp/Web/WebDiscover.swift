@@ -6,23 +6,43 @@ import os
 
 private let webLog = Logger(subsystem: "com.mememe.app", category: "web")
 
-/// What the GIPHY row asks GIPHY for: the mood of your face, or the words you typed.
+/// What the GIPHY row asks GIPHY for: the mood of your face, the words you typed, or the few words naming a pose that
+/// has no word of its own.
 enum WebQuery: Hashable, Sendable {
     case mood(Mood)
     /// Lowercased, trimmed, single-spaced, at most `maximumLength` characters (`words(from:)`).
     case words(String)
+    /// A clear gesture with no word of its own, in the words that name it (`PoseDescription.phrase`, or the on-device
+    /// model's name for it: "flexing", "rock on"), made on the Mac. Normalized like typed words (`described(from:)`),
+    /// but read by the camera, not typed: leaving typed words doesn't drop it, and the classic memes row turns its
+    /// pages like a mood's.
+    case described(String)
 
     static let maximumLength = 50
 
     /// The typed search terms as GIPHY gets them; nil when they hold fewer than three letters or digits (each
     /// search counts against GIPHY's hourly limit, and two letters find nothing useful).
     static func words(from terms: [String]) -> WebQuery? {
+        guard let text = searchText(from: terms) else { return nil }
+        return .words(text)
+    }
+
+    /// A described pose's words as GIPHY gets them, normalized like typed words (`words(from:)`): lowercased, trimmed,
+    /// single-spaced, at most `maximumLength` characters; nil when they hold fewer than three letters or digits.
+    static func described(from phrase: String) -> WebQuery? {
+        guard let text = searchText(from: [phrase]) else { return nil }
+        return .described(text)
+    }
+
+    /// The words joined lowercased and single-spaced, cut to `maximumLength` and trimmed; nil with fewer than three
+    /// letters or digits.
+    private static func searchText(from terms: [String]) -> String? {
         let joined = terms
             .flatMap { $0.lowercased().split(whereSeparator: { $0.isWhitespace }) }
             .joined(separator: " ")
         let text = String(joined.prefix(maximumLength)).trimmingCharacters(in: .whitespacesAndNewlines)
         guard text.unicodeScalars.filter({ CharacterSet.alphanumerics.contains($0) }).count >= 3 else { return nil }
-        return .words(text)
+        return text
     }
 
     /// What is sent to GIPHY.
@@ -30,27 +50,39 @@ enum WebQuery: Hashable, Sendable {
         switch self {
         case let .mood(mood): return mood.searchQuery
         case let .words(text): return text
+        case let .described(text): return text
         }
     }
 
-    /// The GIPHY row's label: the mood word, or the typed words.
+    /// The GIPHY row's label: the mood word, the typed words, or the words naming the pose.
     var label: String {
         switch self {
         case let .mood(mood): return mood.label
         case let .words(text): return text
+        case let .described(text): return text
+        }
+    }
+
+    /// Words the user typed, as opposed to what the camera read (a mood, a described pose).
+    var isTyped: Bool {
+        switch self {
+        case .words: return true
+        case .mood, .described: return false
         }
     }
 }
 
-/// GIPHY's results for the mood of the user's face, or for the words typed in the search field, for the GIPHY row.
+/// GIPHY's results for the mood of the user's face, the words typed in the search field, or the words naming a pose
+/// with no word of its own, for the GIPHY row.
 ///
-/// Only the mood word, or the typed words (without filter words or the names of your people), leave the Mac.
-/// Results are shown the way GIPHY returns them: never re-ranked, filtered or mixed with the user's memes, and
-/// never stored on disk. A query's results are reused for 10 minutes in memory, images load from GIPHY's URLs
-/// through ordinary HTTP caching, and full GIFs go to short-lived files only so they can be copied or dragged into
-/// a chat. A search starts as soon as the mood is clear (`warm`). Searches are rate-limited (90 per rolling hour,
-/// persisted). Each search asks for 24 results (GIPHY counts searches, not results), so the row can show a mood's next
-/// GIFs (`page`) without searching again.
+/// Only the mood word, the typed words (without filter words or the names of your people), or the 1–3 words naming a
+/// pose (made on the Mac by rule or by the on-device model: `PoseDescription`, `PoseNamer`) leave the Mac; never the
+/// facts those words were made from, nor a frame. Results are shown the way GIPHY returns them: never re-ranked,
+/// filtered or mixed with the user's memes, and never stored on disk. A query's results are reused for 10 minutes in
+/// memory, images load from GIPHY's URLs through ordinary HTTP caching, and full GIFs go to short-lived files only so
+/// they can be copied or dragged into a chat. A search starts as soon as the mood is clear (`warm`). Searches are
+/// rate-limited (90 per rolling hour, persisted). Each search asks for 24 results (GIPHY counts searches, not
+/// results), so the row can show a mood's next GIFs (`page`) without searching again.
 @MainActor final class WebDiscover: ObservableObject {
     /// What Web Discover can do right now, for the menu.
     enum Status: Equatable {

@@ -3,8 +3,8 @@ import MemeMeCore
 import SwiftUI
 
 /// The classic memes row: six famous static meme templates (Distracted Boyfriend, Surprised Pikachu…) from Imgflip's
-/// list, picked on the Mac for your face's mood or the words you type. The panel's middle row, between your memes and
-/// the GIFs, headed "Classic memes" with "from Imgflip".
+/// list, picked on the Mac for your face's mood, the words naming a pose with no word of its own ("flexing"), or the
+/// words you type. The panel's middle row, between your memes and the GIFs, headed "Classic memes" with "from Imgflip".
 struct TemplateRow: View {
     @ObservedObject var model: AppModel
 
@@ -83,6 +83,7 @@ struct TemplateRow: View {
     private var emptyMessage: String? {
         if model.isTemplatesLoading { return nil }
         if model.templatesUnavailable { return "Imgflip isn’t answering right now." }
+        // Only typed words can match nothing: a mood's or a described pose's row ends with the popular templates.
         if case let .words(text)? = model.templateQuery {
             return "No classic memes for “\(text)”."
         }
