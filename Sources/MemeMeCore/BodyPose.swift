@@ -426,7 +426,7 @@ public struct HandShape: Codable, Hashable, Sendable {
         guard let left = body[.leftWrist], let right = body[.rightWrist], let pose = PoseDescriptor(body),
               let leftLift = pose[.leftLift], let rightLift = pose[.rightLift],
               let gap = pose[.wristGap], gap > PoseDescription.handsTogether,
-              abs(leftLift - rightLift) >= raisedBy else { return nil }
+              abs(leftLift - rightLift) >= raisedBy - 1e-9 else { return nil }   // 0.5 − 0.4 is a hair under 0.1 in binary
         return leftLift > rightLift ? (raised: left, low: right) : (raised: right, low: left)
     }
 
