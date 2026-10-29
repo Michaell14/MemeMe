@@ -443,7 +443,7 @@ private struct DescribedPhrase {
 
     func panelDidHide() {
         isPanelVisible = false
-        closeCapture()
+        closeCapture(backToMemes: false)
         cancelSessionTasks()
         camera.stop()
         if holdProgress != 0 { holdProgress = 0 }
@@ -870,8 +870,10 @@ private struct DescribedPhrase {
         earlyMood.reset()
     }
 
-    /// Back to the memes (Esc, or after a capture is copied); a capture in progress is dropped.
-    func closeCapture() {
+    /// Back to the memes (Esc, or after a capture is copied); a capture in progress is dropped. `backToMemes`: the
+    /// memes show again (Esc, "Back to memes"), so a held pose's name dropped while the view was open is shown now
+    /// (`showPoseNameDroppedForCapture`); false when the panel closes or starts over right after.
+    func closeCapture(backToMemes: Bool = true) {
         guard isCaptureOpen else { return }
         capture.deactivate()
         isCaptureOpen = false
@@ -883,6 +885,20 @@ private struct DescribedPhrase {
             faceBackSince = nil
         }
         refreshHint()
+        if backToMemes {
+            showPoseNameDroppedForCapture()
+        }
+    }
+
+    /// The held pose's name came while the capture view was open and was dropped (`describe`), so the readout shows
+    /// the rule's phrase and the web rows the last query's: searching the held query again shows its name. The model
+    /// isn't asked again (it kept its answer) and no page turns. Nothing to do when the words were already shown, are
+    /// still being asked for, or the held query isn't a described pose.
+    private func showPoseNameDroppedForCapture() {
+        guard isPanelVisible, mode == .live, resultSource == .expression, describeTask == nil,
+              let query = tracker.query, describedPhrase?.timestamp != query.timestamp,
+              PoseDescription.of(query, baseline: tracker.baseline) != nil else { return }
+        runExpressionSearch(animate: false)
     }
 
     /// A finished capture: copy it as "reaction.gif" / "reaction.png", close the panel, and offer
@@ -900,7 +916,7 @@ private struct DescribedPhrase {
         }
         // A photo is cut from the file just copied; a GIF from its strongest frame.
         let stickerSource = result.isGIF ? result.stickerFrame.flatMap { AppModel.writeStickerSource($0) } : fileURL
-        closeCapture()
+        closeCapture(backToMemes: false)
         if isPanelVisible {
             onRequestClose?()
         }
@@ -1426,10 +1442,16 @@ private struct DescribedPhrase {
     /// earlier, else once Imgflip answers. The same query already showing (or loading) is left alone, unless
     /// `turningPage` (a new face caught with the same mood, or a pose with the same words): then the row shows the
     /// mood's (or the words') next templates. `fallback`: the face's mood, whose templates follow those a described
-    /// pose's words name (`pickTemplates`).
+    /// pose's words name (`pickTemplates`); the same words with another face's mood are another order, shown from its
+    /// first page.
     private func showTemplates(for query: WebQuery, turningPage: Bool = false, fallback: Mood = .reaction) {
         guard showsTemplateRow else { return }
-        if query == templateQuery && (isTemplatesLoading || !templateResults.isEmpty) {
+        let sameOrder: Bool
+        switch query {
+        case .described: sameOrder = fallback == templateFallback
+        case .mood, .words: sameOrder = true
+        }
+        if query == templateQuery && sameOrder && (isTemplatesLoading || !templateResults.isEmpty) {
             if turningPage, !isTemplatesLoading, !query.isTyped, let list = templates.cachedList {
                 templatePage += 1
                 setTemplateResults(AppModel.pickTemplates(for: query, from: list, page: templatePage,
@@ -2161,7 +2183,7 @@ private struct DescribedPhrase {
     // MARK: - Session and persistence
 
     private func resetForNewSession() {
-        closeCapture()
+        closeCapture(backToMemes: false)
         cancelSessionTasks()
         clearTextState()
         resetQueryImage()

@@ -148,6 +148,19 @@ final class PoseDescriptorTests: XCTestCase {
         // An arm raised out of the top of the frame still counts with the other forearm on the desk.
         let desk = TestArm(elbow: (x: 0.6, y: -0.8), wrist: (x: 0.3, y: -0.85))
         XCTAssertGreaterThan(try descriptor(TestPoses.body(left: TestPoses.elbowUp, right: desk.otherSide)).gestureStrength, 0.5)
+        // The hand holding the phone is no sign when it reads as a finger pattern (three fingers along its back, the
+        // little finger under it), nor are fingers on a mouse: which hand made the pattern isn't known, so a wrist
+        // resting is enough.
+        let grip = HandShape(fingers: [0.79, 1, 1, 1, 0])
+        XCTAssertGreaterThanOrEqual(grip.patternStrength, 0.7)
+        XCTAssertEqual(try descriptor(TestPoses.body(left: phone, right: nil), hand: grip).gestureStrength, 0)
+        XCTAssertEqual(try descriptor(TestPoses.both(phone), hand: grip).gestureStrength, 0)
+        XCTAssertLessThan(try descriptor(TestPoses.body(left: phone, right: TestPoses.rest.otherSide), hand: grip).gestureStrength, 0.05)
+        XCTAssertLessThan(try descriptor(TestPoses.body(left: phone, right: mouse.otherSide), hand: grip).gestureStrength, 0.05)
+        XCTAssertEqual(try descriptor(TestPoses.both(phone), hand: grip).gestureDirection.last ?? 1, 0, accuracy: 1e-9)
+        // Named signs still count there, and the same fingers with the arms hanging are a sign.
+        XCTAssertEqual(try descriptor(TestPoses.both(phone), hand: HandShape(thumbsUp: 0.9)).gestureStrength, 0.9, accuracy: 1e-9)
+        XCTAssertGreaterThanOrEqual(try descriptor(TestPoses.both(TestPoses.rest), hand: grip).gestureStrength, 0.7)
     }
 
     func testAFaceWithShouldersShowsNoArms() throws {
@@ -329,9 +342,13 @@ final class HandShapeTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(rockOn.signStrength, 0.7)
         let pose = try XCTUnwrap(PoseDescriptor(TestPoses.both(TestPoses.rest), hand: rockOn))
         XCTAssertGreaterThanOrEqual(pose.gestureStrength, 0.7)
-        // Pointing and a thumb up are patterns too.
+        // Pointing is a pattern too; a thumb alone out of a fist isn't (a thumb round a mug stands out as far), and a
+        // thumbs up is told by its own score.
         XCTAssertGreaterThanOrEqual(try XCTUnwrap(HandShape(TestHands.pointing())).patternStrength, 0.7)
-        XCTAssertGreaterThanOrEqual(try XCTUnwrap(HandShape(TestHands.thumbsUp())).patternStrength, 0.7)
+        let thumbs = try XCTUnwrap(HandShape(TestHands.thumbsUp()))
+        XCTAssertGreaterThan(try XCTUnwrap(thumbs[.thumb]), 0.9, "the thumb reads straight")
+        XCTAssertEqual(thumbs.patternStrength, 0, accuracy: 1e-9)
+        XCTAssertGreaterThan(thumbs.signStrength, 0.9)
     }
 
     func testAFistAnOpenPalmOrALooseHandIsNoPattern() throws {
@@ -346,6 +363,8 @@ final class HandShapeTests: XCTestCase {
         XCTAssertGreaterThan(tucked.openPalm, 0.9)
         XCTAssertEqual(tucked.patternStrength, 0, accuracy: 1e-9)
         XCTAssertLessThan(tucked.signStrength, 0.1)
+        // A thumb opposed round a mug, the fingers curled round it, is no pattern either.
+        XCTAssertEqual(HandShape(fingers: [0.83, 0, 0, 0, 0]).patternStrength, 0, accuracy: 1e-9)
         // Every finger half bent is no clear pattern; too few fingers seen, or none kept, is none at all.
         XCTAssertLessThan(HandShape(fingers: [0.5, 0.55, 0.5, 0.45, 0.5]).patternStrength, 0.7)
         XCTAssertEqual(HandShape(fingers: [nil, 1, 0, nil, nil]).patternStrength, 0)
@@ -820,6 +839,34 @@ final class PoseTrackingTests: XCTestCase {
         }
         XCTAssertTrue(tracker.ingest(frame(TestFaces.neutral, 15, pose: horns)))
         XCTAssertEqual(tracker.query?.pose, horns)
+    }
+
+    func testAnotherFingerPatternAfterHornsIsANewExpression() throws {
+        let tracker = PeakHoldTracker(baseline: RestingBaseline(sampleCount: 100))
+        let rest = TestPoses.both(TestPoses.rest)
+        let horns = TestPoses.features(rest, hand: try XCTUnwrap(HandShape(TestHands.rockOn())))
+        let hangLoose = TestPoses.features(rest, hand: HandShape(fingers: [1, 0, 0, 0, 1]))
+        // Neither has a word, and the arms, the five sign scores and the gesture direction read the same: only the
+        // fingers tell them apart.
+        XCTAssertEqual(horns.descriptor?.gestureDirection, hangLoose.descriptor?.gestureDirection)
+        XCTAssertEqual(PoseDescriptor.compare(try XCTUnwrap(horns.descriptor), try XCTUnwrap(hangLoose.descriptor)).similarity,
+                       1, accuracy: 1e-9)
+        for step in 1...3 {
+            XCTAssertFalse(tracker.ingest(frame(TestFaces.neutral, step, pose: horns)))
+        }
+        XCTAssertTrue(tracker.ingest(frame(TestFaces.neutral, 4, pose: horns)))
+
+        // Hang loose after horns: a new expression, held for a second.
+        XCTAssertFalse(tracker.ingest(frame(TestFaces.neutral, 5, pose: hangLoose)))
+        XCTAssertTrue(tracker.candidateIsNewExpression)
+        for step in 6...14 {
+            XCTAssertFalse(tracker.ingest(frame(TestFaces.neutral, step, pose: hangLoose)), "step \(step)")
+        }
+        XCTAssertTrue(tracker.ingest(frame(TestFaces.neutral, 15, pose: hangLoose)))
+        XCTAssertEqual(tracker.query?.pose, hangLoose)
+        // The same pattern held on is the same expression.
+        XCTAssertFalse(tracker.ingest(frame(TestFaces.neutral, 16, pose: hangLoose)))
+        XCTAssertFalse(tracker.candidateIsNewExpression)
     }
 
     func testADifferentGestureIsANewExpression() {

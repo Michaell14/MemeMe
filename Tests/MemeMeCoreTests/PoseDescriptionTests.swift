@@ -133,6 +133,19 @@ final class PoseDescriptionTests: XCTestCase {
         }
     }
 
+    func testAThumbAloneOutOfAFistIsNoPoseOfItsOwn() {
+        // A thumbs down, or a thumbs up tilted too far to be one, held low or in front of the chest: a thumb alone
+        // stands as clear of a fist as one round a mug, so it is no finger pattern, and the face's mood is searched.
+        let thumbOut = HandShape(fingers: [1, 0, 0, 0, 0])
+        let atTheChest = TestPoses.body(left: TestArm(elbow: (x: 0.55, y: -0.9), wrist: (x: 0.2, y: -0.3)),
+                                        right: TestPoses.rest.otherSide)
+        for joints in [TestPoses.both(TestPoses.rest), atTheChest] {
+            let thumb = sample(joints, hand: thumbOut, face: TestFaces.neutral)
+            XCTAssertNil(PoseBadge.of(thumb, baseline: baseline))
+            XCTAssertNil(PoseDescription.of(thumb, baseline: baseline))
+        }
+    }
+
     // MARK: Face, key and phrase
 
     func testTheFaceIsToldWhenSomethingAboutItStandsOut() throws {

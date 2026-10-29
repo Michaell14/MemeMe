@@ -407,7 +407,7 @@ public final class PeakHoldTracker {
         let shape = descriptor?.bodyShape
         let isCarriedByShape = shape != nil && gesture > 0
             && (descriptor?.armStrength ?? 0) < PeakHoldTracker.minimumGesture
-            && (descriptor?.hand?.signStrength ?? 0) < 0.7
+            && (descriptor?.handSignStrength ?? 0) < 0.7
             && faceIntensity < intensity
         let cueValues = face?.cues.map { $0 / PeakHoldTracker.cueWeight }
             ?? [Double](repeating: 0, count: FaceCues.Cue.allCases.count)
@@ -437,12 +437,15 @@ public final class PeakHoldTracker {
     /// A clear gesture after a clear gesture that is shaped quite differently (`newPoseSimilarity`), though both have
     /// the same word or none: strong poses all reach the same intensity, and many point the same way, so without this
     /// a second pose could never replace the first. The same shape is never new; poses with too little in common to
-    /// compare (an arm out of frame) aren't either.
+    /// compare (an arm out of frame) aren't either. Neither with a word, another finger pattern is new however alike
+    /// the rest (`PoseDescriptor.makesAnotherFingerPattern`: horns, then hang loose): such poses are searched by the
+    /// words describing them, which the fingers change.
     private func isNewPose(_ entry: Entry) -> Bool {
         guard let query, entry.strength >= PeakHoldTracker.minimumGesture,
               (query.pose?.gestureStrength ?? 0) >= PeakHoldTracker.minimumGesture,
               let held = query.pose?.descriptor, let new = entry.sample.pose?.descriptor else { return false }
         if let shape = entry.shape, shape == queryShape { return false }
+        if entry.word == nil, queryWord == nil, new.makesAnotherFingerPattern(than: held) { return true }
         let similarity = [PoseDescriptor.compare(held, new), PoseDescriptor.compare(held, new.mirrored)]
             .map { $0.coverage >= 0.6 ? $0.similarity : 1 }
             .max() ?? 1

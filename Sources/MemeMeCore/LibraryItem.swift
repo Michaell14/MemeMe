@@ -49,8 +49,9 @@ public struct LibraryItem: Codable, Identifiable, Hashable, Sendable {
 
     /// Pose analysis with `PoseDescriptor`: 1 arms, elbows and hand sign; 2 also how far each wrist crosses the body,
     /// where the elbows are and the torso (hips); 3 also how the forearms rise, and no peace sign with its fingers on
-    /// the face.
-    public static let currentPoseRevision = 3
+    /// the face; 4 also how straight each finger is (`HandShape.fingers`: any finger pattern is a sign, and counts in
+    /// the gesture's strength).
+    public static let currentPoseRevision = 4
 
     /// Face analysis: 1 the seven features measured in the face's own frame, turned level by the line through the eyes
     /// (a tilted head no longer reads as an open mouth), with its `FaceShape`.

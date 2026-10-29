@@ -331,22 +331,34 @@ public struct HandShape: Codable, Hashable, Sendable {
     }
 
     /// The strongest sign that means something on its own (thumbs up, pointing, peace, or any other deliberate finger
-    /// pattern: horns, hang loose, finger guns, a thumb down…); a plain open hand or fist doesn't.
+    /// pattern: horns, hang loose, finger guns…); a plain open hand or fist doesn't. As a gesture, a pattern counts only
+    /// away from rest (`PoseDescriptor.handSignStrength`).
     public var signStrength: Double {
         max(thumbsUp, point, peace, patternStrength)
     }
 
-    /// A deliberate finger pattern, whatever it means: with at least 3 fingers seen, the weaker of the straightest
-    /// finger's straightness and the most curled of the four fingers' curl (1 − straightness). So 1 when some fingers
-    /// are clearly straight and others clearly curled (pointing, horns, a thumb up or down); 0 for a fist, an open palm
-    /// (the thumb tucked against it too: only the four fingers' curl counts), a loose hand, fingers not kept, or a
-    /// straightened fingertip on the face (a finger up the cheek while thinking).
+    /// A deliberate finger pattern, whatever it means: with at least 3 fingers seen, the weaker of the straightest of
+    /// the four fingers' straightness and the most curled one's curl (1 − straightness). So 1 when some of them are
+    /// clearly straight and others clearly curled (pointing, horns, hang loose, three fingers up); 0 for a fist, a thumb
+    /// alone out of one (a thumb opposed round a mug or a phone stands clear of the palm too; a thumbs up is
+    /// `thumbsUp`), an open palm (the thumb tucked against it too), a loose hand, fingers not kept, or a straightened
+    /// fingertip on the face (a finger up the cheek while thinking). The thumb still tells patterns apart (`fingers`).
     public var patternStrength: Double {
         guard fingertipsOnFace != true, let fingers else { return 0 }
         let seen = fingers.compactMap { $0 }
         let fourFingers = fingers.dropFirst().compactMap { $0 }
-        guard seen.count >= 3, let straightest = seen.max(), let mostCurled = fourFingers.min() else { return 0 }
+        guard seen.count >= 3, let straightest = fourFingers.max(), let mostCurled = fourFingers.min() else { return 0 }
         return min(straightest, 1 - mostCurled)
+    }
+
+    /// Whether this hand and `other` hold their fingers differently: some finger seen on both is clearly straight
+    /// (≥ 0.7) on one and clearly curled (≤ 0.3) on the other (horns and hang loose, horns and love you); false when
+    /// either hand's fingers weren't kept.
+    func holdsFingersOtherwise(than other: HandShape) -> Bool {
+        Finger.allCases.contains { finger in
+            guard let mine = self[finger], let theirs = other[finger] else { return false }
+            return (mine >= 0.7 && theirs <= 0.3) || (mine <= 0.3 && theirs >= 0.7)
+        }
     }
 
     /// The most of each sign over several hands, with the fingers of the hand that shows the most (the strongest sign,
@@ -628,16 +640,47 @@ public struct PoseDescriptor: Codable, Hashable, Sendable {
                    VectorMath.clampUnit(((self[head] ?? 0) - 0.35) / 0.1))
     }
 
+    /// A wrist resting this much (`armRest`) may be holding something: a hand's finger pattern is then no sign.
+    static let patternAtRest = 0.5
+
+    /// The hand's finger pattern (`HandShape.patternStrength`) as a sign: 0 while a wrist seen rests low in front
+    /// (`armRest` ≥ `patternAtRest`), where fingers along the back of a phone held at the chest, round a mug or on a
+    /// mouse read as a pattern too (which hand made the pattern isn't kept, so either wrist resting counts); 0 without
+    /// a hand.
+    var patternSign: Double {
+        guard let hand else { return 0 }
+        let resting = max(armRest(lift: .leftLift, out: .leftOut, head: .leftHead),
+                          armRest(lift: .rightLift, out: .rightOut, head: .rightHead))
+        return resting < PoseDescriptor.patternAtRest ? hand.patternStrength : 0
+    }
+
+    /// The hand's strongest sign as a gesture: thumbs up, pointing or peace, or another finger pattern away from rest
+    /// (`patternSign`); 0 without a hand.
+    var handSignStrength: Double {
+        guard let hand else { return 0 }
+        return max(hand.thumbsUp, hand.point, hand.peace, patternSign)
+    }
+
+    /// Whether this pose's hand makes a clear finger pattern away from rest (`patternSign` ≥ 0.7), as `other`'s does,
+    /// with its fingers held otherwise (`HandShape.holdsFingersOtherwise`): horns, then hang loose. The arms, the five
+    /// sign scores (`compare`) and `gestureDirection` can read the same for both.
+    func makesAnotherFingerPattern(than other: PoseDescriptor) -> Bool {
+        guard let hand, let otherHand = other.hand, patternSign >= 0.7, other.patternSign >= 0.7 else { return false }
+        return hand.holdsFingersOtherwise(than: otherHand)
+    }
+
     /// 0 for arms at rest (hanging, on a desk, holding a mug at the chest, behind the head, or not seen) … 1 for a clear
     /// gesture: the arms' distance from rest (`armStrength`); at least 0.6 for a body shape with its own word (hands on
-    /// hips and arms crossed sit close to rest); or a clear hand sign (`HandShape.signStrength` ≥ 0.7: a named sign or
-    /// any deliberate finger pattern, so horns start a search with the arm low).
+    /// hips and arms crossed sit close to rest); or a clear hand sign (`handSignStrength` ≥ 0.7: a named sign, or any
+    /// other deliberate finger pattern while no wrist rests low in front, so horns start a search with the arms
+    /// hanging, and a phone held at the chest doesn't).
     public var gestureStrength: Double {
         var strength = armStrength
         if bodyShape != nil {
             strength = max(strength, PoseDescriptor.shapeStrength)
         }
-        if let sign = hand?.signStrength, sign >= 0.7 {
+        let sign = handSignStrength
+        if sign >= 0.7 {
             strength = max(strength, sign)
         }
         return strength
@@ -682,8 +725,9 @@ public struct PoseDescriptor: Codable, Hashable, Sendable {
     /// Mirror-invariant summary for telling one gesture from another (each 0 at rest), 10 numbers:
     /// [higher wrist lift, lower wrist lift, nearer wrist to head, farther wrist to head, wrist gap, higher elbow,
     ///  thumbs up, pointing, peace, another finger pattern] — a hand sign counts from 0.7, so relaxing the hand doesn't
-    /// read as a new gesture; the last is the hand's pattern strength beyond what the three named signs already tell
-    /// (horns, hang loose, finger guns…; 0 for pointing, which `point` tells).
+    /// read as a new gesture; the last is the hand's pattern strength as a sign (`patternSign`) beyond what the three
+    /// named signs already tell (horns, hang loose, finger guns…; 0 for pointing, which `point` tells). All finger
+    /// patterns share it: the tracker tells one from another by the fingers (`makesAnotherFingerPattern`).
     public var gestureDirection: [Double] {
         // An arm whose wrist wasn't seen, next to one that was, reads as resting (out of frame ≈ arms down, as in
         // `gestureStrength`) — not as a copy of the other — unless its upper arm is near vertical (hands out of the top
@@ -710,7 +754,7 @@ public struct PoseDescriptor: Codable, Hashable, Sendable {
             PoseDescriptor.sign(hand?.thumbsUp),
             PoseDescriptor.sign(hand?.point),
             PoseDescriptor.sign(hand?.peace),
-            PoseDescriptor.sign(hand.map { max(0, $0.patternStrength - max($0.thumbsUp, $0.point, $0.peace)) }),
+            PoseDescriptor.sign(hand.map { max(0, patternSign - max($0.thumbsUp, $0.point, $0.peace)) }),
         ]
     }
 
