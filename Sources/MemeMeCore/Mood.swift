@@ -6,6 +6,8 @@ public enum Mood: String, CaseIterable, Codable, Hashable, Sendable {
     // Body language
     case celebrate, facepalm, mindBlown, shrug, thumbsUp, pointing, clapping
     case tPose, flex, dab, handsOnHips, armsCrossed, pickMe, hello, ohNo, peace, bow
+    // Face details the seven features can't tell (`FaceCues`)
+    case tongueOut, wink, raisedEyebrow, duckFace, smirk, eyeRoll
 
     /// GIPHY query, e.g. "shocked reaction", "side eye", "unimpressed", "reaction", "mind blown", "t pose"
     public var searchQuery: String {
@@ -19,6 +21,8 @@ public enum Mood: String, CaseIterable, Codable, Hashable, Sendable {
         case .bow: return "bowing"
         case .celebrate, .facepalm, .mindBlown, .shrug, .thumbsUp, .pointing, .clapping,
              .flex, .dab, .handsOnHips, .armsCrossed, .pickMe, .hello, .ohNo: return label
+        // GIPHY's own tags for these faces; "reaction" would only blur them.
+        case .tongueOut, .wink, .raisedEyebrow, .duckFace, .smirk, .eyeRoll: return label
         default: return label + " reaction"
         }
     }
@@ -57,6 +61,12 @@ public enum Mood: String, CaseIterable, Codable, Hashable, Sendable {
         case .ohNo: return "oh no"
         case .peace: return "peace"
         case .bow: return "bow"
+        case .tongueOut: return "tongue out"
+        case .wink: return "wink"
+        case .raisedEyebrow: return "raised eyebrow"
+        case .duckFace: return "duck face"
+        case .smirk: return "smirk"
+        case .eyeRoll: return "eye roll"
         }
     }
 }
@@ -66,6 +76,8 @@ public enum MoodClassifier {
     /// 1. a pose described in detail (`PoseDescriptor`), a clear gesture (strength ≥ `Ranker.gestureWithoutFace`), with
     ///    body language that has its own word → that word (`gestureMood`; forearms on armrests have a shrug's shape)
     /// 2. face nil → .reaction
+    /// 2b. a clear face cue (`FaceCues.clearCue` of `shape` against `baseline.restShape`: tongue out, wink, one raised
+    ///    eyebrow, pucker, smirk, eye roll) → its word (`FaceCues.Cue.mood`)
     /// 3. only for poses measured the old way (no descriptor):
     ///    pose.handsRaised ≥ 0.5 && o ≥ 0.35 → .screaming;  pose.activity ≥ 0.5 && s > 0.08 → .excited
     /// 4. o ≥ 0.45 && s ≤ 0.05 && (d.eye ≥ 0.1 || d.brow ≥ 0.1) → o ≥ 0.7 ? .screaming : .shocked
@@ -78,12 +90,16 @@ public enum MoodClassifier {
     /// 11. d.brow < -0.12 → .angry
     /// 12. face.headTilt ≥ 0.35 → .confused
     /// 13. else → .unimpressed
-    public static func mood(for face: FaceFeatures?, pose: PoseFeatures?, baseline: RestingBaseline) -> Mood {
+    public static func mood(for face: FaceFeatures?, pose: PoseFeatures?, shape: FaceShape? = nil,
+                            baseline: RestingBaseline) -> Mood {
         if let descriptor = pose?.descriptor, descriptor.gestureStrength >= Ranker.gestureWithoutFace,
            let gesture = gestureMood(descriptor, face: face, baseline: baseline) {
             return gesture
         }
         guard let face = face else { return .reaction }
+        if let cue = baseline.cues(of: shape).clearCue {
+            return cue.mood
+        }
         let deviation = baseline.signedDeviation(of: face)
         let browDeviation = deviation[0]   // browRaise
         let eyeDeviation = deviation[1]    // eyeOpenness
