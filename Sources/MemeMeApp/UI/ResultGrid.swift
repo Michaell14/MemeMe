@@ -2,8 +2,8 @@ import AppKit
 import MemeMeCore
 import SwiftUI
 
-/// The grid of your memes: one row of 6 (GIPHY's results and the classic memes share the shelf below it); nothing
-/// when you have none (the mirror's column offers "Find my memes"). Empty slots keep their place so the panel doesn't
+/// The grid of your memes: the panel's top row of 6, over the classic memes and the GIFs; nothing when you have none
+/// (the panel shows an empty well there, and the mirror's column offers "Find my memes"). Empty slots keep their place so the panel doesn't
 /// jump as results change.
 struct ResultGrid: View {
     @ObservedObject var model: AppModel

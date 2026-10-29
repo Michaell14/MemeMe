@@ -4,7 +4,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 /// The compact strip: the mirror on the left, with the word it read (else the hint) under it; on the right the search
-/// field, one row of your memes, and the shelf with one row of GIFs or classic memes; a footer below only while there
+/// field and three rows of 6: your memes, the classic memes and the GIFs; a footer below only while there
 /// is something to act on.
 struct PanelView: View {
     @ObservedObject var model: AppModel
@@ -76,7 +76,7 @@ struct PanelView: View {
 
     // MARK: Search field
 
-    /// Mirror + readout or hint, your memes and the shelf, footer.
+    /// Mirror + readout or hint, the three rows, footer.
     @ViewBuilder
     private var strip: some View {
         if model.showSetupCard {
@@ -105,15 +105,14 @@ struct PanelView: View {
         }
     }
 
-    /// One row of your memes (none until you have some), then the shelf; a dashed "Drop to search" card over them
-    /// while an image is dragged over the panel (the whole panel takes the drop).
+    /// Three rows, top to bottom: your memes (an empty well until you have some), the classic memes, the GIFs (each
+    /// web row only while its source is on); a dashed "Drop to search" card over them while an image is dragged over
+    /// the panel (the whole panel takes the drop).
     private var results: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             if model.ownRows > 0 {
                 ResultGrid(model: model)
-            }
-            WebShelf(model: model)
-            if model.ownRows == 0 && !model.showsGiphyRow && !model.showsTemplateRow {
+            } else {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .fill(Theme.surface.opacity(0.45))
                     .frame(height: 88)
@@ -122,6 +121,12 @@ struct PanelView: View {
                             .font(.system(size: 12))
                             .foregroundColor(Theme.mutedText)
                     }
+            }
+            if model.showsTemplateRow {
+                TemplateRow(model: model)
+            }
+            if model.showsGiphyRow {
+                GiphyRow(model: model)
             }
         }
         .overlay {

@@ -14,7 +14,7 @@ enum Theme {
     static let amber: Color = rgb(0xF5C451)
     static let green: Color = rgb(0x5FD38D)
 
-    /// Every row of tiles is 6 wide: your memes (one row), and the shelf of GIFs or classic memes.
+    /// Every row of tiles is 6 wide: your memes (one row), the classic memes and the GIFs.
     static let columns: Int = 6
     static let rows: Int = 1
     static var resultLimit: Int { columns * rows }
