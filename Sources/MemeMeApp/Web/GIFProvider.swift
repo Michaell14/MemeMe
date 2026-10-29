@@ -15,7 +15,8 @@ struct WebGIF: Codable, Hashable {
     var creator: String? = nil
 }
 
-/// A GIF search backend. Only the mood word, or the typed words, are ever sent.
+/// A GIF search backend. Only the mood word, the typed words, or the few words naming a pose (made on the Mac) are
+/// ever sent.
 protocol GIFProvider: Sendable {
     var name: String { get }
     func search(_ query: String, limit: Int) async throws -> [WebGIF]

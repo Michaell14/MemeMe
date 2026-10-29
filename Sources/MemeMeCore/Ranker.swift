@@ -2,7 +2,9 @@ import Foundation
 
 public enum SearchQuery: Sendable {
     case recent(appBundleID: String?)
-    case expression(ExpressionSample, weights: FeatureWeights)
+    /// A held face or pose. `words` name it when it was described in words (a clear gesture with no word of its own:
+    /// "flexing", "rock on"); memes whose name, text or labels say them rank a little higher (`expressionScore`).
+    case expression(ExpressionSample, weights: FeatureWeights, words: [String] = [])
     case text(String, face: ExpressionSample?, weights: FeatureWeights)
     case image(featurePrint: [Float]?, face: FaceFeatures?, intensity: Double)
     case moreLike(LibraryItem)
@@ -88,7 +90,8 @@ public struct Ranker: Sendable {
     public static let gestureWithoutFace = 0.4
     /// Share of the face match a query's clear cue takes at full strength (`expressionScore`).
     private static let cueShare = 0.45
-    /// Added for an item whose name, text or labels say the query's clear cue ("tongue out", "wink"...).
+    /// Added once for an item whose name, text or labels say the query's clear cue ("tongue out", "wink"...) or the
+    /// words its pose was described by ("flexing"), even when they say both.
     private static let cueWordBonus = 0.05
 
     public init(baseline: RestingBaseline = RestingBaseline()) {
@@ -100,8 +103,8 @@ public struct Ranker: Sendable {
         switch query {
         case .recent:
             return rankRecent(items, recents: recents, limit: limit)
-        case let .expression(sample, weights):
-            return rankExpression(items, sample: sample, weights: weights, limit: limit)
+        case let .expression(sample, weights, words):
+            return rankExpression(items, sample: sample, weights: weights, words: words, limit: limit)
         case let .text(raw, sample, weights):
             return rankText(items, raw: raw, sample: sample, weights: weights, people: people, limit: limit)
         case let .image(featurePrint, face, _):
@@ -119,8 +122,10 @@ public struct Ranker: Sendable {
     /// fit, so a face the seven features can't tell from a plain one finds the memes that show it.
     /// A face hidden behind a clear gesture (or a meme without a readable face) when the item's arms were measured: the
     /// face part counts 0.5 and the pose carries the match. Otherwise 0.25 + 0.3 × fit.
-    /// With a clear cue, an item whose name, text or labels say it (`mentions(_:in:)`) gets +0.05.
-    public func expressionScore(item: LibraryItem, sample: ExpressionSample, weights: FeatureWeights) -> Double {
+    /// An item whose name, text or labels say the clear cue (`mentions(_:in:)`) or name one of `words` (what a pose
+    /// with no word of its own was described by: `mentions(words:in:)`) gets +0.05: once, even when both do.
+    public func expressionScore(item: LibraryItem, sample: ExpressionSample, weights: FeatureWeights,
+                                words: [String] = []) -> Double {
         let target = sample.face.map { baseline.intensity(of: $0) } ?? 0.3
         let fit = 1 - abs(item.intensity - target)
         let poseWeight = VectorMath.clampUnit(weights.pose)
@@ -150,7 +155,8 @@ public struct Ranker: Sendable {
             score = 0.25 + 0.3 * fit
         }
         score += Ranker.adjustment(for: item)
-        if let cue = clearCue, Ranker.mentions(cue, in: item) {
+        let namesCue = clearCue.map { Ranker.mentions($0, in: item) } ?? false
+        if namesCue || Ranker.mentions(words: words, in: item) {
             score += Ranker.cueWordBonus
         }
         return score.isFinite ? score : 0
@@ -158,10 +164,12 @@ public struct Ranker: Sendable {
 
     // MARK: Modes
 
-    private func rankExpression(_ items: [LibraryItem], sample: ExpressionSample, weights: FeatureWeights, limit: Int) -> [RankedResult] {
+    private func rankExpression(_ items: [LibraryItem], sample: ExpressionSample, weights: FeatureWeights,
+                                words: [String], limit: Int) -> [RankedResult] {
         var scored: [RankedResult] = []
         for item in items where item.tier == .meme {
-            scored.append(RankedResult(item: item, score: expressionScore(item: item, sample: sample, weights: weights)))
+            let score = expressionScore(item: item, sample: sample, weights: weights, words: words)
+            scored.append(RankedResult(item: item, score: score))
         }
         var results: [RankedResult] = []
         var friendCount = 0
@@ -374,6 +382,19 @@ public struct Ranker: Sendable {
         return words(for: cue).contains { text.contains($0) }
     }
 
+    /// Whether the item's name, text or labels name one of `words` (a described pose's phrase, "flexing", "rock on"),
+    /// any case, by `DescribedWords`: whole words, or words of 4 letters or more starting one ("flex" finds "flexing",
+    /// "arm" never finds "farm"); stopwords and body and side words never count. Own memes have no table of words, so
+    /// a word ending in "ing" also finds its stem ("flexing" finds a meme named "flex", "thinking" one named "think").
+    public static func mentions(words: [String], in item: LibraryItem) -> Bool {
+        let terms = DescribedWords.terms(in: words)
+        guard !terms.isEmpty else { return false }
+        let text = [item.displayName, item.text, item.labels.joined(separator: " ")].joined(separator: " ")
+        let itemWords = DescribedWords.words(in: text)
+        let wanted = terms + terms.compactMap(DescribedWords.stem(of:))
+        return wanted.contains { term in itemWords.contains { DescribedWords.term(term, matches: $0) } }
+    }
+
     /// lowercased(displayName + " " + text + " " + labels + " " + source + " " + sourceDetail + " " + person name)
     static func searchableText(of item: LibraryItem, personName: String) -> String {
         let parts = [item.displayName, item.text, item.labels.joined(separator: " "), item.source, item.sourceDetail ?? "", personName]
@@ -404,5 +425,44 @@ public struct Ranker: Sendable {
             if lhsDate != rhsDate { return lhsDate > rhsDate }
             return lhs.item.id.uuidString < rhs.item.id.uuidString
         }
+    }
+}
+
+/// The words a pose with no word of its own was described by (`PoseDescription.phrase`, or the on-device model's name
+/// for it: "flexing", "rock on"), matched against what memes are named, say and are tagged with. A word matches a whole
+/// word, or from `minimumPrefix` letters on the start of one ("flex" finds "flexing"), never the inside of one ("arm"
+/// isn't "farm"). Stopwords and body and side words say nothing about which meme fits ("on" isn't One Does Not Simply,
+/// "hand" isn't Epic Handshake, and the describer never says "left" or "right"), so they never count.
+enum DescribedWords {
+    /// Shorter words match whole words only.
+    static let minimumPrefix = 4
+
+    /// Never matched: stopwords, and body and side words.
+    static let ignored: Set<String> = [
+        "a", "an", "the", "my", "on", "at", "of", "in", "by", "with", "to", "up", "out", "one", "both",
+        "and", "is", "it", "for", "his", "her", "their", "your",
+        "left", "right", "arm", "arms", "hand", "hands", "head", "face", "pose", "strike",
+    ]
+
+    /// Lowercased words, split on anything but letters and digits.
+    static func words(in text: String) -> [String] {
+        text.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
+    }
+
+    /// The words of `phrases` that count, in order: lowercased and split, without ignored words or single letters.
+    static func terms(in phrases: [String]) -> [String] {
+        phrases.flatMap { words(in: $0) }.filter { $0.count >= 2 && !ignored.contains($0) }
+    }
+
+    /// Whether `term` names `word`: the same word, or a term of `minimumPrefix` letters or more starting it.
+    static func term(_ term: String, matches word: String) -> Bool {
+        word == term || (term.count >= minimumPrefix && word.hasPrefix(term))
+    }
+
+    /// A word ending in "ing" without it ("flexing" → "flex", "thinking" → "think"), when that leaves `minimumPrefix`
+    /// letters or more; nil for any other word ("sing", "bring", "flex").
+    static func stem(of term: String) -> String? {
+        guard term.hasSuffix("ing"), term.count - 3 >= minimumPrefix else { return nil }
+        return String(term.dropLast(3))
     }
 }

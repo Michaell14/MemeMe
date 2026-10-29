@@ -32,7 +32,7 @@ Every push and pull request builds the app on GitHub Actions, including the ones
 
 ### Build it yourself
 
-You need Xcode 16 (the Swift 6 toolchain; the package uses the Swift 5 language mode).
+You need Xcode 16 or later (the Swift 6 toolchain; the package uses the Swift 5 language mode). CI builds with Xcode 26.3, whose macOS 26 SDK has Apple's on-device model (FoundationModels) for naming poses; built with Xcode 16, the app leaves it out and names poses by its own rules only. The framework is weak-linked, so the app still runs on macOS 14 and 15, and CI fails a build that links it strongly.
 
 ```sh
 swift build                       # debug build of everything
@@ -83,7 +83,7 @@ Every change to the app on the default branch is released automatically. When `S
 |---|---|
 | ⌃⌘M | Open or close the panel (in any app, no permission needed) |
 | Make a face | Hold it for about 0.3 s; a different face needs about 0.6 s (the ring fills), or 0.3 s if you relax your face in between. Small changes count: stick your tongue out, wink, raise one eyebrow, purse your lips, smirk or roll your eyes, and the search goes by "tongue out", "wink", "raised eyebrow", "duck face", "smirk" or "eye roll". The same word caught again shows the next GIFs and classic memes |
-| Strike a pose | Arms up, a T-pose, a flex, a dab, hands on hips, arms crossed, one arm up, a wave, a bow, hands on your head, a facepalm, a shrug, clapping, a thumbs up, peace, pointing: memes with that pose come first, GIPHY and the classic memes are searched for it, and the word under the mirror names the pose. Step back so your arms (and hips) are in view, and hold each pose for a second |
+| Strike a pose | Arms up, a T-pose, a flex, a dab, hands on hips, arms crossed, one arm up, a wave (palm open to the camera), a bow, hands on your head, a facepalm, a shrug, clapping, a thumbs up, peace, pointing: memes with that pose come first, GIPHY and the classic memes are searched for it, and the word under the mirror names the pose. Any other finger pattern (horns, hang loose, finger guns) counts as a hand sign too, except while a hand rests in front of you holding a phone or a mug. A pose with no word of its own (one arm flexed, horns, a hand on your chin) is named in a few words on your Mac ("flexing", "rock on", "thinking") and searched by them: by Apple's on-device model on macOS 26 with Apple Intelligence on (sparkles under the mirror), else by MemeMe's own rules. Step back so your arms (and hips) are in view, and hold each pose for a second |
 | Space | Use the current face now, even a neutral one (only while the search field is empty) |
 | ⇧Space or the camera button on the mirror | Send yourself: tap the shutter (or Space) for a photo, hold it for a GIF of up to 3 s; ← → pick a filter (looks: Noir, Comic, 8-bit, Deep fried; on your face: Dog, Cat, Bunny, Rainbow, Flowers, Heart eyes, Deal with it, Devil, Angel, Crown, Bug eyes, Clown, Mustache, Pig). It's copied, ready to paste; **Save as sticker** on the notice keeps your face as a sticker |
 | ↵, 1–6, click | Copy the focused, numbered or clicked result and close (1–6 are your memes) |
@@ -105,8 +105,8 @@ Every change to the app on the default branch is released automatically. When `S
 - **Folders.** After **Find my memes** (or from the menu), MemeMe indexes images in Downloads, Desktop and your screenshot folder. macOS asks once per folder. Files are never copied or moved: the index stores features, a compact image fingerprint and the text found in each image (about 4 KB per meme). Personal photos and chat screenshots are sorted out and keep no face data or text. Only images you hand in yourself (dropped on the icon, or **Keep it**) are copied, into `~/Library/Application Support/MemeMe/Kept`.
 - **No Accessibility access, ever.** MemeMe only writes to the clipboard. You paste.
 - **Network.** Only with Web Discover on:
-  - **GIPHY** (with a key set): the one mood word for your face (for example "shocked reaction" or "tongue out") goes to GIPHY, sometimes a moment before you finish making the face. What you type in the search field goes too, once you pause typing, without filter words (`mine`, `gif`, `sticker`) or the names of your people. GIPHY's results show in their own row, in GIPHY's order, and are kept in memory for 10 minutes. Their images load from GIPHY with ordinary web caching; a GIF you copy or drag is downloaded to a temporary file that is deleted within the hour. Nothing from GIPHY goes into your library.
-  - **Imgflip** (no key): once a day MemeMe fetches Imgflip's public list of popular meme templates (the request carries nothing about you) and keeps it in `~/Library/Caches/MemeMe/Templates`. Which templates fit your face or your words is worked out on your Mac, so neither is sent; the images of the templates picked then load from Imgflip (with ordinary web caching), so Imgflip sees which ones were shown; one you copy or drag goes to a temporary file deleted within the hour.
+  - **GIPHY** (with a key set): the one mood word for your face (for example "shocked reaction" or "tongue out") goes to GIPHY, sometimes a moment before you finish making the face. For a pose with no word of its own, 1–3 words naming it go instead (for example "flexing" or "rock on"), made on your Mac by MemeMe's own rules or by Apple's on-device model; the description of your arms, hands and face that the model reads never leaves your Mac, and neither does any frame. What you type in the search field goes too, once you pause typing, without filter words (`mine`, `gif`, `sticker`) or the names of your people. GIPHY's results show in their own row, in GIPHY's order, and are kept in memory for 10 minutes. Their images load from GIPHY with ordinary web caching; a GIF you copy or drag is downloaded to a temporary file that is deleted within the hour. Nothing from GIPHY goes into your library.
+  - **Imgflip** (no key): once a day MemeMe fetches Imgflip's public list of popular meme templates (the request carries nothing about you) and keeps it in `~/Library/Caches/MemeMe/Templates`. Which templates fit your face, your pose or your words is worked out on your Mac, so none of them is sent to Imgflip; the images of the templates picked then load from Imgflip (with ordinary web caching), so Imgflip sees which ones were shown; one you copy or drag goes to a temporary file deleted within the hour.
 - **Update checks.** Release builds fetch `latest.json` from GitHub Releases every 6 hours. The request carries nothing about you or your library. The new DMG is downloaded only after you click **Update**.
 - **Friend stickers.** Grouping stickers by person is opt-in. Face matching compares a sticker's face only with stickers you made, and the data never leaves your Mac.
 - **Where data lives.** `~/Library/Application Support/MemeMe` (index, settings, kept images, stickers) and `~/Library/Caches/MemeMe`. Delete both to start over.
@@ -138,7 +138,8 @@ Sources/MemeMeCore/           Foundation-only logic, also builds on Linux
   PeakHoldTracker               turns camera frames into a stable query ("no shutter")
   FeatureWeights, Ranker        scoring for face, text, image, more-like and recent searches
   EarlyMoodTrigger, TileGrid     when a held face's mood is clear (early GIPHY search); keyboard focus across rows
-  Mood, MemeTemplateCatalog     face → mood word for GIPHY; the classic memes for a mood or words
+  Mood, MemeTemplateCatalog     face → mood word for GIPHY; the classic memes for a mood, words or a described pose
+  PoseDescription               a pose with no word of its own in words: facts for the on-device model, a phrase by rule
   Classifier, LibraryItem,      library model, meme/maybe/skipped sorting, JSON store
   LibraryStore, RecentStore,
   Person, AppSettings, VectorMath
@@ -147,7 +148,7 @@ Sources/MemeMeApp/            the macOS app (AppKit + SwiftUI)
   App/                          main.swift, AppDelegate, AppModel (orchestration), HotKey (Carbon),
                                 StatusItemController (menu, drop target, popover), StickerPopoverModel, LoginItem
   Camera/                       AVFoundation capture and the mirrored preview
-  Vision/                       face landmarks → features, image analysis, thumbnails
+  Vision/                       face landmarks → features, image analysis, thumbnails, naming poses with Apple's on-device model (PoseNamer)
   Library/                      folder watching and indexing
   Web/                          GIPHY search and media for the GIPHY row
   Stickers/                     subject lifting into die-cut stickers, friend grouping
@@ -168,7 +169,7 @@ scripts/notarize.sh           notarizes a file with notarytool and staples the t
 scripts/publish-release.sh    publishes a GitHub Release with MemeMe.dmg and latest.json
 scripts/build-site.sh         standalone copy of the website in build/site/
 site/index.html               the website
-.github/workflows/ci.yml      CI: build, test, package the DMG; signs, notarizes and releases from the default branch
+.github/workflows/ci.yml      CI (Xcode 26.3): build, check FoundationModels is weak-linked, test, package the DMG; signs, notarizes and releases from the default branch
 docs/                         DESIGN.md (product spec) and ARCHITECTURE.md (code contract)
 ```
 
@@ -176,6 +177,7 @@ docs/                         DESIGN.md (product spec) and ARCHITECTURE.md (code
 
 - **Friend grouping is not face recognition.** It compares Vision's generic image feature prints of face crops. That is not an identity model, so the thresholds are conservative, and MemeMe asks ("Jordan?") when it is unsure.
 - **Expressions are approximate.** Features come from Vision's 2D face landmarks; strong lighting, glasses or a turned head make them noisier. Moods are a coarse set of words. A tongue is found by its color under the lips, so gray or colored light (or lipstick close to it) can hide it.
+- **Pose names are read from words, not the picture.** Apple's on-device model names a pose from a description of your arms, hands and face, and only on macOS 26 with Apple Intelligence on (an Apple silicon Mac); elsewhere MemeMe's own rules name it, and a pose they don't know is "strike a pose". Showing the model the picture needs the macOS 27 SDK, a possible follow-up once CI has Xcode 27.
 - **KLIPY is not wired up yet.** The provider protocol is ready, but its API shape is unverified, so GIPHY is the only web source.
 - **The shortcut is fixed to ⌃⌘M in v1.** If another app already holds it, the first-run card says so.
 - **Out of scope for v1:** auto-paste, a full library window, Photos library access, importing Messages history.

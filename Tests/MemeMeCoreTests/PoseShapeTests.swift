@@ -20,6 +20,7 @@ enum FullBodyPoses {
     static let armsCrossed = TestPoses.body(left: crossedLeft, right: crossedRight, hips: hips)
     static let straightUp = TestArm(elbow: (x: 0.7, y: 0.85), wrist: (x: 0.8, y: 1.75))
     static let pickMe = TestPoses.body(left: straightUp, right: rest.otherSide)
+    /// One hand raised beside the head: hello with the hand read as an open palm, else a one-arm flex.
     static let hello = TestPoses.body(left: TestArm(elbow: (x: 1.0, y: -0.05), wrist: (x: 1.05, y: 0.75)), right: rest.otherSide)
     static let ohNo = TestPoses.both(TestArm(elbow: (x: 1.0, y: 0.75), wrist: (x: 0.18, y: 1.15)))
     static let bow = TestPoses.both(TestArm(elbow: (x: 0.55, y: -0.6), wrist: (x: 0.5, y: -1.0)),
@@ -153,7 +154,6 @@ final class PoseShapeMoodTests: XCTestCase {
             ("arms crossed, no hips", TestPoses.body(left: FullBodyPoses.crossedLeft, right: FullBodyPoses.crossedRight), .armsCrossed),
             ("pick me", FullBodyPoses.pickMe, .pickMe),
             ("pick me, the other arm unseen", TestPoses.body(left: FullBodyPoses.straightUp, right: nil), .pickMe),
-            ("hello", FullBodyPoses.hello, .hello),
             ("oh no", FullBodyPoses.ohNo, .ohNo),
             ("bow", FullBodyPoses.bow, .bow),
             ("star jump", FullBodyPoses.starJump, .celebrate),
@@ -168,6 +168,23 @@ final class PoseShapeMoodTests: XCTestCase {
         XCTAssertEqual(gestureWord(TestFaces.neutral, TestPoses.body(left: TestPoses.rest, right: FullBodyPoses.straightUp.otherSide)), .pickMe)
         XCTAssertEqual(gestureWord(TestFaces.neutral, TestPoses.body(left: TestPoses.rest, right: FullBodyPoses.handOnHip.otherSide,
                                                                     hips: FullBodyPoses.hips)), .handsOnHips)
+    }
+
+    func testHelloNeedsAHandReadAsAnOpenPalm() throws {
+        // An open palm facing the camera is what Vision reads best: with one, a hand raised beside the head says hello.
+        let palm = try XCTUnwrap(HandShape(TestHands.openPalm()))
+        XCTAssertEqual(gestureWord(TestFaces.neutral, FullBodyPoses.hello, hand: palm), .hello)
+        XCTAssertEqual(gestureWord(nil, FullBodyPoses.hello, hand: palm), .hello, "no face")
+        XCTAssertEqual(gestureWord(TestFaces.neutral, flipped(FullBodyPoses.hello), hand: palm), .hello, "mirrored image")
+        XCTAssertEqual(MoodClassifier.mood(for: nil, pose: TestPoses.features(FullBodyPoses.hello, hand: palm),
+                                           baseline: RestingBaseline()), .hello, "the mood")
+        // The same arm with a fist, or with the hand not read, is a one-arm flex: a pose without a word of its own,
+        // described instead (PoseDescriptionTests).
+        XCTAssertNil(PoseDescriptor(FullBodyPoses.hello)?.bodyShape, "no hand read")
+        XCTAssertNil(gestureWord(TestFaces.neutral, FullBodyPoses.hello), "no hand read")
+        XCTAssertNil(gestureWord(TestFaces.neutral, FullBodyPoses.hello, hand: HandShape(fist: 1)), "a fist")
+        XCTAssertNil(gestureWord(TestFaces.neutral, FullBodyPoses.hello, hand: try XCTUnwrap(HandShape(TestHands.fist()))),
+                     "a fist read from its joints")
     }
 
     func testAPeaceSignIsPeace() {

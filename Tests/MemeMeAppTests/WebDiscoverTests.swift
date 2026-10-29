@@ -204,6 +204,28 @@ final class WebDiscoverTests: XCTestCase {
     }
 
     @MainActor
+    func testADescribedPoseSearchesGIPHYForOnlyItsWords() async throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.remove() }
+        let (web, _) = try makeWeb(in: sandbox)
+        WebStubURLProtocol.serve(ids: ids(3), media: try gifData(in: sandbox))
+
+        let rockOn = try XCTUnwrap(WebQuery.described(from: "Rock On"))
+        let gifs = await web.gifs(for: rockOn)
+        XCTAssertEqual(gifs?.map(\.id), ids(3))
+        let url = try XCTUnwrap(WebStubURLProtocol.lastSearchURL)
+        let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        XCTAssertEqual(query.first { $0.name == "q" }?.value, "rock on", "the few words naming the pose, nothing more")
+        XCTAssertEqual(web.cachedGIFs(for: rockOn)?.map(\.id), ids(3))
+        XCTAssertNil(web.cachedGIFs(for: .words("rock on")), "typed words are another query")
+
+        // The same words for the next pose (or a re-shown one) are reused, not searched again.
+        let again = await web.gifs(for: .described("rock on"))
+        XCTAssertEqual(again?.map(\.id), ids(3))
+        XCTAssertEqual(WebStubURLProtocol.searchCount, 1)
+    }
+
+    @MainActor
     func testNoResultsOrImagesAreWrittenToDisk() async throws {
         let sandbox = try TestSandbox()
         defer { sandbox.remove() }

@@ -3,12 +3,47 @@ import Foundation
 import MemeMeCore
 import XCTest
 
+/// A stand-in for the on-device model: names from a table, each pose asked about once (its answer, nil too, kept like
+/// `PoseNamer` keeps it). Unavailable unless a test says so, so no test asks the Mac's model.
+@MainActor
+private final class StubPoseNamer: PoseNaming {
+    var isAvailable = false
+    var names: [String: String] = [:]
+    private(set) var questions = 0
+    private(set) var prewarms = 0
+    private var answers: [String: String?] = [:]
+
+    func cachedName(for description: PoseDescription) -> String?? {
+        answers[description.key]
+    }
+
+    func prewarm() {
+        prewarms += 1
+    }
+
+    func name(_ description: PoseDescription) async -> String? {
+        if let answer = answers[description.key] {
+            return answer
+        }
+        questions += 1
+        let answer = isAvailable ? names[description.key] : nil
+        answers[description.key] = .some(answer)
+        return answer
+    }
+}
+
 /// AppModel can be built headless: its init only creates the camera controller (an AVCaptureSession that is not
 /// started), the indexer, web discovery and the friend service. Web discovery is switched off in these stores and
 /// its cache lives in the test's temporary folder, so no network and no web cache on this Mac take part.
 ///
 /// `panelWillShow` would ask for camera access 0.6 s after opening when access is undecided (activating the app for
 /// the system prompt); `requestsCameraAccessOnShow = false` turns that off, so the checks don't depend on timing.
+///
+/// A described pose's search (`runExpressionSearch` asking the namer, the web rows waiting for its words) can't be
+/// driven from here: it starts from a held query, which the tracker only takes from frames while the camera is live,
+/// and the panel only goes live with a camera and camera access (CI has neither). What it decides is checked through
+/// `AppModel.describedWords` with a stand-in namer, and its pieces (`WebQuery.described`, `pickTemplates`) in
+/// MemeTemplatesTests and WebDiscoverTests.
 final class AppModelTests: XCTestCase {
     /// How long a test waits for the panel to react (the text search is debounced by 80 ms).
     private static let openPanelBudget: TimeInterval = 2
@@ -18,8 +53,10 @@ final class AppModelTests: XCTestCase {
     private static let february10 = Date(timeIntervalSince1970: 1_770_710_400)   // 2026-02-10T08:00:00Z
     private static let march15 = Date(timeIntervalSince1970: 1_773_576_000)      // 2026-03-15T12:00:00Z
 
+    /// `poseNamer`: nil = a stand-in without a model (`StubPoseNamer`).
     @MainActor
-    private func makeModel(in sandbox: TestSandbox, items: [LibraryItem], people: [Person] = []) throws -> AppModel {
+    private func makeModel(in sandbox: TestSandbox, items: [LibraryItem], people: [Person] = [],
+                           poseNamer: (any PoseNaming)? = nil) throws -> AppModel {
         let store = try LibraryStore(rootURL: sandbox.url.appendingPathComponent("Library", isDirectory: true))
         var settings = store.settings
         settings.webDiscoverEnabled = false
@@ -33,7 +70,14 @@ final class AppModelTests: XCTestCase {
         for person in people {
             store.upsert(person)
         }
-        let model = AppModel(store: store, webCacheRoot: sandbox.url.appendingPathComponent("WebCache", isDirectory: true))
+        let namer: any PoseNaming
+        if let poseNamer {
+            namer = poseNamer
+        } else {
+            namer = StubPoseNamer()
+        }
+        let model = AppModel(store: store, webCacheRoot: sandbox.url.appendingPathComponent("WebCache", isDirectory: true),
+                             poseNamer: namer)
         model.requestsCameraAccessOnShow = false
         return model
     }
@@ -201,6 +245,72 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(naming?.candidates.first?.stickerCount, 1)
         XCTAssertEqual(naming?.candidates.first?.sample?.id, sticker.id)
         XCTAssertTrue(results.isEmpty)
+    }
+
+    @MainActor
+    func testThePoseNamerWarmsOnlyOnceTheCameraIsLive() throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.remove() }
+        let namer = StubPoseNamer()
+        namer.isAvailable = true
+        let model = try makeModel(in: sandbox, items: [], poseNamer: namer)
+
+        model.panelWillShow(previousApp: nil)
+        defer {
+            model.panelDidHide()
+            model.saveNow()
+        }
+        let mode = model.mode
+        let readout = model.readout
+
+        XCTAssertNotEqual(mode, .live, "the camera goes live with its first frame, never while the panel opens")
+        XCTAssertEqual(namer.prewarms, 0, "the model loads once the camera reads you")
+        XCTAssertEqual(namer.questions, 0, "nothing is held, so nothing is asked")
+        XCTAssertNil(readout)
+    }
+
+    @MainActor
+    func testADescribedPoseIsSearchedByTheModelsNameOnceItGaveOne() async {
+        let namer = StubPoseNamer()
+        let flexing = PoseDescription(
+            facts: [
+                "One arm: at head height, bent sharply, upper arm out to the side, forearm up, beside the head.",
+                "The other arm hangs at the side.",
+            ],
+            phrase: "flexing"
+        )
+
+        var words = AppModel.describedWords(for: flexing, namer: namer)
+        XCTAssertEqual(words.phrase, "flexing", "without the model, the rule's phrase")
+        XCTAssertFalse(words.named)
+        XCTAssertFalse(words.waits, "without the model nothing waits")
+
+        namer.isAvailable = true
+        words = AppModel.describedWords(for: flexing, namer: namer)
+        XCTAssertEqual(words.phrase, "flexing", "the rule's phrase until the model answers")
+        XCTAssertFalse(words.named)
+        XCTAssertTrue(words.waits, "a pose the model was never asked about waits for its name")
+
+        namer.names[flexing.key] = "gun show"
+        let name = await namer.name(flexing)
+        XCTAssertEqual(name, "gun show")
+        words = AppModel.describedWords(for: flexing, namer: namer)
+        XCTAssertEqual(words.phrase, "gun show", "its name is searched at once from then on")
+        XCTAssertTrue(words.named)
+        XCTAssertFalse(words.waits)
+        XCTAssertEqual(namer.questions, 1, "and the model isn't asked again")
+
+        let horns = PoseDescription(facts: ["One hand: index and little fingers straight, the others curled."],
+                                    phrase: "rock on")
+        let noName = await namer.name(horns)
+        XCTAssertNil(noName)
+        words = AppModel.describedWords(for: horns, namer: namer)
+        XCTAssertEqual(words.phrase, "rock on", "no name keeps the rule's phrase")
+        XCTAssertFalse(words.named)
+        XCTAssertFalse(words.waits, "and doesn't wait again")
+
+        XCTAssertFalse(MoodReadout(word: "rock on", source: .pose).named, "the rule's phrase shows no sparkles")
+        XCTAssertTrue(MoodReadout(word: "gun show", source: .faceAndPose, named: true).named)
     }
 
     @MainActor

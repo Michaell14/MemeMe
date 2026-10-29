@@ -11,9 +11,9 @@ public struct TemplateRef: Equatable, Sendable {
     }
 }
 
-/// Picks classic meme templates (Distracted Boyfriend, Surprised Pikachu…) for a mood or for typed words, from
-/// Imgflip's list of popular templates. Imgflip's list has no tags, so this table says what each famous template is
-/// for. Matching runs on the Mac: nothing about the face or the words is sent anywhere.
+/// Picks classic meme templates (Distracted Boyfriend, Surprised Pikachu…) for a mood, for typed words or for a
+/// described pose, from Imgflip's list of popular templates. Imgflip's list has no tags, so this table says what each
+/// famous template is for. Matching runs on the Mac: nothing about the face, the pose or the words is sent anywhere.
 public enum MemeTemplateCatalog {
     /// One famous template: the names Imgflip has used for it, its Imgflip id when known, the moods it answers
     /// (most fitting first across the table: entries come in order of fame) and words people search it by.
@@ -56,7 +56,31 @@ public enum MemeTemplateCatalog {
     /// most popular), so the same mood held again shows other templates: page 0 is `pick(for:from:limit:)`, page 1 the
     /// next `limit`, and so on, wrapping around to the start when the list runs out. A negative page is page 0.
     public static func pick(for mood: Mood, from templates: [TemplateRef], limit: Int, page: Int) -> [Int] {
-        let order = pick(for: mood, from: templates, limit: templates.count)
+        paged(pick(for: mood, from: templates, limit: templates.count), page: page, limit: limit)
+    }
+
+    /// The `page`th group of `limit` indexes into `templates` for a pose with no word of its own, by the words it was
+    /// described in (`PoseDescription.phrase`, or the on-device model's name for it: "flexing", "rock on"). First the
+    /// templates the phrase names, scored like `pick(forTerms:from:limit:)` but stricter: stopwords and body and side
+    /// words never count ("on" isn't One Does Not Simply, "hand" isn't Epic Handshake), a word matches a whole word or,
+    /// from 4 letters on, the start of one, and a phrase a pose is named by (`describedPoses`) names its moods
+    /// instead of matching word by word ("rock on" is excited, not The Rock). Then the order for `mood`
+    /// (`pick(for:from:limit:)`: its templates, then the most popular), each template once. Pages wrap around like
+    /// `pick(for:from:limit:page:)`, so the row is never empty while `templates` isn't.
+    public static func pick(forDescription phrase: String, mood: Mood, from templates: [TemplateRef], limit: Int,
+                            page: Int = 0) -> [Int] {
+        var order = describedMatches(phrase, in: templates)
+        var included = Set(order)
+        for index in pick(for: mood, from: templates, limit: templates.count) where !included.contains(index) {
+            included.insert(index)
+            order.append(index)
+        }
+        return paged(order, page: page, limit: limit)
+    }
+
+    /// The `page`th group of `limit` from `order`, wrapping around to the start when it runs out; a negative page is
+    /// page 0, and with fewer than `limit` in `order` every page is all of it.
+    private static func paged(_ order: [Int], page: Int, limit: Int) -> [Int] {
         guard limit > 0, !order.isEmpty else { return [] }
         let size = min(limit, order.count)
         let start = (max(0, page) % order.count) * size % order.count
@@ -83,6 +107,51 @@ public enum MemeTemplateCatalog {
         let phraseWords = Set(namedMoods.keys.flatMap { $0.split(separator: " ").map(String.init) })
         let cleaned = allWords.filter { $0.count >= 2 && !phraseWords.contains($0) }
         let moods = Set(allWords.compactMap { moodWords[$0] } + namedMoods.map(\.value))
+        let matches = ranked(templates, terms: cleaned, moods: moods,
+                             matching: { term, word in word.hasPrefix(term) },
+                             holdsPhrase: { phrase.contains($0) })
+        return Array(matches.prefix(limit))
+    }
+
+    /// Indexes into `templates` a described pose's words name, best first (`pick(forDescription:…)`).
+    private static func describedMatches(_ phrase: String, in templates: [TemplateRef]) -> [Int] {
+        let allWords = words(in: phrase)
+        let spaced = " " + allWords.joined(separator: " ") + " "
+        // Phrases first, and their words then don't match one by one: "rock on" isn't The Rock, "raise hand" isn't The
+        // Rock Eyebrow Raise, "oh no" isn't Y U No. A pose's phrases end on a whole word: "arm outside" isn't one.
+        let namedMoods = multiWordMoods.filter { key, _ in
+            spaced.contains(" \(key)" + (MemeTemplateCatalog.wholeWordMoods.contains(key) ? " " : ""))
+        }
+        let namedPoses = describedPoses.filter { key, _ in
+            key.contains(where: \.isWhitespace) && spaced.contains(" \(key) ")
+        }
+        let phraseWords = Set((Array(namedMoods.keys) + Array(namedPoses.keys)).flatMap { words(in: $0) })
+        let terms = DescribedWords.terms(in: allWords.filter { !phraseWords.contains($0) })
+        var moods = Set(namedMoods.values)
+        for poseMoods in namedPoses.values {
+            moods.formUnion(poseMoods)
+        }
+        // Single words name moods and still match: "thinking" is confused, and Roll Safe's search word.
+        for term in terms {
+            if let mood = moodWords[term] {
+                moods.insert(mood)
+            }
+            moods.formUnion(describedPoses[term] ?? [])
+        }
+        guard !terms.isEmpty || !moods.isEmpty else { return [] }
+        let spacedTerms = " " + terms.joined(separator: " ") + " "
+        return ranked(templates, terms: terms, moods: moods,
+                      matching: { term, word in DescribedWords.term(term, matches: word) },
+                      holdsPhrase: { spacedTerms.contains(" \($0) ") })
+    }
+
+    /// Indexes into `templates` scoring above 0, best first, ties in Imgflip's (popularity) order. Per term, +3 when a
+    /// word of the template's name is `matching` it, else +2 when one of its search words is; +2 when the words hold
+    /// one of its search phrases over 3 letters (`holdsPhrase`); +3 when one of `moods` is its first mood, +2 a later
+    /// one.
+    private static func ranked(_ templates: [TemplateRef], terms: [String], moods: Set<Mood>,
+                               matching: (_ term: String, _ word: String) -> Bool,
+                               holdsPhrase: (String) -> Bool) -> [Int] {
         let indexes = entryIndexes(for: templates)
         var entryFor: [Int: Entry] = [:]
         for (entryIndex, templateIndex) in indexes {
@@ -95,16 +164,16 @@ public enum MemeTemplateCatalog {
             let entry = entryFor[index]
             let searchWords = (entry?.words ?? []).flatMap { words(in: $0) }
             var score = 0
-            for term in cleaned {
-                if nameWords.contains(where: { $0.hasPrefix(term) }) {
+            for term in terms {
+                if nameWords.contains(where: { matching(term, $0) }) {
                     score += 3
-                } else if searchWords.contains(where: { $0.hasPrefix(term) }) {
+                } else if searchWords.contains(where: { matching(term, $0) }) {
                     score += 2
                 }
             }
             if let entry {
                 // A whole phrase it is known by ("change my mind", "first world problems").
-                if entry.words.contains(where: { $0.count > 3 && phrase.contains($0) }) {
+                if entry.words.contains(where: { $0.count > 3 && holdsPhrase($0) }) {
                     score += 2
                 }
                 if let rank = entry.moods.firstIndex(where: { moods.contains($0) }) {
@@ -119,7 +188,7 @@ public enum MemeTemplateCatalog {
         let sorted = scored.enumerated().sorted { lhs, rhs in
             lhs.element.score != rhs.element.score ? lhs.element.score > rhs.element.score : lhs.offset < rhs.offset
         }
-        return sorted.prefix(limit).map { $0.element.index }
+        return sorted.map { $0.element.index }
     }
 
     /// A word people search memes by: a mood word ("sad", "lol"), a mood's label or one of the table's search words,
@@ -138,6 +207,9 @@ public enum MemeTemplateCatalog {
             for phrase in entry.words {
                 vocabulary.formUnion(MemeTemplateCatalog.words(in: phrase))
             }
+        }
+        for phrase in MemeTemplateCatalog.describedPoses.keys {
+            vocabulary.formUnion(MemeTemplateCatalog.words(in: phrase))
         }
         return vocabulary.subtracting(MemeTemplateCatalog.nameWords)
     }()
@@ -225,6 +297,25 @@ public enum MemeTemplateCatalog {
     /// Phrases whose last word starts many others ("oh nothing", "pick memes"): matched as whole words only.
     private static let wholeWordMoods: Set<String> = ["oh no", "pick me"]
 
+    /// Words and phrases a pose with no word of its own is named by (`PoseDescription`'s phrases, and what the
+    /// on-device model tends to answer), with the moods whose templates fit them, most fitting first. A phrase of
+    /// several words is matched as whole words and its words then don't count one by one; a single word still does
+    /// ("thinking" is confused, and Roll Safe's search word). Poses without a famous template ("raise hand" is pick
+    /// me) still keep their words from finding the wrong one.
+    static let describedPoses: [String: [Mood]] = [
+        "rock on": [.excited, .celebrate], "horns": [.excited, .celebrate],
+        "thinking": [.confused], "pondering": [.confused], "hmm": [.confused], "hand on chin": [.confused],
+        "flexing": [.flex], "muscle": [.flex], "muscles": [.flex], "bicep": [.flex], "biceps": [.flex],
+        "hang loose": [.happy], "shaka": [.happy], "love you": [.happy], "hand on heart": [.happy],
+        "finger guns": [.smug, .pointing], "finger gun": [.smug, .pointing],
+        "salute": [.thumbsUp], "saluting": [.thumbsUp],
+        "shrugging": [.shrug], "facepalming": [.facepalm],
+        "hand on head": [.ohNo], "hands on head": [.ohNo],
+        "raise hand": [.pickMe], "raised hand": [.pickMe], "raising hand": [.pickMe], "hand raised": [.pickMe],
+        "hands up": [.celebrate], "arms up": [.celebrate], "fist pump": [.celebrate],
+        "arms out": [.tPose], "arm out": [.tPose],
+    ]
+
     /// Famous templates, most famous first. Ids are Imgflip's where known; names cover what Imgflip has called them.
     public static let entries: [Entry] = [
         Entry(names: ["Distracted Boyfriend"], id: "112126428", moods: [.sideEye, .nervous],
@@ -272,9 +363,9 @@ public enum MemeTemplateCatalog {
         Entry(names: ["UNO Draw 25 Cards"], id: "217743513", moods: [.smug, .unimpressed],
               words: ["uno", "draw 25", "cards", "refuse", "rather not"]),
         Entry(names: ["Bernie I Am Once Again Asking For Your Support"], id: "222403160", moods: [.unimpressed, .sad],
-              words: ["bernie", "asking", "once again", "support", "please"]),
+              words: ["bernie", "asking", "once again", "support", "please", "begging", "praying"]),
         Entry(names: ["Buff Doge vs. Cheems"], id: "247375501", moods: [.excited, .flex],
-              words: ["doge", "cheems", "buff", "strong", "weak", "then vs now"]),
+              words: ["doge", "cheems", "buff", "strong", "weak", "then vs now", "flexing", "muscles"]),
         Entry(names: ["Always Has Been"], id: "252600902", moods: [.shrug, .pointing],
               words: ["always has been", "astronaut", "space", "wait its all"]),
         Entry(names: ["Epic Handshake"], id: "135256802", moods: [.happy, .celebrate, .thumbsUp, .clapping],

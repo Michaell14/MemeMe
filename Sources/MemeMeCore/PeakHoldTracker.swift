@@ -49,7 +49,7 @@ public final class PeakHoldTracker {
     /// Timestamp of the last sample that had a face or a gesture strong enough to stand in for one.
     public private(set) var lastSeenTimestamp: TimeInterval?
 
-    /// A frame with its effective intensity and unit direction (7 signed face deviations + 9 gesture numbers + 6 face
+    /// A frame with its effective intensity and unit direction (7 signed face deviations + 10 gesture numbers + 6 face
     /// cues).
     private struct Entry {
         let sample: ExpressionSample
@@ -177,7 +177,7 @@ public final class PeakHoldTracker {
         let continuesShape = entry.shape != nil && (run.map { existing in
             existing.entries.contains { $0.shape == entry.shape } && facesAgree(existing.first, sample)
         } ?? false)
-        if let existing = run, keepsCue(entry, existing.cue),
+        if let existing = run, keepsCue(entry, existing.cue), keepsFingers(entry, existing.first),
            VectorMath.cosine(entry.direction, existing.direction) >= config.sameDirectionCosine || continuesShape {
             current = existing
             current.entries.append(entry)
@@ -192,7 +192,7 @@ public final class PeakHoldTracker {
             // The skipped frames just before this one that point its way: frames that point elsewhere (a face
             // flickering between two looks, say) give no head start.
             let lead = Array((run?.skipped ?? []).reversed().prefix { skipped in
-                keepsCue(skipped, entry.cue)
+                keepsCue(skipped, entry.cue) && keepsFingers(skipped, entry.sample)
                     && VectorMath.cosine(skipped.direction, entry.direction) >= config.sameDirectionCosine
             }.reversed())
             current = Run(start: lead.first?.sample.timestamp ?? sample.timestamp, direction: entry.direction, first: sample,
@@ -359,6 +359,14 @@ public final class PeakHoldTracker {
         return entry.cueValues[index] >= PeakHoldTracker.minimumCue
     }
 
+    /// Whether a frame keeps the finger pattern of `first` (a run's first frame): it doesn't make another clear one
+    /// (`PoseDescriptor.makesAnotherFingerPattern`: hang loose, then love you). Such patterns point the same way, so
+    /// without this one shown for a moment at the end of another's hold would complete it.
+    private func keepsFingers(_ entry: Entry, _ first: ExpressionSample) -> Bool {
+        guard let new = entry.sample.pose?.descriptor, let held = first.pose?.descriptor else { return true }
+        return !new.makesAnotherFingerPattern(than: held)
+    }
+
     /// A frame under a gate (no face and no clear gesture, or too little intensity): bridged within a gesture run's
     /// grace, though the frames skipped before it no longer lead into a new run; else the hold is over.
     private func skipUnderGate(at timestamp: TimeInterval) {
@@ -386,8 +394,8 @@ public final class PeakHoldTracker {
     /// intensity = max(face intensity, 0.8 × gesture strength when ≥ 0.4, 0.8 × the face's strongest cue when ≥ 0.3);
     /// direction = the face's signed deviations (zeros without a face) + the pose's gesture numbers × 0.5 × its gesture
     /// strength, so arms at rest or on a desk coming into view don't turn the same face into a new expression (a pose
-    /// measured the old way: [activity, 0, 0, 0, 0, 0, 0, 0, 0]) + the face's cues × 0.8 (zeros without a shape), so a
-    /// tongue out on a held smile points elsewhere. The cues are read against the resting shape (`FaceCues`).
+    /// measured the old way: [activity, 0, 0, 0, 0, 0, 0, 0, 0, 0]) + the face's cues × 0.8 (zeros without a shape), so
+    /// a tongue out on a held smile points elsewhere. The cues are read against the resting shape (`FaceCues`).
     private func makeEntry(for sample: ExpressionSample) -> Entry {
         let face = faceReading(of: sample)
         let faceIntensity = face?.intensity ?? 0
@@ -400,14 +408,14 @@ public final class PeakHoldTracker {
         if let descriptor {
             direction += descriptor.gestureDirection.map { 0.5 * strength * $0 }
         } else {
-            direction += [sample.pose?.activity ?? 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            direction += [sample.pose?.activity ?? 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         }
         direction += face?.cues ?? [Double](repeating: 0, count: FaceCues.Cue.allCases.count)
         let word = gesture > 0 ? descriptor.flatMap { MoodClassifier.gestureMood($0, face: sample.face, baseline: baseline) } : nil
         let shape = descriptor?.bodyShape
         let isCarriedByShape = shape != nil && gesture > 0
             && (descriptor?.armStrength ?? 0) < PeakHoldTracker.minimumGesture
-            && (descriptor?.hand?.signStrength ?? 0) < 0.7
+            && (descriptor?.handSignStrength ?? 0) < 0.7
             && faceIntensity < intensity
         let cueValues = face?.cues.map { $0 / PeakHoldTracker.cueWeight }
             ?? [Double](repeating: 0, count: FaceCues.Cue.allCases.count)
@@ -437,12 +445,15 @@ public final class PeakHoldTracker {
     /// A clear gesture after a clear gesture that is shaped quite differently (`newPoseSimilarity`), though both have
     /// the same word or none: strong poses all reach the same intensity, and many point the same way, so without this
     /// a second pose could never replace the first. The same shape is never new; poses with too little in common to
-    /// compare (an arm out of frame) aren't either.
+    /// compare (an arm out of frame) aren't either. Neither with a word, another finger pattern is new however alike
+    /// the rest (`PoseDescriptor.makesAnotherFingerPattern`: horns, then hang loose): such poses are searched by the
+    /// words describing them, which the fingers change.
     private func isNewPose(_ entry: Entry) -> Bool {
         guard let query, entry.strength >= PeakHoldTracker.minimumGesture,
               (query.pose?.gestureStrength ?? 0) >= PeakHoldTracker.minimumGesture,
               let held = query.pose?.descriptor, let new = entry.sample.pose?.descriptor else { return false }
         if let shape = entry.shape, shape == queryShape { return false }
+        if entry.word == nil, queryWord == nil, new.makesAnotherFingerPattern(than: held) { return true }
         let similarity = [PoseDescriptor.compare(held, new), PoseDescriptor.compare(held, new.mirrored)]
             .map { $0.coverage >= 0.6 ? $0.similarity : 1 }
             .max() ?? 1

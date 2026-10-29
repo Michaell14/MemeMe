@@ -196,25 +196,55 @@ public struct HandJoints: Hashable, Sendable {
     }
 }
 
-/// How much a hand looks like each sign, all 0...1.
+/// How much a hand looks like each sign, all 0...1, and how straight each of its fingers is.
 public struct HandShape: Codable, Hashable, Sendable {
     public var thumbsUp: Double
     public var point: Double
     public var openPalm: Double
     public var fist: Double
     public var peace: Double
+    /// How straight each finger is, thumb first (indexed by `Finger`: thumb, index, middle, ring, little): 0 curled …
+    /// 1 straight; nil for a finger not seen. nil for hands read before fingers were kept (stored library poses).
+    public var fingers: [Double?]?
+    /// True when a straightened finger's tip lay on the face as the hand was read (nil otherwise): its finger pattern
+    /// is then no sign (`patternStrength`), though `fingers` keeps how straight each finger is.
+    var fingertipsOnFace: Bool?
 
-    public init(thumbsUp: Double = 0, point: Double = 0, openPalm: Double = 0, fist: Double = 0, peace: Double = 0) {
+    public init(thumbsUp: Double = 0, point: Double = 0, openPalm: Double = 0, fist: Double = 0, peace: Double = 0,
+                fingers: [Double?]? = nil) {
         self.thumbsUp = thumbsUp
         self.point = point
         self.openPalm = openPalm
         self.fist = fist
         self.peace = peace
+        self.fingers = fingers
     }
+
+    /// A hand's fingers, in the order `fingers` keeps them.
+    public enum Finger: Int, CaseIterable, Sendable {
+        case thumb, index, middle, ring, little
+    }
+
+    /// How straight `finger` is (0 curled … 1 straight); nil when it wasn't seen, or the fingers weren't kept.
+    public subscript(finger: Finger) -> Double? {
+        guard let fingers, finger.rawValue < fingers.count else { return nil }
+        return fingers[finger.rawValue]
+    }
+
+    /// A finger's straightness (`fingers`) is 0 up to this tip-to-wrist / middle-joint-to-wrist ratio, and rises to 1
+    /// over the next `straightRange` (≥ 1.25: clearly extended; a curled finger's tip is nearer the wrist than its middle
+    /// joint, about 0.7).
+    static let straightFromRatio = 0.9
+    static let straightRange = 0.35
+    /// The thumb's straightness is 0 up to this distance from its tip to the middle finger's knuckle, in palm lengths
+    /// (wrist to that knuckle; a thumb tucked against the fingers is about 0.4 away), rising to 1 over `straightRange`.
+    static let thumbStraightFrom = 0.55
+    /// A finger at least this straight whose tip lies on the face makes the pattern no sign.
+    static let fingertipOnFace = 0.5
 
     /// nil when the wrist or too few fingers were seen. With `faceBox`, a finger or thumb lying on the face (a finger up
     /// the cheek while thinking, "shh", a thumb along the jaw, two fingers propping the head) is no pointing,
-    /// thumbs-up or peace sign.
+    /// thumbs-up or peace sign, nor any other finger pattern (`fingertipsOnFace`).
     public init?(_ hand: HandJoints, faceBox: PoseBox? = nil) {
         guard let wrist = hand[.wrist] else { return nil }
         // A finger is straight when its tip is clearly farther from the wrist than its middle joint, curled when closer.
@@ -228,8 +258,8 @@ public struct HandShape: Codable, Hashable, Sendable {
         let middle = ratio(.middlePIP, .middleTip)
         let ring = ratio(.ringPIP, .ringTip)
         let little = ratio(.littlePIP, .littleTip)
-        let fingers = [index, middle, ring, little]
-        guard fingers.compactMap({ $0 }).count >= 2 else { return nil }
+        let ratios = [index, middle, ring, little]
+        guard ratios.compactMap({ $0 }).count >= 2 else { return nil }
 
         func extended(_ value: Double?) -> Double? { value.map { VectorMath.clampUnit(($0 - 0.95) / 0.25) } }
         func curled(_ value: Double?) -> Double? { value.map { VectorMath.clampUnit((1.05 - $0) / 0.25) } }
@@ -265,23 +295,75 @@ public struct HandShape: Codable, Hashable, Sendable {
             // Two fingers along the cheek or temple (a head propped while thinking) aren't a V.
             if [hand[.indexTip], hand[.middleTip]].contains(where: { $0.map(faceBox.contains) ?? false }) { peace = 0 }
         }
+
+        // How straight each finger is, for telling (and describing) any finger pattern. The thumb has no middle joint
+        // to compare with: it is straight when its tip stands clear of the palm.
+        func straightness(_ value: Double?) -> Double? {
+            value.map { VectorMath.clampUnit(($0 - HandShape.straightFromRatio) / HandShape.straightRange) }
+        }
+        var thumb: Double?
+        if let tip = hand[.thumbTip], let knuckle = hand[.middleMCP] {
+            let palm = wrist.distance(to: knuckle)
+            if palm > 1e-6 {
+                thumb = VectorMath.clampUnit((tip.distance(to: knuckle) / palm - HandShape.thumbStraightFrom) / HandShape.straightRange)
+            }
+        }
+        let fingers = [thumb] + ratios.map(straightness)
         self.init(thumbsUp: thumbsUp,
                   point: point,
-                  openPalm: all(fingers.map(extended), known: 3),
-                  fist: all(fingers.map(curled), known: 3),
-                  peace: peace)
+                  openPalm: all(ratios.map(extended), known: 3),
+                  fist: all(ratios.map(curled), known: 3),
+                  peace: peace,
+                  fingers: fingers)
+        if let faceBox {
+            let tips: [HandJoint] = [.thumbTip, .indexTip, .middleTip, .ringTip, .littleTip]
+            let onFace = zip(tips, fingers).contains { tip, straight in
+                (straight ?? 0) >= HandShape.fingertipOnFace && (hand[tip].map(faceBox.contains) ?? false)
+            }
+            if onFace {
+                fingertipsOnFace = true
+            }
+        }
     }
 
     var values: [Double] {
         [thumbsUp, point, openPalm, fist, peace]
     }
 
-    /// The strongest sign that means something on its own (thumbs up, pointing, peace); a plain open hand or fist doesn't.
+    /// The strongest sign that means something on its own (thumbs up, pointing, peace, or any other deliberate finger
+    /// pattern: horns, hang loose, finger guns…); a plain open hand or fist doesn't. As a gesture, a pattern counts only
+    /// away from rest (`PoseDescriptor.handSignStrength`).
     public var signStrength: Double {
-        max(thumbsUp, point, peace)
+        max(thumbsUp, point, peace, patternStrength)
     }
 
-    /// The most of each sign over several hands; nil for none.
+    /// A deliberate finger pattern, whatever it means: with at least 3 fingers seen, the weaker of the straightest of
+    /// the four fingers' straightness and the most curled one's curl (1 − straightness). So 1 when some of them are
+    /// clearly straight and others clearly curled (pointing, horns, hang loose, three fingers up); 0 for a fist, a thumb
+    /// alone out of one (a thumb opposed round a mug or a phone stands clear of the palm too; a thumbs up is
+    /// `thumbsUp`), an open palm (the thumb tucked against it too), a loose hand, fingers not kept, or a straightened
+    /// fingertip on the face (a finger up the cheek while thinking). The thumb still tells patterns apart (`fingers`).
+    public var patternStrength: Double {
+        guard fingertipsOnFace != true, let fingers else { return 0 }
+        let seen = fingers.compactMap { $0 }
+        let fourFingers = fingers.dropFirst().compactMap { $0 }
+        guard seen.count >= 3, let straightest = fourFingers.max(), let mostCurled = fourFingers.min() else { return 0 }
+        return min(straightest, 1 - mostCurled)
+    }
+
+    /// Whether this hand and `other` hold their fingers differently: some finger seen on both is clearly straight
+    /// (≥ 0.7) on one and clearly curled (≤ 0.3) on the other (horns and hang loose, horns and love you); false when
+    /// either hand's fingers weren't kept.
+    func holdsFingersOtherwise(than other: HandShape) -> Bool {
+        Finger.allCases.contains { finger in
+            guard let mine = self[finger], let theirs = other[finger] else { return false }
+            return (mine >= 0.7 && theirs <= 0.3) || (mine <= 0.3 && theirs >= 0.7)
+        }
+    }
+
+    /// The most of each sign over several hands, with the fingers of the hand that shows the most (the strongest sign,
+    /// then the clearest fist or open palm; the first on a tie; nil when no hand kept its fingers), so horns made with
+    /// one hand stay a sign beside an open other hand; nil for no hands.
     public static func strongest(_ shapes: [HandShape]) -> HandShape? {
         guard var result = shapes.first else { return nil }
         for shape in shapes.dropFirst() {
@@ -291,13 +373,79 @@ public struct HandShape: Codable, Hashable, Sendable {
             result.fist = max(result.fist, shape.fist)
             result.peace = max(result.peace, shape.peace)
         }
+        var shown: HandShape?
+        for shape in shapes where shape.fingers != nil {
+            if let current = shown, !shape.showsMore(than: current) { continue }
+            shown = shape
+        }
+        result.fingers = shown?.fingers
+        result.fingertipsOnFace = shown?.fingertipsOnFace
         return result
+    }
+
+    /// A body's wrist is the raised one (`strongest(of:on:faceBox:)`) with this much more lift (as `PoseDescriptor`
+    /// measures it) than the other: as far apart as a hand raised for hello (lift ≥ 0.5) and one hanging low (≤ 0.4).
+    static let raisedBy = 0.1
+
+    /// One body's hands as one shape, as `strongest(_:)`, but when one of the body's wrists is clearly the higher
+    /// (`raisedBy` more lift, the hands not together) the raised arm's hand says what the gesture is (a wave's open
+    /// palm, a flexed arm's fist), not a relaxed hand hanging at the side, which reads as an open palm and would make a
+    /// one-arm flex "hello": the open palm and the fist are the raised hand's (0 when it wasn't read, as a fist often
+    /// isn't), and so are the fingers, unless a hand below makes a clear sign (horns with that arm hanging). A hand is
+    /// the arm's whose wrist it is nearer. With the wrists level (clapping, both hands up) or not both seen, every hand
+    /// counts alike. nil when no hand could be read.
+    public static func strongest(of hands: [HandJoints], on body: BodyJoints, faceBox: PoseBox? = nil) -> HandShape? {
+        let wrists = raisedWrist(of: body)
+        var shapes: [HandShape] = []
+        var raisedShapes: [HandShape] = []
+        var lowerShapes: [HandShape] = []
+        for joints in hands {
+            guard let shape = HandShape(joints, faceBox: faceBox), let wrist = joints[.wrist] else { continue }
+            shapes.append(shape)
+            guard let wrists else { continue }
+            if wrist.distance(to: wrists.raised) < wrist.distance(to: wrists.low) {
+                raisedShapes.append(shape)
+            } else {
+                lowerShapes.append(shape)
+            }
+        }
+        guard var result = strongest(shapes) else { return nil }
+        guard wrists != nil else { return result }
+        let raised = strongest(raisedShapes)
+        result.openPalm = raised?.openPalm ?? 0
+        result.fist = raised?.fist ?? 0
+        let shown = strongest(raisedShapes + lowerShapes.filter { $0.signStrength >= PoseDescription.clearSign })
+        result.fingers = shown?.fingers
+        result.fingertipsOnFace = shown?.fingertipsOnFace
+        return result
+    }
+
+    /// `body`'s raised wrist and its other one: both seen, one with `raisedBy` more lift than the other, and the hands
+    /// not together (wrist gap > `PoseDescription.handsTogether`, as in a clap); nil otherwise.
+    private static func raisedWrist(of body: BodyJoints) -> (raised: PosePoint, low: PosePoint)? {
+        guard let left = body[.leftWrist], let right = body[.rightWrist], let pose = PoseDescriptor(body),
+              let leftLift = pose[.leftLift], let rightLift = pose[.rightLift],
+              let gap = pose[.wristGap], gap > PoseDescription.handsTogether,
+              abs(leftLift - rightLift) >= raisedBy - 1e-9 else { return nil }   // 0.5 − 0.4 is a hair under 0.1 in binary
+        return leftLift > rightLift ? (raised: left, low: right) : (raised: right, low: left)
+    }
+
+    /// Whether this hand shows more than `other`: a stronger sign, or as strong a one and a clearer fist or open palm.
+    private func showsMore(than other: HandShape) -> Bool {
+        if signStrength != other.signStrength {
+            return signStrength > other.signStrength
+        }
+        return max(fist, openPalm) > max(other.fist, other.openPalm)
     }
 
     /// Rounded to 3 decimals, so stored JSON stays short.
     func rounded() -> HandShape {
-        HandShape(thumbsUp: PoseDescriptor.round(thumbsUp), point: PoseDescriptor.round(point),
-                  openPalm: PoseDescriptor.round(openPalm), fist: PoseDescriptor.round(fist), peace: PoseDescriptor.round(peace))
+        var shape = HandShape(thumbsUp: PoseDescriptor.round(thumbsUp), point: PoseDescriptor.round(point),
+                              openPalm: PoseDescriptor.round(openPalm), fist: PoseDescriptor.round(fist),
+                              peace: PoseDescriptor.round(peace),
+                              fingers: fingers?.map { $0.map(PoseDescriptor.round) })
+        shape.fingertipsOnFace = fingertipsOnFace
+        return shape
     }
 }
 
@@ -539,15 +687,59 @@ public struct PoseDescriptor: Codable, Hashable, Sendable {
                    VectorMath.clampUnit(((self[head] ?? 0) - 0.35) / 0.1))
     }
 
+    /// How much one wrist may be holding something (a phone or a mug at the chest, a hand on a desk or a mouse): its
+    /// rest (`armRest`), but only for an arm bent (elbow bend from 0.2, fully at 0.3) or with its wrist above the waist
+    /// (lift from 0.1, fully at 0.15). An arm hanging straight with its wrist under the shoulder rests as much as one
+    /// holding a phone, but holds nothing. Without the elbow seen, its rest.
+    private func holdingRest(lift: Dimension, out: Dimension, head: Dimension, bend: Dimension) -> Double {
+        let rest = armRest(lift: lift, out: out, head: head)
+        guard rest > 0, let bendValue = self[bend] else { return rest }
+        let raised = VectorMath.clampUnit(((self[lift] ?? 0) - 0.1) / 0.05)
+        let bent = VectorMath.clampUnit((bendValue - 0.2) / 0.1)
+        return rest * max(raised, bent)
+    }
+
+    /// From this `holdingRest` a wrist may be holding something: a hand's finger pattern is then no sign.
+    static let patternAtRest = 0.5
+
+    /// The hand's finger pattern (`HandShape.patternStrength`) as a sign: 0 while a wrist seen rests low in front on a
+    /// bent arm or above the waist (`holdingRest` ≥ `patternAtRest`), where fingers along the back of a phone held at
+    /// the chest, round a mug or on a mouse read as a pattern too (which hand made the pattern isn't kept, so either
+    /// wrist counts); an arm hanging straight holds nothing. 0 without a hand.
+    var patternSign: Double {
+        guard let hand else { return 0 }
+        let holding = max(holdingRest(lift: .leftLift, out: .leftOut, head: .leftHead, bend: .leftElbowBend),
+                          holdingRest(lift: .rightLift, out: .rightOut, head: .rightHead, bend: .rightElbowBend))
+        return holding < PoseDescriptor.patternAtRest ? hand.patternStrength : 0
+    }
+
+    /// The hand's strongest sign as a gesture: thumbs up, pointing or peace, or another finger pattern away from rest
+    /// (`patternSign`); 0 without a hand.
+    var handSignStrength: Double {
+        guard let hand else { return 0 }
+        return max(hand.thumbsUp, hand.point, hand.peace, patternSign)
+    }
+
+    /// Whether this pose's hand makes a clear finger pattern away from rest (`patternSign` ≥ 0.7), as `other`'s does,
+    /// with its fingers held otherwise (`HandShape.holdsFingersOtherwise`): horns, then hang loose. The arms, the five
+    /// sign scores (`compare`) and `gestureDirection` can read the same for both.
+    func makesAnotherFingerPattern(than other: PoseDescriptor) -> Bool {
+        guard let hand, let otherHand = other.hand, patternSign >= 0.7, other.patternSign >= 0.7 else { return false }
+        return hand.holdsFingersOtherwise(than: otherHand)
+    }
+
     /// 0 for arms at rest (hanging, on a desk, holding a mug at the chest, behind the head, or not seen) … 1 for a clear
     /// gesture: the arms' distance from rest (`armStrength`); at least 0.6 for a body shape with its own word (hands on
-    /// hips and arms crossed sit close to rest); or a clear hand sign.
+    /// hips and arms crossed sit close to rest); or a clear hand sign (`handSignStrength` ≥ 0.7: a named sign, or any
+    /// other deliberate finger pattern while no wrist may be holding something, so horns start a search with the arms
+    /// hanging, and a phone held at the chest doesn't).
     public var gestureStrength: Double {
         var strength = armStrength
         if bodyShape != nil {
             strength = max(strength, PoseDescriptor.shapeStrength)
         }
-        if let sign = hand?.signStrength, sign >= 0.7 {
+        let sign = handSignStrength
+        if sign >= 0.7 {
             strength = max(strength, sign)
         }
         return strength
@@ -589,9 +781,12 @@ public struct PoseDescriptor: Codable, Hashable, Sendable {
         return strength
     }
 
-    /// Mirror-invariant summary for telling one gesture from another (each 0 at rest):
+    /// Mirror-invariant summary for telling one gesture from another (each 0 at rest), 10 numbers:
     /// [higher wrist lift, lower wrist lift, nearer wrist to head, farther wrist to head, wrist gap, higher elbow,
-    ///  thumbs up, pointing, peace] — a hand sign counts from 0.7, so relaxing the hand doesn't read as a new gesture.
+    ///  thumbs up, pointing, peace, another finger pattern] — a hand sign counts from 0.7, so relaxing the hand doesn't
+    /// read as a new gesture; the last is the hand's pattern strength as a sign (`patternSign`) beyond what the three
+    /// named signs already tell (horns, hang loose, finger guns…; 0 for pointing, which `point` tells). All finger
+    /// patterns share it: the tracker tells one from another by the fingers (`makesAnotherFingerPattern`).
     public var gestureDirection: [Double] {
         // An arm whose wrist wasn't seen, next to one that was, reads as resting (out of frame ≈ arms down, as in
         // `gestureStrength`) — not as a copy of the other — unless its upper arm is near vertical (hands out of the top
@@ -618,6 +813,7 @@ public struct PoseDescriptor: Codable, Hashable, Sendable {
             PoseDescriptor.sign(hand?.thumbsUp),
             PoseDescriptor.sign(hand?.point),
             PoseDescriptor.sign(hand?.peace),
+            PoseDescriptor.sign(hand.map { max(0, patternSign - max($0.thumbsUp, $0.point, $0.peace)) }),
         ]
     }
 
@@ -678,7 +874,8 @@ public struct PoseDescriptor: Codable, Hashable, Sendable {
     ///   low
     /// - pickMe: one arm straight up (lift ≥ 0.75, bend ≤ 0.35, clear of the head) and the other low
     /// - hello: one hand raised beside the head (lift 0.5...0.8, head 0.3...0.75, out ≥ 0.2, elbowLift ≤ 0.6, bend ≥ 0.25),
-    ///   the other low, an open palm when the hand was read
+    ///   the other low, the hand read as an open palm (openPalm ≥ 0.5: an open palm facing the camera is what Vision
+    ///   reads best; the same arm with a fist, or a hand not read, is a one-arm flex, told by `PoseDescription`)
     /// - bow: the torso short (≤ 0.45) and the head down (headRise ≤ 0.25)
     public var bodyShape: BodyShape? {
         let left = leftArm
@@ -766,7 +963,7 @@ public struct PoseDescriptor: Codable, Hashable, Sendable {
                   let bend = arm.bend else { return false }
             return lift >= 0.5 && lift < 0.8 && head >= 0.3 && head <= 0.75 && out >= 0.2 && elbowLift <= 0.6 && bend >= 0.25
         }
-        if oneAndOther(raisedHand, { $0.isLow }) && (hand.map { $0.openPalm >= 0.5 } ?? true) {
+        if oneAndOther(raisedHand, { $0.isLow }) && (hand?.openPalm ?? 0) >= 0.5 {
             return .hello
         }
         if let torso, let headRise = self[.headRise], torso <= 0.45 && headRise <= 0.25 {
