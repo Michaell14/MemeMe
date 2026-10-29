@@ -182,6 +182,12 @@ enum TestHands {
         return HandJoints(points: moved)
     }
 
+    /// `hand` with its wrist moved to `wrist` and its palm `size` long: a hand at a `TestPoses` body's wrist (a quarter
+    /// of a shoulder width at the default scale).
+    static func placed(_ hand: HandJoints, at wrist: PosePoint, size: Double = 0.05) -> HandJoints {
+        HandJoints(points: hand.points.mapValues { PosePoint(x: wrist.x + size * $0.x, y: wrist.y + size * $0.y) })
+    }
+
     /// A fist held sideways with the thumb straight up.
     static func thumbsUp(at offset: PosePoint = PosePoint(x: 0, y: 0)) -> HandJoints {
         var points = curledFingers

@@ -383,16 +383,51 @@ public struct HandShape: Codable, Hashable, Sendable {
         return result
     }
 
-    /// One body's hands as one shape, as `strongest(_:)` but with the open palm and the fist of the highest hand: the
-    /// raised hand says what the gesture is (a wave's open palm, a flexed arm's fist), not a relaxed hand hanging at the
-    /// side, which reads as an open palm and would make a one-arm flex "hello". nil when no hand could be read.
-    public static func strongest(of hands: [HandJoints], faceBox: PoseBox? = nil) -> HandShape? {
-        let highestFirst = hands.sorted { ($0[.wrist]?.y ?? -.infinity) > ($1[.wrist]?.y ?? -.infinity) }
-        let shapes = highestFirst.compactMap { HandShape($0, faceBox: faceBox) }
-        guard var result = strongest(shapes), let raised = shapes.first else { return nil }
-        result.openPalm = raised.openPalm
-        result.fist = raised.fist
+    /// A body's wrist is the raised one (`strongest(of:on:faceBox:)`) with this much more lift (as `PoseDescriptor`
+    /// measures it) than the other: as far apart as a hand raised for hello (lift ≥ 0.5) and one hanging low (≤ 0.4).
+    static let raisedBy = 0.1
+
+    /// One body's hands as one shape, as `strongest(_:)`, but when one of the body's wrists is clearly the higher
+    /// (`raisedBy` more lift, the hands not together) the raised arm's hand says what the gesture is (a wave's open
+    /// palm, a flexed arm's fist), not a relaxed hand hanging at the side, which reads as an open palm and would make a
+    /// one-arm flex "hello": the open palm and the fist are the raised hand's (0 when it wasn't read, as a fist often
+    /// isn't), and so are the fingers, unless a hand below makes a clear sign (horns with that arm hanging). A hand is
+    /// the arm's whose wrist it is nearer. With the wrists level (clapping, both hands up) or not both seen, every hand
+    /// counts alike. nil when no hand could be read.
+    public static func strongest(of hands: [HandJoints], on body: BodyJoints, faceBox: PoseBox? = nil) -> HandShape? {
+        let wrists = raisedWrist(of: body)
+        var shapes: [HandShape] = []
+        var raisedShapes: [HandShape] = []
+        var lowerShapes: [HandShape] = []
+        for joints in hands {
+            guard let shape = HandShape(joints, faceBox: faceBox), let wrist = joints[.wrist] else { continue }
+            shapes.append(shape)
+            guard let wrists else { continue }
+            if wrist.distance(to: wrists.raised) < wrist.distance(to: wrists.low) {
+                raisedShapes.append(shape)
+            } else {
+                lowerShapes.append(shape)
+            }
+        }
+        guard var result = strongest(shapes) else { return nil }
+        guard wrists != nil else { return result }
+        let raised = strongest(raisedShapes)
+        result.openPalm = raised?.openPalm ?? 0
+        result.fist = raised?.fist ?? 0
+        let shown = strongest(raisedShapes + lowerShapes.filter { $0.signStrength >= PoseDescription.clearSign })
+        result.fingers = shown?.fingers
+        result.fingertipsOnFace = shown?.fingertipsOnFace
         return result
+    }
+
+    /// `body`'s raised wrist and its other one: both seen, one with `raisedBy` more lift than the other, and the hands
+    /// not together (wrist gap > `PoseDescription.handsTogether`, as in a clap); nil otherwise.
+    private static func raisedWrist(of body: BodyJoints) -> (raised: PosePoint, low: PosePoint)? {
+        guard let left = body[.leftWrist], let right = body[.rightWrist], let pose = PoseDescriptor(body),
+              let leftLift = pose[.leftLift], let rightLift = pose[.rightLift],
+              let gap = pose[.wristGap], gap > PoseDescription.handsTogether,
+              abs(leftLift - rightLift) >= raisedBy else { return nil }
+        return leftLift > rightLift ? (raised: left, low: right) : (raised: right, low: left)
     }
 
     /// Whether this hand shows more than `other`: a stronger sign, or as strong a one and a clearer fist or open palm.

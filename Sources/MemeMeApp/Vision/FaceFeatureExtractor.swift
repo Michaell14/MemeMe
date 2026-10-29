@@ -176,7 +176,7 @@ enum FaceFeatureExtractor {
         }
         let box = poseBox(faceBox, imageWidth: imageWidth, imageHeight: imageHeight)
         let own = body.ownHands(handJoints(hands, imageWidth: imageWidth, imageHeight: imageHeight))
-        return PoseFeatures(joints: body, hand: HandShape.strongest(of: own, faceBox: box))
+        return PoseFeatures(joints: body, hand: HandShape.strongest(of: own, on: body, faceBox: box))
     }
 
     /// The body that goes with the face (see `BodyJoints.primary`).

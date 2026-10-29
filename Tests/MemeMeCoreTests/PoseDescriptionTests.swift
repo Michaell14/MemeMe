@@ -49,18 +49,65 @@ final class PoseDescriptionTests: XCTestCase {
     }
 
     func testARelaxedOpenHandHangingLowDoesntMakeAFlexHello() throws {
-        // Both hands read: the flexed arm's fist up by the head, the other hand hanging open by the hip.
-        let hangingOpen = HandJoints(points: TestHands.openPalm().points.mapValues { PosePoint(x: $0.x + 3, y: $0.y - 6) })
-        for hands in [[hangingOpen, TestHands.fist()], [TestHands.fist(), hangingOpen]] {
-            let hand = try XCTUnwrap(HandShape.strongest(of: hands))
-            XCTAssertLessThan(hand.openPalm, 0.5, "the raised fist tells, not the open hand hanging below it")
-            XCTAssertGreaterThan(hand.fist, 0.9)
-            XCTAssertNil(try XCTUnwrap(PoseDescriptor(oneArmFlexed, hand: hand)).bodyShape, "no hello")
-            XCTAssertEqual(try describe(oneArmFlexed, hand: hand).phrase, "flexing")
+        // The flexed arm's hand up by the head, the other hand hanging open by the hip.
+        let raisedWrist = try XCTUnwrap(oneArmFlexed[.rightWrist])
+        let hangingOpen = TestHands.placed(TestHands.openPalm(), at: try XCTUnwrap(oneArmFlexed[.leftWrist]))
+        let fist = TestHands.placed(TestHands.fist(), at: raisedWrist)
+        // A loose fist (fist ≈ 0.68, no finger straight) is no clearer than the open hand below: its fingers still tell.
+        let ratios = [0.8, 0.78, 0.82, 0.88]
+        let joints: [(HandJoint, HandJoint, Double)] = [(.indexPIP, .indexTip, 0.3), (.middlePIP, .middleTip, 0.1),
+                                                         (.ringPIP, .ringTip, -0.1), (.littlePIP, .littleTip, -0.3)]
+        var loosePoints: [HandJoint: PosePoint] = [.wrist: PosePoint(x: 0, y: 0)]
+        for ((pip, tip, y), ratio) in zip(joints, ratios) {
+            loosePoints[pip] = PosePoint(x: 1, y: y)
+            loosePoints[tip] = PosePoint(x: ratio, y: ratio * y)
         }
+        let looseFist = TestHands.placed(HandJoints(points: loosePoints), at: raisedWrist)
+        // A fist whose fingertips weren't seen can't be read at all.
+        let unreadFist = HandJoints(points: [.wrist: raisedWrist, .indexPIP: PosePoint(x: raisedWrist.x + 0.06, y: raisedWrist.y),
+                                             .indexTip: PosePoint(x: raisedWrist.x + 0.04, y: raisedWrist.y)])
+        XCTAssertNil(HandShape(unreadFist))
+        let cases: [(String, [HandJoints])] = [
+            ("both read", [hangingOpen, fist]), ("both read, the raised one last", [fist, hangingOpen]),
+            ("a loose fist", [hangingOpen, looseFist]), ("the fist not read", [unreadFist, hangingOpen]),
+            ("the fist not found", [hangingOpen]),
+        ]
+        for (name, hands) in cases {
+            let hand = try XCTUnwrap(HandShape.strongest(of: hands, on: oneArmFlexed), name)
+            XCTAssertLessThan(hand.openPalm, 0.5, "\(name): the raised hand tells, not the open hand hanging below it")
+            XCTAssertNil(try XCTUnwrap(PoseDescriptor(oneArmFlexed, hand: hand)).bodyShape, "\(name): no hello")
+            let description = try describe(oneArmFlexed, hand: hand)
+            XCTAssertEqual(description.phrase, "flexing", name)
+            XCTAssertFalse(description.key.contains("open palm"), "\(name): the hanging hand isn't the one told: \(description.key)")
+        }
+        XCTAssertGreaterThan(try XCTUnwrap(HandShape.strongest(of: [hangingOpen, fist], on: oneArmFlexed)).fist, 0.9)
+        let loose = try XCTUnwrap(HandShape.strongest(of: [hangingOpen, looseFist], on: oneArmFlexed))
+        XCTAssertEqual(loose.fingers, HandShape(looseFist)?.fingers)
+        XCTAssertTrue(try describe(oneArmFlexed, hand: loose).facts.contains("One hand: a fist."))
         // Waving with the other hand hanging open too is still hello.
-        let waving = try XCTUnwrap(HandShape.strongest(of: [hangingOpen, TestHands.openPalm()]))
-        XCTAssertGreaterThanOrEqual(waving.openPalm, 0.5)
+        let palm = TestHands.placed(TestHands.openPalm(), at: raisedWrist)
+        let waving = try XCTUnwrap(HandShape.strongest(of: [hangingOpen, palm], on: oneArmFlexed))
+        XCTAssertEqual(PoseDescriptor(oneArmFlexed, hand: waving)?.bodyShape, .hello)
+        // A clear sign made with the hand below still tells its fingers beside a raised fist.
+        let horns = TestHands.placed(TestHands.rockOn(), at: try XCTUnwrap(oneArmFlexed[.leftWrist]))
+        let withHorns = try XCTUnwrap(HandShape.strongest(of: [fist, horns], on: oneArmFlexed))
+        XCTAssertEqual(withHorns.fingers, HandShape(horns)?.fingers)
+        XCTAssertGreaterThan(withHorns.fist, 0.9)
+    }
+
+    func testBothHandsCountAlikeWhenTheWristsAreLevel() throws {
+        // Clapping, the hand behind a hair higher and only two of its fingers seen: the open hand in front still tells.
+        let behind = TestArm(elbow: (x: -0.6, y: -0.5), wrist: (x: -0.03, y: 0.12))
+        let clap = TestPoses.body(left: TestPoses.clap, right: behind)
+        let front = TestHands.placed(TestHands.openPalm(), at: try XCTUnwrap(clap[.leftWrist]))
+        let seen: Set<HandJoint> = [.wrist, .indexPIP, .indexTip, .middlePIP, .middleTip]
+        let twoFingers = HandJoints(points: TestHands.openPalm().points.filter { seen.contains($0.key) })
+        let hidden = TestHands.placed(twoFingers, at: try XCTUnwrap(clap[.rightWrist]))
+        XCTAssertEqual(try XCTUnwrap(HandShape(hidden)).openPalm, 0, "too few fingers to tell")
+        let hand = try XCTUnwrap(HandShape.strongest(of: [hidden, front], on: clap))
+        XCTAssertGreaterThan(hand.openPalm, 0.9)
+        let mood = MoodClassifier.mood(for: TestFaces.neutral, pose: TestPoses.features(clap, hand: hand), baseline: baseline)
+        XCTAssertEqual(mood, .clapping)
     }
 
     func testAFistPressedToTheHeadIsFlexing() throws {
