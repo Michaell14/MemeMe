@@ -888,6 +888,29 @@ final class PoseTrackingTests: XCTestCase {
         }
     }
 
+    func testAPatternShownAtTheEndOfAnothersHoldIsHeldForItself() throws {
+        let tracker = PeakHoldTracker(baseline: RestingBaseline(sampleCount: 100))
+        let arms = TestPoses.both(TestPoses.rest)
+        let horns = TestPoses.features(arms, hand: try XCTUnwrap(HandShape(TestHands.rockOn())))
+        let hangLoose = TestPoses.features(arms, hand: HandShape(fingers: [1, 0, 0, 0, 1]))
+        let loveYou = TestPoses.features(arms, hand: HandShape(fingers: [1, 1, 0, 0, 1]))
+        XCTAssertEqual(hangLoose.descriptor?.gestureDirection, loveYou.descriptor?.gestureDirection, "only the fingers differ")
+        for step in 1...3 {
+            XCTAssertFalse(tracker.ingest(frame(TestFaces.neutral, step, pose: horns)))
+        }
+        XCTAssertTrue(tracker.ingest(frame(TestFaces.neutral, 4, pose: horns)))
+
+        // Hang loose for 0.9 s, then love you: love you is held for its own second, from its own first frame.
+        for step in 5...13 {
+            XCTAssertFalse(tracker.ingest(frame(TestFaces.neutral, step, pose: hangLoose)), "step \(step)")
+        }
+        for step in 14...23 {
+            XCTAssertFalse(tracker.ingest(frame(TestFaces.neutral, step, pose: loveYou)), "step \(step)")
+        }
+        XCTAssertTrue(tracker.ingest(frame(TestFaces.neutral, 24, pose: loveYou)))
+        XCTAssertEqual(tracker.query?.pose, loveYou)
+    }
+
     func testADifferentGestureIsANewExpression() {
         let tracker = PeakHoldTracker(baseline: RestingBaseline(sampleCount: 100))
         for step in 1...3 {

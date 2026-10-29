@@ -1268,8 +1268,9 @@ private struct DescribedPhrase {
             guard !Task.isCancelled, session == self.sessionID else { return }
             self.describeTask = nil
             self.describingTimestamp = nil
-            guard self.isPanelVisible, self.mode == .live, !self.isCaptureOpen, self.resultSource == .expression,
-                  self.tracker.query?.timestamp == timestamp else {
+            // .warming too: Esc back from typing restarts the camera and searches the held pose (returnToFace).
+            guard self.isPanelVisible, self.mode == .live || self.mode == .warming, !self.isCaptureOpen,
+                  self.resultSource == .expression, self.tracker.query?.timestamp == timestamp else {
                 self.stopAwaitingGiphyName()
                 return
             }

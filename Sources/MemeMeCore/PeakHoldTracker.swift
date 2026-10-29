@@ -177,7 +177,7 @@ public final class PeakHoldTracker {
         let continuesShape = entry.shape != nil && (run.map { existing in
             existing.entries.contains { $0.shape == entry.shape } && facesAgree(existing.first, sample)
         } ?? false)
-        if let existing = run, keepsCue(entry, existing.cue),
+        if let existing = run, keepsCue(entry, existing.cue), keepsFingers(entry, existing.first),
            VectorMath.cosine(entry.direction, existing.direction) >= config.sameDirectionCosine || continuesShape {
             current = existing
             current.entries.append(entry)
@@ -192,7 +192,7 @@ public final class PeakHoldTracker {
             // The skipped frames just before this one that point its way: frames that point elsewhere (a face
             // flickering between two looks, say) give no head start.
             let lead = Array((run?.skipped ?? []).reversed().prefix { skipped in
-                keepsCue(skipped, entry.cue)
+                keepsCue(skipped, entry.cue) && keepsFingers(skipped, entry.sample)
                     && VectorMath.cosine(skipped.direction, entry.direction) >= config.sameDirectionCosine
             }.reversed())
             current = Run(start: lead.first?.sample.timestamp ?? sample.timestamp, direction: entry.direction, first: sample,
@@ -357,6 +357,14 @@ public final class PeakHoldTracker {
         guard entry.cue == nil, let cue, let index = FaceCues.Cue.allCases.firstIndex(of: cue),
               index < entry.cueValues.count else { return false }
         return entry.cueValues[index] >= PeakHoldTracker.minimumCue
+    }
+
+    /// Whether a frame keeps the finger pattern of `first` (a run's first frame): it doesn't make another clear one
+    /// (`PoseDescriptor.makesAnotherFingerPattern`: hang loose, then love you). Such patterns point the same way, so
+    /// without this one shown for a moment at the end of another's hold would complete it.
+    private func keepsFingers(_ entry: Entry, _ first: ExpressionSample) -> Bool {
+        guard let new = entry.sample.pose?.descriptor, let held = first.pose?.descriptor else { return true }
+        return !new.makesAnotherFingerPattern(than: held)
     }
 
     /// A frame under a gate (no face and no clear gesture, or too little intensity): bridged within a gesture run's
