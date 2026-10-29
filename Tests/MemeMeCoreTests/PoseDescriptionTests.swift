@@ -48,6 +48,35 @@ final class PoseDescriptionTests: XCTestCase {
         XCTAssertTrue(try describe(oneArmFlexed, hand: HandShape(fist: 1)).facts.contains("One hand: a fist."))
     }
 
+    func testARelaxedOpenHandHangingLowDoesntMakeAFlexHello() throws {
+        // Both hands read: the flexed arm's fist up by the head, the other hand hanging open by the hip.
+        let hangingOpen = HandJoints(points: TestHands.openPalm().points.mapValues { PosePoint(x: $0.x + 3, y: $0.y - 6) })
+        for hands in [[hangingOpen, TestHands.fist()], [TestHands.fist(), hangingOpen]] {
+            let hand = try XCTUnwrap(HandShape.strongest(of: hands))
+            XCTAssertLessThan(hand.openPalm, 0.5, "the raised fist tells, not the open hand hanging below it")
+            XCTAssertGreaterThan(hand.fist, 0.9)
+            XCTAssertNil(try XCTUnwrap(PoseDescriptor(oneArmFlexed, hand: hand)).bodyShape, "no hello")
+            XCTAssertEqual(try describe(oneArmFlexed, hand: hand).phrase, "flexing")
+        }
+        // Waving with the other hand hanging open too is still hello.
+        let waving = try XCTUnwrap(HandShape.strongest(of: [hangingOpen, TestHands.openPalm()]))
+        XCTAssertGreaterThanOrEqual(waving.openPalm, 0.5)
+    }
+
+    func testAFistPressedToTheHeadIsFlexing() throws {
+        // One arm flexed with the fist against the temple: the wrist is as close to the head as a hand on the chin, and
+        // below the head's centre, but a fist there is a flex (a hand on the chin hangs its elbow low; a salute or a
+        // hand on the head is flat).
+        let fistAtTheTemple = TestArm(elbow: (x: 1.05, y: 0.35), wrist: (x: 0.28, y: 0.55))
+        let joints = TestPoses.body(left: TestPoses.rest, right: fistAtTheTemple.otherSide)
+        let fists = [HandShape(fist: 1), try XCTUnwrap(HandShape(TestHands.fist()))]
+        for hand in fists {
+            let description = try describe(joints, hand: hand, face: TestFaces.neutral)
+            XCTAssertEqual(description.phrase, "flexing", description.key)
+            XCTAssertTrue(description.key.contains("hand on the face at the chin"), description.key)
+        }
+    }
+
     func testTheSameArmWithAnOpenPalmSaysHello() throws {
         let palm = try XCTUnwrap(HandShape(TestHands.openPalm()))
         XCTAssertEqual(PoseDescriptor(oneArmFlexed, hand: palm)?.bodyShape, .hello)
@@ -144,6 +173,21 @@ final class PoseDescriptionTests: XCTestCase {
             XCTAssertNil(PoseBadge.of(thumb, baseline: baseline))
             XCTAssertNil(PoseDescription.of(thumb, baseline: baseline))
         }
+    }
+
+    func testAPhonesGripBesideAFlexedArmIsNoFingerPattern() throws {
+        // One arm flexed, the other hand holding a phone at the chest, its grip (thumb on the screen, index along the
+        // back, the others round the edge) read as finger guns: a wrist that may be holding something makes no finger
+        // pattern a sign, so the flexed arm names the pose, and the hand comes last.
+        let phone = TestArm(elbow: (x: 0.55, y: -0.9), wrist: (x: 0.15, y: -0.45))
+        let grip = HandShape(fingers: [1, 1, 0, 0, 0])
+        let withPhone = TestPoses.body(left: phone, right: PoseDescriptionTests.flexedArm.otherSide)
+        let description = try describe(withPhone, hand: grip, face: TestFaces.neutral)
+        XCTAssertEqual(description.phrase, "flexing")
+        XCTAssertEqual(description.facts.first?.hasPrefix("One arm:"), true, description.key)
+        XCTAssertEqual(description.facts.last, "One hand: thumb and index finger straight, the others curled.", description.key)
+        // The same fingers with the other arm hanging are finger guns.
+        XCTAssertEqual(try describe(oneArmFlexed, hand: grip, face: TestFaces.neutral).phrase, "finger guns")
     }
 
     // MARK: Face, key and phrase

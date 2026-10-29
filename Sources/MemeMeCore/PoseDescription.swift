@@ -98,8 +98,9 @@ public struct PoseDescription: Hashable, Sendable {
 
     /// nil unless the sample is a clear gesture with no word (`PoseBadge.of(sample, baseline:) == .pose`) measured in
     /// detail (a `PoseDescriptor`). Facts, in this order:
-    /// - the hand first when it makes a clear sign (`HandShape.signStrength` ≥ 0.7): which fingers are straight (≥ 0.7)
-    ///   and which curled (≤ 0.3) when the fingers were kept, else its clearest sign; "Hands: not seen" without one;
+    /// - the hand first when it makes a clear sign (`PoseDescriptor.handSignStrength` ≥ 0.7: a named sign, or a finger
+    ///   pattern while no wrist may be holding something): which fingers are straight (≥ 0.7) and which curled (≤ 0.3)
+    ///   when the fingers were kept, else its clearest sign; "Hands: not seen" without one;
     /// - each arm, the more raised or active first ("One arm", "The other arm", or "Both arms" when they read the same):
     ///   the upper arm, the elbow, the forearm, out to the side or across the body or toward the camera, and where the
     ///   hand is (on the face at the chin or the forehead, on top of or beside the head, on the chest) or how high;
@@ -109,12 +110,14 @@ public struct PoseDescription: Hashable, Sendable {
     /// - the face when something about it stands out (an open mouth, a big smile or a frown, raised or lowered brows,
     ///   shut or wide eyes, a tilted head, a look to the side, a clear cue), "Face: not seen" without one.
     /// The phrase is the first that fits:
-    /// 1. a clear finger pattern (`HandShape.patternStrength` ≥ 0.7, never on the face): thumb, index and little straight,
-    ///    middle and ring curled → "love you"; index and little straight, middle and ring curled → "rock on"; thumb and
-    ///    little straight, the other three curled → "hang loose"; thumb and index straight, the other three curled →
-    ///    "finger guns" (any other pattern goes on to the arms);
+    /// 1. a clear finger pattern as a sign (`PoseDescriptor.patternSign` ≥ 0.7: never on the face, nor while a wrist
+    ///    may be holding something, whose grip reads as a pattern too): thumb, index and little straight, middle and
+    ///    ring curled → "love you"; index and little straight, middle and ring curled → "rock on"; thumb and little
+    ///    straight, the other three curled → "hang loose"; thumb and index straight, the other three curled → "finger
+    ///    guns" (any other pattern goes on to the arms);
     /// 2. one arm flexed (upper arm 0.36...0.7, bend ≥ 0.38, lift ≥ 0.5 or forearm rise ≥ 0.55, the hand not on the face
-    ///    or on top of the head) and the hand not read as an open palm (that is `BodyShape.hello`) → "flexing";
+    ///    or on top of the head unless read as a fist: a fist pressed to the temple is a flex, a salute or a hand on the
+    ///    head is flat) and the hand not read as an open palm (that is `BodyShape.hello`) → "flexing";
     /// 3. a hand on the face below the head's centre → "thinking"; at the forehead → "salute"; on top of the head →
     ///    "hand on head"; on the chest → "hand on heart"; the hands together → "hands together";
     /// 4. both hands high (lift ≥ 0.75) → "hands up"; one arm up and fairly straight (bend ≤ 0.35) with the other low →
@@ -148,7 +151,7 @@ public struct PoseDescription: Hashable, Sendable {
         var facts: [String]
         if let hand = pose.hand {
             let handFact = "One hand: \(handWords(hand))."
-            facts = hand.signStrength >= PoseDescription.clearSign ? [handFact] + armFacts : armFacts + [handFact]
+            facts = pose.handSignStrength >= PoseDescription.clearSign ? [handFact] + armFacts : armFacts + [handFact]
         } else {
             facts = armFacts + ["Hands: not seen."]
         }
@@ -358,11 +361,12 @@ public struct PoseDescription: Hashable, Sendable {
         }
 
         /// One arm of `BodyShape.flex`: the upper arm out near level, the elbow bent, the hand up, and not on the face or
-        /// on top of the head (a salute, a hand on the head).
-        var isFlexed: Bool {
+        /// on top of the head (a salute, a hand on the head) unless the hand is read as a `fist` (a fist pressed to the
+        /// temple; a salute or a hand on the head is flat).
+        func isFlexed(fist: Bool) -> Bool {
             guard let elbowLift, let bend, PoseDescription.upperArmOut.contains(elbowLift),
                   bend >= PoseDescription.flexedBend else { return false }
-            if let place, place == .chin || place == .forehead || place == .topOfTheHead {
+            if !fist, let place, place == .chin || place == .forehead || place == .topOfTheHead {
                 return false
             }
             return (lift ?? 0) >= PoseDescription.flexedLift || (forearmRise ?? 0) >= PoseDescription.flexedForearm
@@ -431,9 +435,10 @@ public struct PoseDescription: Hashable, Sendable {
         }
     }
 
-    /// The words of a finger pattern known by name; nil for none (or no clear pattern, or the fingers not kept).
-    private static func handPhrase(_ hand: HandShape) -> String? {
-        guard hand.fingers != nil, hand.patternStrength >= clearSign else { return nil }
+    /// The words of the pose's finger pattern known by name; nil for none (or no clear pattern as a sign,
+    /// `PoseDescriptor.patternSign`, or the fingers not kept).
+    private static func handPhrase(_ pose: PoseDescriptor) -> String? {
+        guard let hand = pose.hand, hand.fingers != nil, pose.patternSign >= clearSign else { return nil }
         func straight(_ fingers: HandShape.Finger...) -> Bool {
             fingers.allSatisfy { (hand[$0] ?? 0) >= PoseDescription.straightFinger }
         }
@@ -505,11 +510,12 @@ public struct PoseDescription: Hashable, Sendable {
 
     /// The rule-made phrase (see `of(_:baseline:)`).
     private static func rulePhrase(for pose: PoseDescriptor, arms: [Arm]) -> String {
-        if let hand = pose.hand, let sign = handPhrase(hand) {
+        if let sign = handPhrase(pose) {
             return sign
         }
         let openPalm = (pose.hand?.openPalm ?? 0) >= handRead
-        if !openPalm && arms.contains(where: { $0.isFlexed }) {
+        let fist = (pose.hand?.fist ?? 0) >= handRead
+        if !openPalm && arms.contains(where: { $0.isFlexed(fist: fist) }) {
             return "flexing"
         }
         let places = arms.compactMap { $0.place }

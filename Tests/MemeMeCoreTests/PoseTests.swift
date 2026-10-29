@@ -161,6 +161,17 @@ final class PoseDescriptorTests: XCTestCase {
         // Named signs still count there, and the same fingers with the arms hanging are a sign.
         XCTAssertEqual(try descriptor(TestPoses.both(phone), hand: HandShape(thumbsUp: 0.9)).gestureStrength, 0.9, accuracy: 1e-9)
         XCTAssertGreaterThanOrEqual(try descriptor(TestPoses.both(TestPoses.rest), hand: grip).gestureStrength, 0.7)
+        // An arm hanging straight with its wrist under the shoulder rests as much as the phone's (lift 0, out 0.2), but
+        // holds nothing: the fingers are a sign there too, with both arms or one.
+        let hanging = TestArm(elbow: (x: 0.5, y: -0.8), wrist: (x: 0.5, y: -1.5))
+        XCTAssertGreaterThanOrEqual(try descriptor(TestPoses.both(hanging), hand: grip).gestureStrength, 0.7)
+        XCTAssertGreaterThanOrEqual(try descriptor(TestPoses.both(hanging), hand: try XCTUnwrap(HandShape(TestHands.rockOn())))
+            .gestureStrength, 0.7)
+        XCTAssertEqual(try descriptor(TestPoses.both(hanging), hand: grip).gestureDirection.last ?? 0, 1, accuracy: 1e-9)
+        // A phone held low toward the camera (the forearm foreshortened, so the elbow reads nearly straight) still
+        // holds: its wrist is above the waist.
+        let lowPhone = TestArm(elbow: (x: 0.55, y: -0.9), wrist: (x: 0.5, y: -1.0))
+        XCTAssertLessThan(try descriptor(TestPoses.body(left: lowPhone, right: hanging.otherSide), hand: grip).gestureStrength, 0.05)
     }
 
     func testAFaceWithShouldersShowsNoArms() throws {
@@ -842,31 +853,39 @@ final class PoseTrackingTests: XCTestCase {
     }
 
     func testAnotherFingerPatternAfterHornsIsANewExpression() throws {
-        let tracker = PeakHoldTracker(baseline: RestingBaseline(sampleCount: 100))
-        let rest = TestPoses.both(TestPoses.rest)
-        let horns = TestPoses.features(rest, hand: try XCTUnwrap(HandShape(TestHands.rockOn())))
-        let hangLoose = TestPoses.features(rest, hand: HandShape(fingers: [1, 0, 0, 0, 1]))
-        // Neither has a word, and the arms, the five sign scores and the gesture direction read the same: only the
-        // fingers tell them apart.
-        XCTAssertEqual(horns.descriptor?.gestureDirection, hangLoose.descriptor?.gestureDirection)
-        XCTAssertEqual(PoseDescriptor.compare(try XCTUnwrap(horns.descriptor), try XCTUnwrap(hangLoose.descriptor)).similarity,
-                       1, accuracy: 1e-9)
-        for step in 1...3 {
-            XCTAssertFalse(tracker.ingest(frame(TestFaces.neutral, step, pose: horns)))
-        }
-        XCTAssertTrue(tracker.ingest(frame(TestFaces.neutral, 4, pose: horns)))
+        // Both arms hanging; and standing back, one hand raised at the head with the other arm hanging straight, its
+        // wrist under the shoulder (resting, but holding nothing).
+        let hanging = TestArm(elbow: (x: 0.5, y: -0.8), wrist: (x: 0.5, y: -1.5))
+        let bodies = [("arms hanging", TestPoses.both(TestPoses.rest)),
+                      ("one hand raised", TestPoses.body(left: TestPoses.atHead, right: hanging.otherSide))]
+        for (name, arms) in bodies {
+            let tracker = PeakHoldTracker(baseline: RestingBaseline(sampleCount: 100))
+            let horns = TestPoses.features(arms, hand: try XCTUnwrap(HandShape(TestHands.rockOn())))
+            let hangLoose = TestPoses.features(arms, hand: HandShape(fingers: [1, 0, 0, 0, 1]))
+            // Neither has a word, and the arms, the five sign scores and the gesture direction read the same: only the
+            // fingers tell them apart.
+            XCTAssertNil(MoodClassifier.gestureMood(try XCTUnwrap(horns.descriptor), face: TestFaces.neutral,
+                                                    baseline: tracker.baseline), name)
+            XCTAssertEqual(horns.descriptor?.gestureDirection, hangLoose.descriptor?.gestureDirection, name)
+            XCTAssertEqual(PoseDescriptor.compare(try XCTUnwrap(horns.descriptor), try XCTUnwrap(hangLoose.descriptor)).similarity,
+                           1, accuracy: 1e-9, name)
+            for step in 1...3 {
+                XCTAssertFalse(tracker.ingest(frame(TestFaces.neutral, step, pose: horns)), name)
+            }
+            XCTAssertTrue(tracker.ingest(frame(TestFaces.neutral, 4, pose: horns)), name)
 
-        // Hang loose after horns: a new expression, held for a second.
-        XCTAssertFalse(tracker.ingest(frame(TestFaces.neutral, 5, pose: hangLoose)))
-        XCTAssertTrue(tracker.candidateIsNewExpression)
-        for step in 6...14 {
-            XCTAssertFalse(tracker.ingest(frame(TestFaces.neutral, step, pose: hangLoose)), "step \(step)")
+            // Hang loose after horns: a new expression, held for a second.
+            XCTAssertFalse(tracker.ingest(frame(TestFaces.neutral, 5, pose: hangLoose)), name)
+            XCTAssertTrue(tracker.candidateIsNewExpression, name)
+            for step in 6...14 {
+                XCTAssertFalse(tracker.ingest(frame(TestFaces.neutral, step, pose: hangLoose)), "\(name), step \(step)")
+            }
+            XCTAssertTrue(tracker.ingest(frame(TestFaces.neutral, 15, pose: hangLoose)), name)
+            XCTAssertEqual(tracker.query?.pose, hangLoose, name)
+            // The same pattern held on is the same expression.
+            XCTAssertFalse(tracker.ingest(frame(TestFaces.neutral, 16, pose: hangLoose)), name)
+            XCTAssertFalse(tracker.candidateIsNewExpression, name)
         }
-        XCTAssertTrue(tracker.ingest(frame(TestFaces.neutral, 15, pose: hangLoose)))
-        XCTAssertEqual(tracker.query?.pose, hangLoose)
-        // The same pattern held on is the same expression.
-        XCTAssertFalse(tracker.ingest(frame(TestFaces.neutral, 16, pose: hangLoose)))
-        XCTAssertFalse(tracker.candidateIsNewExpression)
     }
 
     func testADifferentGestureIsANewExpression() {

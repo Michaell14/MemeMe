@@ -383,6 +383,18 @@ public struct HandShape: Codable, Hashable, Sendable {
         return result
     }
 
+    /// One body's hands as one shape, as `strongest(_:)` but with the open palm and the fist of the highest hand: the
+    /// raised hand says what the gesture is (a wave's open palm, a flexed arm's fist), not a relaxed hand hanging at the
+    /// side, which reads as an open palm and would make a one-arm flex "hello". nil when no hand could be read.
+    public static func strongest(of hands: [HandJoints], faceBox: PoseBox? = nil) -> HandShape? {
+        let highestFirst = hands.sorted { ($0[.wrist]?.y ?? -.infinity) > ($1[.wrist]?.y ?? -.infinity) }
+        let shapes = highestFirst.compactMap { HandShape($0, faceBox: faceBox) }
+        guard var result = strongest(shapes), let raised = shapes.first else { return nil }
+        result.openPalm = raised.openPalm
+        result.fist = raised.fist
+        return result
+    }
+
     /// Whether this hand shows more than `other`: a stronger sign, or as strong a one and a clearer fist or open palm.
     private func showsMore(than other: HandShape) -> Bool {
         if signStrength != other.signStrength {
@@ -640,18 +652,30 @@ public struct PoseDescriptor: Codable, Hashable, Sendable {
                    VectorMath.clampUnit(((self[head] ?? 0) - 0.35) / 0.1))
     }
 
-    /// A wrist resting this much (`armRest`) may be holding something: a hand's finger pattern is then no sign.
+    /// How much one wrist may be holding something (a phone or a mug at the chest, a hand on a desk or a mouse): its
+    /// rest (`armRest`), but only for an arm bent (elbow bend from 0.2, fully at 0.3) or with its wrist above the waist
+    /// (lift from 0.1, fully at 0.15). An arm hanging straight with its wrist under the shoulder rests as much as one
+    /// holding a phone, but holds nothing. Without the elbow seen, its rest.
+    private func holdingRest(lift: Dimension, out: Dimension, head: Dimension, bend: Dimension) -> Double {
+        let rest = armRest(lift: lift, out: out, head: head)
+        guard rest > 0, let bendValue = self[bend] else { return rest }
+        let raised = VectorMath.clampUnit(((self[lift] ?? 0) - 0.1) / 0.05)
+        let bent = VectorMath.clampUnit((bendValue - 0.2) / 0.1)
+        return rest * max(raised, bent)
+    }
+
+    /// From this `holdingRest` a wrist may be holding something: a hand's finger pattern is then no sign.
     static let patternAtRest = 0.5
 
-    /// The hand's finger pattern (`HandShape.patternStrength`) as a sign: 0 while a wrist seen rests low in front
-    /// (`armRest` ≥ `patternAtRest`), where fingers along the back of a phone held at the chest, round a mug or on a
-    /// mouse read as a pattern too (which hand made the pattern isn't kept, so either wrist resting counts); 0 without
-    /// a hand.
+    /// The hand's finger pattern (`HandShape.patternStrength`) as a sign: 0 while a wrist seen rests low in front on a
+    /// bent arm or above the waist (`holdingRest` ≥ `patternAtRest`), where fingers along the back of a phone held at
+    /// the chest, round a mug or on a mouse read as a pattern too (which hand made the pattern isn't kept, so either
+    /// wrist counts); an arm hanging straight holds nothing. 0 without a hand.
     var patternSign: Double {
         guard let hand else { return 0 }
-        let resting = max(armRest(lift: .leftLift, out: .leftOut, head: .leftHead),
-                          armRest(lift: .rightLift, out: .rightOut, head: .rightHead))
-        return resting < PoseDescriptor.patternAtRest ? hand.patternStrength : 0
+        let holding = max(holdingRest(lift: .leftLift, out: .leftOut, head: .leftHead, bend: .leftElbowBend),
+                          holdingRest(lift: .rightLift, out: .rightOut, head: .rightHead, bend: .rightElbowBend))
+        return holding < PoseDescriptor.patternAtRest ? hand.patternStrength : 0
     }
 
     /// The hand's strongest sign as a gesture: thumbs up, pointing or peace, or another finger pattern away from rest
@@ -672,7 +696,7 @@ public struct PoseDescriptor: Codable, Hashable, Sendable {
     /// 0 for arms at rest (hanging, on a desk, holding a mug at the chest, behind the head, or not seen) … 1 for a clear
     /// gesture: the arms' distance from rest (`armStrength`); at least 0.6 for a body shape with its own word (hands on
     /// hips and arms crossed sit close to rest); or a clear hand sign (`handSignStrength` ≥ 0.7: a named sign, or any
-    /// other deliberate finger pattern while no wrist rests low in front, so horns start a search with the arms
+    /// other deliberate finger pattern while no wrist may be holding something, so horns start a search with the arms
     /// hanging, and a phone held at the chest doesn't).
     public var gestureStrength: Double {
         var strength = armStrength
