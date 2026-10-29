@@ -726,19 +726,25 @@ Frames: `AVCaptureVideoDataOutputSampleBufferDelegate` on a private queue. Every
 ```swift
 struct FaceGeometry: Equatable, Sendable {          // Vision-normalized, unmirrored buffer
     var firstEye, secondEye, mouth: CGPoint; var mouthOpen: CGFloat   // pupils, else eye contour centers; inner-lip height / face height
+    var nose: CGPoint? = nil                                          // center of the nose landmarks, else of the nose crest
     static func geometry(from face: VNFaceObservation) -> FaceGeometry?
 }
 struct FaceAnchors: Equatable, Sendable {           // pixels of the mirrored centered square, origin bottom-left
-    var leftEye, rightEye, mouth: CGPoint; var mouthOpen: CGFloat     // leftEye = the one on the left of the picture
+    var leftEye, rightEye, mouth, nose: CGPoint; var mouthOpen: CGFloat   // leftEye = the one on the left of the picture
+    init(leftEye: CGPoint, rightEye: CGPoint, mouth: CGPoint, mouthOpen: CGFloat, nose: CGPoint? = nil)   // nil nose: estimatedNose
     init(geometry: FaceGeometry, imageWidth: CGFloat, imageHeight: CGFloat)   // x' = side − (x·w − (w − side)/2), y' = y·h − (h − side)/2
+    static func estimatedNose(leftEye: CGPoint, rightEye: CGPoint, mouth: CGPoint) -> CGPoint   // 55 % of the way from between the eyes to the mouth
     var eyeDistance: CGFloat { get }; var angle: CGFloat { get }; var eyeMidpoint: CGPoint { get }
+    var mouthOpenness: CGFloat { get }   // 0 up to mouthOpen 0.06, 1 from 0.18
     func above(_ point: CGPoint, by distance: CGFloat) -> CGPoint
+    func offset(_ point: CGPoint, right: CGFloat, up: CGFloat) -> CGPoint   // along the eye line and the face's up direction
     func blended(toward target: FaceAnchors, amount: CGFloat) -> FaceAnchors
 }
 enum CameraFilter: String, CaseIterable, Identifiable, Sendable {
-    case none, noir, comic, pixel, deepFried, shades, hearts, bugEyes, crown
-    var title: String { get }        // "None", "Noir", "Comic", "8-bit", "Deep fried", "Deal with it", "Heart eyes", "Bug eyes", "Crown"
-    var followsFace: Bool { get }    // shades, hearts, bugEyes, crown: unchanged without a face
+    case none, noir, comic, pixel, deepFried
+    case dog, cat, bunny, rainbow, flowerCrown, hearts, shades, devil, angel, crown, bugEyes, clown, mustache, pig
+    var title: String { get }        // "None", "Noir", "Comic", "8-bit", "Deep fried", "Dog", "Cat", "Bunny", "Rainbow", "Flowers", "Heart eyes", "Deal with it", "Devil", "Angel", "Crown", "Bug eyes", "Clown", "Mustache", "Pig"
+    var followsFace: Bool { get }    // every case from dog on: unchanged without a face
     func apply(to image: CIImage, face: FaceAnchors?, time: TimeInterval) -> CIImage   // cropped to image.extent
 }
 struct CapturedClip { let frames: [CGImage]; let frameDelay: Double; let bestFrame: CGImage? }   // frameDelay = CaptureRenderer.frameDelay(…): the average gap of the kept frames, in 1/100 s, ≥ 0.02
@@ -754,7 +760,7 @@ enum CaptureEncoder {
     static func gif(_ frames: [CGImage], frameDelay: Double) -> Data?   // loops forever; delay and unclamped delay per frame
 }
 ```
-Filters (Core Image, `CIFilterBuiltins`): noir = photoEffectNoir + vignette (intensity 1, radius 2); comic = comicEffect; 8-bit = pixellate (scale side / 40) + colorPosterize (6); deep fried = colorControls (saturation 2.6, contrast 1.5, brightness 0.04) + sharpenLuminance (2) + unsharpMask (2.5, 1.5); bug eyes = bumpDistortion on each eye (radius 0.75·d, scale 0.55) and the mouth when open > 0.12 (0.9·d, 0.4); shades = pixel-art glasses (24 × 6 cells, nearest sampling) 2.4·d wide on the eyes; hearts = a heart 0.9·d wide on each eye, pulsing ±8 % at 2 Hz; crown = 2.3·d wide, 1.75·d above the eyes (d = eye distance, all turned with the eye line). The drawings are made once with Core Graphics (`FilterSprites`).
+Filters (Core Image, `CIFilterBuiltins`): noir = photoEffectNoir + vignette (intensity 1, radius 2); comic = comicEffect; 8-bit = pixellate (scale side / 40) + colorPosterize (6); deep fried = colorControls (saturation 2.6, contrast 1.5, brightness 0.04) + sharpenLuminance (2) + unsharpMask (2.5, 1.5); bug eyes = bumpDistortion on each eye (radius 0.75·d, scale 0.55) and the mouth when open > 0.12 (0.9·d, 0.4); shades = pixel-art glasses (24 × 6 cells, nearest sampling) 2.4·d wide on the eyes; hearts = a heart 0.9·d wide on each eye, pulsing ±8 % at 2 Hz; crown = 2.3·d wide, 1.75·d above the eyes (d = eye distance, all turned with the eye line). Snapchat-style ones, placed with `offset` from the eye midpoint (right ±, up) or on the nose and mouth: dog = floppy ears 1.15·d wide hung from (±0.68·d, 1.55·d), a nose 0.82·d wide, and while `mouthOpenness > 0` a tongue 0.7·d wide hung from the mouth, its height × (0.4 + 0.6·openness); cat = pointed ears 0.95·d at (±0.72·d, 1.45·d), whiskers from beside the nose, a pink nose; bunny = upright ears 0.7·d at (±0.4·d, 1.5·d) leaning out 0.22 rad, buck teeth 62 % from nose to mouth, a pink nose; rainbow = only while the mouth is open: a widening striped stream 1.8·d wide hung from the mouth, its length × (0.45 + 0.55·openness), swaying ±0.05 rad at 1.1 Hz and stretching ±6 % at 2.5 Hz; flowers = a crown of 9 flowers with leaves 2.8·d wide, 1.13·d above the eyes; devil = horns 0.72·d at (±0.55·d, 1.45·d); angel = a glowing halo 1.9·d wide 2·d above the eyes, bobbing ±0.07·d at 0.8 Hz; clown = a red ball nose 0.72·d and blush 0.75·d at (±0.78·d, −0.62·d); mustache = 1.35·d wide, 42 % from nose to mouth; pig = pink pointed ears 0.8·d and a snout 0.62·d on the nose. One-sided drawings are made for the left of the face and mirrored for the right. The drawings are made once with Core Graphics (`FilterSprites`).
 Rendering: `CIImage(cvPixelBuffer:)` → centered square → mirrored → filter → `CIContext.createCGImage` (RGBA8, sRGB) at the square's size (480 at VGA); face anchors move halfway to each new reading per frame and are dropped 0.5 s after the last face. A still is the next rendered frame; a clip keeps a frame when 0.08 s (− 0.01) have passed since the last kept one, scaled to 320 px, for at most 3 s, and remembers the full-size frame whose analyzed face was most intense (starting from the latest frame, so a clip ended before its first frame still has one).
 
 ### Camera/CameraPreviewView.swift
@@ -1052,7 +1058,7 @@ struct CaptureView: View { init(model: AppModel) }                              
 ```
 - `PanelView` shows `CaptureView` instead of the strip and footer while `model.isCaptureOpen`; drops are ignored there and the search field gets the focus back when it closes.
 - `MirrorColumn` puts a 26 px camera button (SF Symbol `camera.fill`, 55 % black circle) at the mirror's bottom right while `model.canOpenCapture`.
-- `CaptureView`: a 300 × 300 stage (`CapturePreview`, an `NSView` whose layer contents are set straight from `camera.onCapturePreview`, aspect fill) with a white flash on each photo, a coral progress ring while recording and the shutter (a `DragGesture(minimumDistance: 0)`: press → `capture.press(from: .mouse)`, release → `capture.release(from: .mouse)`); beside it the title, the status line, the filter chips (3 columns) and "Back to memes"; the legend below.
+- `CaptureView`: a 300 × 300 stage (`CapturePreview`, an `NSView` whose layer contents are set straight from `camera.onCapturePreview`, aspect fill) with a white flash on each photo, a coral progress ring while recording and the shutter (a `DragGesture(minimumDistance: 0)`: press → `capture.press(from: .mouse)`, release → `capture.release(from: .mouse)`); beside it the title, the status line, the filter chips (4 columns) and "Back to memes"; the legend below.
 - The search field is a SwiftUI `TextField` bound to `$model.queryText`, focused on appear (`@FocusState`), plain style.
 - Drops on the whole panel: `.onDrop(of: [.fileURL, .image], …)` → `model.search(withImageAt:)`.
 - Tiles: `.onHover { if $0 { model.hover(index:) } }`, `.onTapGesture { model.commit(index:) }`, `.onDrag { model.dragItemProvider(index:) ?? NSItemProvider() }`, with slots from `TileGrid` (GIPHY tiles: `model.giphySlot(offset)`, classic memes: `model.templateSlot(offset)`).

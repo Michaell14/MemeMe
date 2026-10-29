@@ -13,7 +13,8 @@ struct CaptureView: View {
 
     private let stageSize: CGFloat = 300
     private let stageRadius: CGFloat = 18
-    private let filterColumns = [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)]
+    /// 4 columns, so all the filters fit beside the stage.
+    private let filterColumns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 4)
 
     init(model: AppModel) {
         _model = ObservedObject(wrappedValue: model)

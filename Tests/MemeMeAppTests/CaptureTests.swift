@@ -72,6 +72,32 @@ final class CameraFilterTests: XCTestCase {
     func testFiltersHaveNames() {
         XCTAssertEqual(Set(CameraFilter.allCases.map(\.title)).count, CameraFilter.allCases.count)
         XCTAssertEqual(CameraFilter.allCases.first, CameraFilter.none)
+        XCTAssertTrue(CameraFilter.allCases.allSatisfy { $0.title.count <= 12 }, "Chip titles stay short")
+        // The looks come first, then the face filters, the dog first among them.
+        XCTAssertEqual(CameraFilter.allCases.first(where: \.followsFace), .dog)
+    }
+
+    func testTheMouthFiltersWaitForAnOpenMouth() throws {
+        let picture = CIImage(cgImage: try TestImages.shapes(width: 160, height: 160))
+        var closed = face
+        closed.mouthOpen = 0.02
+        XCTAssertEqual(closed.mouthOpenness, 0)
+        XCTAssertEqual(face.mouthOpenness, 1)
+        // The rainbow pours only from an open mouth; the dog keeps its ears and nose either way.
+        XCTAssertTrue(CameraFilter.rainbow.apply(to: picture, face: closed, time: 0) === picture)
+        XCTAssertFalse(CameraFilter.rainbow.apply(to: picture, face: face, time: 0) === picture)
+        for anchors in [closed, face] {
+            let dog = CameraFilter.dog.apply(to: picture, face: anchors, time: 0)
+            XCTAssertFalse(dog === picture)
+            XCTAssertEqual(dog.extent, picture.extent)
+        }
+    }
+
+    func testEveryFaceFilterDrawsOnAFace() throws {
+        let picture = CIImage(cgImage: try TestImages.shapes(width: 160, height: 160))
+        for filter in CameraFilter.allCases where filter.followsFace {
+            XCTAssertFalse(filter.apply(to: picture, face: face, time: 0) === picture, "\(filter)")
+        }
     }
 }
 
@@ -90,6 +116,19 @@ final class CaptureGeometryTests: XCTestCase {
         XCTAssertEqual(anchors.eyeDistance, 160, accuracy: 1e-9)
         XCTAssertEqual(anchors.angle, 0, accuracy: 1e-9)
         XCTAssertEqual(anchors.mouthOpen, 0.1, accuracy: 1e-9)
+        // No nose from Vision: 55 % of the way from between the eyes (320, 240) to the mouth (320, 120).
+        XCTAssertEqual(anchors.nose.x, 320, accuracy: 1e-9)
+        XCTAssertEqual(anchors.nose.y, 174, accuracy: 1e-9)
+    }
+
+    func testTheNoseMapsLikeTheEyes() {
+        var geometry = FaceGeometry(firstEye: CGPoint(x: 0.25, y: 0.5), secondEye: CGPoint(x: 0.5, y: 0.5),
+                                    mouth: CGPoint(x: 0.375, y: 0.25), mouthOpen: 0.1)
+        geometry.nose = CGPoint(x: 0.4, y: 0.375)
+        let anchors = FaceAnchors(geometry: geometry, imageWidth: 640, imageHeight: 480)
+        // x: 0.4 × 640 = 256 → 256 − 80 = 176 → 480 − 176 = 304; y: 0.375 × 480 = 180.
+        XCTAssertEqual(anchors.nose.x, 304, accuracy: 1e-9)
+        XCTAssertEqual(anchors.nose.y, 180, accuracy: 1e-9)
     }
 
     func testAboveFollowsTheTilt() {
@@ -107,6 +146,9 @@ final class CaptureGeometryTests: XCTestCase {
         XCTAssertEqual(half.rightEye, CGPoint(x: 15, y: 5))
         XCTAssertEqual(half.mouth, CGPoint(x: 2, y: 2))
         XCTAssertEqual(half.mouthOpen, 0.5, accuracy: 1e-9)
+        // Their noses, estimated from the eyes and mouths ((2.25, 0) and (8.95, 6.7)), meet half way too.
+        XCTAssertEqual(half.nose.x, (a.nose.x + b.nose.x) / 2, accuracy: 1e-9)
+        XCTAssertEqual(half.nose.y, (a.nose.y + b.nose.y) / 2, accuracy: 1e-9)
     }
 
     func testTheCaptureIsTheMirroredCenterSquare() throws {
