@@ -10,7 +10,7 @@ struct FaceGeometry: Equatable, Sendable {
     var firstEye: CGPoint
     var secondEye: CGPoint
     var mouth: CGPoint
-    /// Inner-lip height as a fraction of the face box's height.
+    /// How far apart the inner lips are, across the mouth (`lipGap`), as a fraction of the face box.
     var mouthOpen: CGFloat
     /// The middle of the nose landmarks (else of the nose crest); nil when Vision gave neither.
     var nose: CGPoint? = nil
@@ -22,22 +22,36 @@ struct FaceGeometry: Equatable, Sendable {
         func toImage(_ point: CGPoint) -> CGPoint {
             CGPoint(x: box.minX + point.x * box.width, y: box.minY + point.y * box.height)
         }
-        func center(_ region: VNFaceLandmarkRegion2D?) -> CGPoint? {
+        // In the face box (0...1 across it).
+        func boxCenter(_ region: VNFaceLandmarkRegion2D?) -> CGPoint? {
             guard let points = region?.normalizedPoints, !points.isEmpty else { return nil }
             let x = points.reduce(0) { $0 + $1.x } / CGFloat(points.count)
             let y = points.reduce(0) { $0 + $1.y } / CGFloat(points.count)
-            return toImage(CGPoint(x: x, y: y))
+            return CGPoint(x: x, y: y)
         }
-        guard let first = center(landmarks.leftPupil) ?? center(landmarks.leftEye),
-              let second = center(landmarks.rightPupil) ?? center(landmarks.rightEye) else { return nil }
+        func center(_ region: VNFaceLandmarkRegion2D?) -> CGPoint? {
+            boxCenter(region).map(toImage)
+        }
+        guard let firstInBox = boxCenter(landmarks.leftPupil) ?? boxCenter(landmarks.leftEye),
+              let secondInBox = boxCenter(landmarks.rightPupil) ?? boxCenter(landmarks.rightEye) else { return nil }
+        let first = toImage(firstInBox)
+        let second = toImage(secondInBox)
         let mouth = center(landmarks.outerLips) ?? CGPoint(x: (first.x + second.x) / 2, y: box.minY + box.height * 0.25)
         var open: CGFloat = 0
         if let inner = landmarks.innerLips?.normalizedPoints, inner.count >= 2 {
-            let ys = inner.map(\.y)
-            open = (ys.max() ?? 0) - (ys.min() ?? 0)
+            open = lipGap(inner, firstEye: firstInBox, secondEye: secondInBox)
         }
         let nose = center(landmarks.nose) ?? center(landmarks.noseCrest)
         return FaceGeometry(firstEye: first, secondEye: second, mouth: mouth, mouthOpen: open, nose: nose)
+    }
+
+    /// How far apart the inner-lip `points` reach across the mouth: their spread along the face's up direction (square
+    /// to the line through the eyes), so a tilted head doesn't open a closed mouth. Everything in the face box.
+    static func lipGap(_ points: [CGPoint], firstEye: CGPoint, secondEye: CGPoint) -> CGFloat {
+        guard points.count >= 2 else { return 0 }
+        let angle = atan2(secondEye.y - firstEye.y, secondEye.x - firstEye.x)
+        let across = points.map { -$0.x * sin(angle) + $0.y * cos(angle) }
+        return (across.max() ?? 0) - (across.min() ?? 0)
     }
 }
 

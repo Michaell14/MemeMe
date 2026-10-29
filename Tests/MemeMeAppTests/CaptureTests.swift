@@ -121,6 +121,29 @@ final class CaptureGeometryTests: XCTestCase {
         XCTAssertEqual(anchors.nose.y, 174, accuracy: 1e-9)
     }
 
+    func testATiltedHeadDoesntOpenAClosedMouth() {
+        func rotated(_ point: CGPoint, by angle: CGFloat) -> CGPoint {
+            let x = point.x - 0.5
+            let y = point.y - 0.5
+            return CGPoint(x: 0.5 + x * cos(angle) - y * sin(angle), y: 0.5 + x * sin(angle) + y * cos(angle))
+        }
+        let eyes = (CGPoint(x: 0.3, y: 0.6), CGPoint(x: 0.7, y: 0.6))
+        let closed = [CGPoint(x: 0.33, y: 0.25), CGPoint(x: 0.5, y: 0.25), CGPoint(x: 0.67, y: 0.25)]
+        let open = [CGPoint(x: 0.35, y: 0.25), CGPoint(x: 0.5, y: 0.32), CGPoint(x: 0.65, y: 0.25), CGPoint(x: 0.5, y: 0.18)]
+        for degrees in [0, 15, -20] as [CGFloat] {
+            let angle = degrees * .pi / 180
+            let gapClosed = FaceGeometry.lipGap(closed.map { rotated($0, by: angle) },
+                                                firstEye: rotated(eyes.0, by: angle), secondEye: rotated(eyes.1, by: angle))
+            XCTAssertEqual(gapClosed, 0, accuracy: 1e-9, "\(degrees)°")
+            let gapOpen = FaceGeometry.lipGap(open.map { rotated($0, by: angle) },
+                                              firstEye: rotated(eyes.0, by: angle), secondEye: rotated(eyes.1, by: angle))
+            XCTAssertEqual(gapOpen, 0.14, accuracy: 1e-9, "\(degrees)°")
+        }
+        // The eyes given the other way round (Vision's left eye is on the right of the picture) measure the same.
+        XCTAssertEqual(FaceGeometry.lipGap(open, firstEye: eyes.1, secondEye: eyes.0), 0.14, accuracy: 1e-9)
+        XCTAssertEqual(FaceGeometry.lipGap([CGPoint(x: 0.5, y: 0.3)], firstEye: eyes.0, secondEye: eyes.1), 0)
+    }
+
     func testTheNoseMapsLikeTheEyes() {
         var geometry = FaceGeometry(firstEye: CGPoint(x: 0.25, y: 0.5), secondEye: CGPoint(x: 0.5, y: 0.5),
                                     mouth: CGPoint(x: 0.375, y: 0.25), mouthOpen: 0.1)

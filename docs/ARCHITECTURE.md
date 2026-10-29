@@ -725,9 +725,10 @@ Frames: `AVCaptureVideoDataOutputSampleBufferDelegate` on a private queue. Every
 
 ```swift
 struct FaceGeometry: Equatable, Sendable {          // Vision-normalized, unmirrored buffer
-    var firstEye, secondEye, mouth: CGPoint; var mouthOpen: CGFloat   // pupils, else eye contour centers; inner-lip height / face height
+    var firstEye, secondEye, mouth: CGPoint; var mouthOpen: CGFloat   // pupils, else eye contour centers; lipGap of the inner lips (face-box units)
     var nose: CGPoint? = nil                                          // center of the nose landmarks, else of the nose crest
     static func geometry(from face: VNFaceObservation) -> FaceGeometry?
+    static func lipGap(_ points: [CGPoint], firstEye: CGPoint, secondEye: CGPoint) -> CGFloat   // spread across the eye line, so a tilted head doesn't open a closed mouth
 }
 struct FaceAnchors: Equatable, Sendable {           // pixels of the mirrored centered square, origin bottom-left
     var leftEye, rightEye, mouth, nose: CGPoint; var mouthOpen: CGFloat   // leftEye = the one on the left of the picture
