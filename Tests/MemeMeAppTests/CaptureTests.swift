@@ -77,26 +77,39 @@ final class CameraFilterTests: XCTestCase {
         XCTAssertEqual(CameraFilter.allCases.first(where: \.followsFace), .dog)
     }
 
+    /// A face small enough in the 160 px picture for what goes above the head (ears, a halo) to show: eyes 24 px apart.
+    private let smallFace = FaceAnchors(leftEye: CGPoint(x: 68, y: 80), rightEye: CGPoint(x: 92, y: 80),
+                                        mouth: CGPoint(x: 80, y: 56), mouthOpen: 0.2)
+
+    /// The 160 px picture's pixels, RGBA.
+    private func pixels(_ image: CIImage) -> [UInt8] {
+        var bytes = [UInt8](repeating: 0, count: 160 * 160 * 4)
+        context.render(image, toBitmap: &bytes, rowBytes: 160 * 4, bounds: CGRect(x: 0, y: 0, width: 160, height: 160),
+                       format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
+        return bytes
+    }
+
     func testTheMouthFiltersWaitForAnOpenMouth() throws {
         let picture = CIImage(cgImage: try TestImages.shapes(width: 160, height: 160))
-        var closed = face
+        var closed = smallFace
         closed.mouthOpen = 0.02
         XCTAssertEqual(closed.mouthOpenness, 0)
-        XCTAssertEqual(face.mouthOpenness, 1)
-        // The rainbow pours only from an open mouth; the dog keeps its ears and nose either way.
+        XCTAssertEqual(smallFace.mouthOpenness, 1)
+        // The rainbow pours only from an open mouth.
         XCTAssertTrue(CameraFilter.rainbow.apply(to: picture, face: closed, time: 0) === picture)
-        XCTAssertFalse(CameraFilter.rainbow.apply(to: picture, face: face, time: 0) === picture)
-        for anchors in [closed, face] {
-            let dog = CameraFilter.dog.apply(to: picture, face: anchors, time: 0)
-            XCTAssertFalse(dog === picture)
-            XCTAssertEqual(dog.extent, picture.extent)
-        }
+        XCTAssertNotEqual(pixels(CameraFilter.rainbow.apply(to: picture, face: smallFace, time: 0)), pixels(picture))
+        // The dog has its ears and nose either way, and its tongue out only with the mouth open.
+        let dogClosed = pixels(CameraFilter.dog.apply(to: picture, face: closed, time: 0))
+        let dogOpen = pixels(CameraFilter.dog.apply(to: picture, face: smallFace, time: 0))
+        XCTAssertNotEqual(dogClosed, pixels(picture))
+        XCTAssertNotEqual(dogOpen, dogClosed)
     }
 
     func testEveryFaceFilterDrawsOnAFace() throws {
         let picture = CIImage(cgImage: try TestImages.shapes(width: 160, height: 160))
+        let original = pixels(picture)
         for filter in CameraFilter.allCases where filter.followsFace {
-            XCTAssertFalse(filter.apply(to: picture, face: face, time: 0) === picture, "\(filter)")
+            XCTAssertNotEqual(pixels(filter.apply(to: picture, face: smallFace, time: 0)), original, "\(filter)")
         }
     }
 }
