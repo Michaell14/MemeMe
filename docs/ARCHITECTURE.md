@@ -8,10 +8,10 @@ Read `docs/DESIGN.md` for behavior and exact UI strings.
 
 - Swift Package (`Package.swift`, tools 5.9, **Swift 5 language mode**), `platforms: [.macOS(.v14)]`. No third-party dependencies.
 - Targets:
-  - `MemeMeCore` — library, **Foundation only** (no AppKit/Vision/CoreGraphics/Accelerate/CryptoKit). Must also compile on Linux. Everything is `public`.
+  - `MemeMeCore` — library, **Foundation only** (no AppKit/Vision/Accelerate/CryptoKit; CoreGraphics only for `CGPoint` in `FaceShapeMeasure`, imported under `#if canImport(CoreGraphics)` so Linux takes Foundation's). Must also compile on Linux. Everything is `public`.
   - `MemeMeApp` — executable (product name `MemeMe`). AppKit + SwiftUI + AVFoundation + Vision + CoreImage + ImageIO + CryptoKit + Carbon + ServiceManagement + UniformTypeIdentifiers + Network. Types are `internal`.
   - `MemeMeCoreTests` — XCTest for the core.
-  - `MemeMeAppTests` — XCTest for the app target (`@testable import MemeMeApp`): GIPHY decoding via a URLProtocol stub, GIPHY search against a stub GIPHY (GIPHY's order kept, nothing written to disk, copies, early search, refusals), ImageAnalyzer on generated images, clipboard naming, keep/undo, sticker eligibility, headless AppModel text search.
+  - `MemeMeAppTests` — XCTest for the app target (`@testable import MemeMeApp`): GIPHY decoding via a URLProtocol stub, GIPHY search against a stub GIPHY (GIPHY's order kept, 24 asked for, pages, nothing written to disk, copies, early search, refusals), ImageAnalyzer on generated images, the seven features in the face's leveled frame and reading a frame's pixels (FaceFeatureExtractor), clipboard naming, keep/undo, sticker eligibility, headless AppModel text search.
 - `scripts/build-app.sh` assembles `build/MemeMe.app` (Info.plist from `Resources/Info.plist`; `GiphyAPIKey` from `$GIPHY_API_KEY`; `CFBundleShortVersionString` from `$APP_VERSION`, default the `VERSION` file; `CFBundleVersion` from `$APP_BUILD`, default `git rev-list --count HEAD`; `MemeMeUpdateFeedURL` from `$UPDATE_FEED_URL`, default empty = updates off; `Resources/AppIcon.icns` as the app icon, `CFBundleIconFile` = AppIcon, sources in `Resources/AppIcon`) and ad-hoc signs it. `scripts/build-dmg.sh` packs it into `build/MemeMe.dmg` (the app plus an `Applications` link, UDZO) with dmgbuild (`scripts/dmg-settings.py`: a 660×400 icon-view window, the app at (170, 196), Applications at (490, 196), background from `Resources/DMG`; Python 3.10+, pinned by hash), signs it on Developer ID builds, then mounts it and checks the app's signature and the link.
 - CI (`.github/workflows/ci.yml`): job `build` (`macos-15`) runs `swift build`, `swift test`, both scripts and uploads `MemeMe.dmg` as the `MemeMe-app` artifact; it also decides whether this run is a release (push or manual run on the default branch, and app files changed since the last `v*` tag, or a manual run). Job `release` (`ubuntu-latest`, `contents: write`) runs `scripts/publish-release.sh`, which publishes GitHub Release `v<version>-<build>` with `MemeMe.dmg` and `latest.json` (the update feed, see `UpdateManifest`) and marks it latest.
 - Logging: `os.Logger(subsystem: "com.mememe.app", category: "<file area>")`. Never log file contents, OCR text or face data.
@@ -76,11 +76,80 @@ public struct PoseFeatures: Codable, Hashable, Sendable {   // lenient decoding:
 public struct ExpressionSample: Codable, Hashable, Sendable {
     public var face: FaceFeatures?
     public var pose: PoseFeatures?
+    public var shape: FaceShape?         // the face's details beyond the seven features (FaceCues.swift); nil without
     public var timestamp: TimeInterval   // seconds, monotonic (CACurrentMediaTime on the app side)
     public var sharpness: Double         // 0...1, 1 when unknown
-    public init(face: FaceFeatures?, pose: PoseFeatures? = nil, timestamp: TimeInterval, sharpness: Double = 1)
+    public init(face: FaceFeatures?, pose: PoseFeatures? = nil, shape: FaceShape? = nil, timestamp: TimeInterval, sharpness: Double = 1)
 }
 ```
+
+### FaceCues.swift
+
+```swift
+/// What the seven features don't keep: each eye and brow, the lips' shape, where the mouth and pupils sit, the tongue.
+/// Leveled frame (FaceShapeMeasure), lengths in eye distances; a field is nil when it couldn't be measured.
+public struct FaceShape: Codable, Hashable, Sendable {   // lenient: a field that doesn't decode is nil; nil fields are left out
+    public var leftEyeOpen, rightEyeOpen: Double?   // contour area / width² (≈ 0.25 open, < 0.1 shut); Vision's left and right
+    public var leftBrowGap, rightBrowGap: Double?   // brow's mean height − its eye's (≈ 0.3)
+    public var lipWidth, lipHeight: Double?         // outer lips (≈ 0.8 × 0.3 at rest)
+    public var lipOpening: Double?                  // inner lips' height (≈ 0 closed)
+    public var lowerLip: Double?                    // inner-lip bottom − outer-lip bottom: the lower lip's thickness
+    public var cornerTilt: Double?                  // the left-most outer-lip point's height − the right-most one's
+    public var mouthShift: Double?                  // the middle of the outer lips' width (the face's midline is x = 0); not read as a cue (a head turned with the camera above or below the eyes moves it as much)
+    public var gazeUp: Double?                      // pupils' height over the line through each eye's corners, in eye widths (+ up, ≈ 0.03 ahead)
+    public var tongue: Double?                      // 0...1 share of tongue-colored samples under the lower lip; nil when lips and skin can't be told apart
+    public init(leftEyeOpen: Double? = nil, …, tongue: Double? = nil)   // every field, in this order
+    static let fields: [WritableKeyPath<FaceShape, Double?>]            // internal: every field, this order
+    func blended(toward target: FaceShape, amount: Double) -> FaceShape // internal: each field `amount` of the way; a missing one takes the target's
+}
+
+public struct FaceCues: Hashable, Sendable {
+    public enum Cue: String, CaseIterable, Codable, Hashable, Sendable {
+        case tongueOut, wink, raisedBrow, pucker, smirk, eyeRoll
+        public var mood: Mood { get }               // .tongueOut, .wink, .raisedEyebrow, .duckFace, .smirk, .eyeRoll
+    }
+    public static let clear: Double                 // 0.5: names the mood and is an expression of its own
+    public private(set) var values: [Double]        // one per Cue.allCases, each 0...1
+    public static let none: FaceCues                // all 0
+    public init(shape: FaceShape, rest: FaceShape?) // rest: the person's resting shape (camera); nil: fixed values (library images)
+    public subscript(_ cue: Cue) -> Double { get }
+    public var strongest: (cue: Cue, value: Double)? { get }   // above 0; the first in allCases on a tie
+    public var clearCue: Cue? { get }               // strongest when ≥ clear
+}
+
+extension RestingBaseline {
+    public func cues(of shape: FaceShape?) -> FaceCues   // FaceCues(shape:rest: restShape); .none without a shape
+}
+```
+Cues (binding; clamp each to 0...1; r = rest, used per cue only when it has the fields that cue needs, else the fixed form):
+- tongueOut: `(tongue − r.tongue − 0.12) / 0.25`, + 0.3 when `lowerLip ≥ 1.6 × r.lowerLip` (r.lowerLip > 0) and the tongue share grew ≥ 0.06 (a tongue over the lip thickens it); fixed `(tongue − 0.2) / 0.25`; 0 without `tongue`.
+- wink: each eye's opening over its rest's; with the lower ≤ 0.55 and the higher ≥ 0.5 (a broad smile narrows the open eye too), `(higher − lower − 0.3) / 0.4` (squinting with both eyes isn't one); fixed `(ln(higher / max(lower, 0.005)) − 0.7) / 0.7`; 0 with both eyes at 0 (a blink) or an eye not measured.
+- raisedBrow: `(|(leftBrowGap − rightBrowGap) − (r.left − r.right)| − 0.05) / 0.1`; fixed `(|left − right| − 0.07) / 0.1` (both brows up is surprise, not this).
+- pucker (duck face, kissy lips; only with `lipOpening ≤ 0.12`): `(1 − lipWidth / r.lipWidth − 0.1) / 0.15`; fixed `(0.7 − lipWidth) / 0.15` when `lipHeight / lipWidth ≥ 0.4`.
+- smirk (one corner up): `(|cornerTilt − r| − 0.05) / 0.1`; fixed `(|cornerTilt| − 0.07) / 0.1`.
+- eyeRoll: `(gazeUp − r.gazeUp − 0.04) / 0.05`, 0 when either eye is open less than 0.8 of its rest (a squint or a frown isn't one); fixed `(gazeUp − 0.07) / 0.05`.
+
+### FaceShapeMeasure.swift
+
+```swift
+public enum FaceShapeMeasure {
+    public struct Landmarks: Equatable, Sendable {  // face-box-normalized (0...1, origin bottom-left), as Vision's normalizedPoints; [] = not found
+        public var leftEye, rightEye, leftBrow, rightBrow, outerLips, innerLips, leftPupil, rightPupil: [CGPoint]
+        public init(leftEye: [CGPoint] = [], …, rightPupil: [CGPoint] = [])
+        func map(_ transform: (CGPoint) -> CGPoint) -> Landmarks   // internal
+    }
+    public struct Sample: Equatable, Sendable {     // the picture's color at one point
+        public var luma: Double                     // BT.601, 0...255
+        public var redness: Double                  // BT.601 Cr, 0...255 (128 gray)
+        public init(luma: Double, redness: Double)
+    }
+    /// nil without both eyes (each its pupil's mean point, else its contour's). `color`: the pixel at a face-box-normalized point (nil outside the picture); without it, no tongue.
+    public static func shape(of landmarks: Landmarks, color: ((CGPoint) -> FaceShapeMeasure.Sample?)?) -> FaceShape?
+    /// Turned about the eyes' midpoint until the eye line is level, not scaled: what the seven features are measured on. Upright, or without both eyes: unchanged.
+    public static func leveled(_ landmarks: Landmarks) -> Landmarks
+}
+```
+Measuring (binding): m = the midpoint of the eyes' centers, d = their distance, θ = the eye line's angle, taken pointing to the picture's right whichever eye Vision calls left (a mirrored picture measures the same); a point p becomes `q = R(−θ)(p − m) / d` (face-box units count as square), so the eyes sit at (±0.5, 0), y up, the midline x = 0, and a tilted, far or moved face measures like an upright, near one. Eye opening = shoelace area / width² of its contour (≥ 3 points); brow gap = the brow's mean y − its eye contour's mean y; lipWidth / lipHeight / mouthShift = the outer lips' width, height and middle x; cornerTilt = y of the outer lips' left-most point − the right-most one's; lipOpening = the inner lips' height; lowerLip = inner-lip min y − outer-lip min y; gazeUp = the mean over eyes with a pupil of the pupil's mean y over the line through its eye contour's left-most and right-most points (at the pupil's x) / that eye's width (the lids don't move the corners, so heavy lids and frowns don't read as looking up). Tongue: skin = the median redness and luma of 6 × 6 samples in each of two 0.2 × 0.2 cheek patches centered at (±0.55, −0.75); lips = the median redness of a 16 × 8 grid over the outer lips' box, kept where inside the outer contour and outside the inner one; C = lips − skin (nil when < 5: gray or odd light); the band 0.02 under the outer lips' bottom, 0.45 deep, ± 0.3 × lipWidth around their middle, on a 12 × 8 grid: `tongue` = the share of its samples (inside the picture) with redness ≥ skin + 0.6 C and luma ≥ 0.45 × the skin's (a dark open mouth isn't a tongue). Samples are taken at face-box points (leveled points turned back), so the picture's tilt doesn't matter.
 
 ### BodyPose.swift
 
@@ -136,13 +205,19 @@ Pose (binding):
 ### Baseline.swift
 
 ```swift
-public struct RestingBaseline: Codable, Equatable, Sendable {
+public struct RestingBaseline: Codable, Equatable, Sendable {   // lenient decoding: settings from before restShape load with it nil
     public private(set) var neutral: FaceFeatures
     public private(set) var sampleCount: Int
-    public init(neutral: FaceFeatures = .populationNeutral, sampleCount: Int = 0)
+    /// The resting shape the face's cues are read against (`cues(of:)`, FaceCues.swift); nil until a calm frame brought one.
+    public private(set) var restShape: FaceShape?
+    public init(neutral: FaceFeatures = .populationNeutral, sampleCount: Int = 0, restShape: FaceShape? = nil)
     /// Updates an EMA from calm frames: a frame is calm when intensity(of:) < (sampleCount < 30 ? 0.25 : 0.08).
-    /// alpha = sampleCount < 30 ? 0.2 : 0.05. Increments sampleCount for calm frames only.
-    public mutating func observe(_ face: FaceFeatures)
+    /// alpha = sampleCount < 30 ? 0.2 : 0.05 for the seven numbers and each field of the resting shape, or 0.01
+    /// (`cueAlpha`) when one of `shape`'s cues reaches 0.2 (`calmCueLimit`): a held tongue or pucker is barely learned
+    /// as the rest, while a rest that no longer fits (the camera moved) still catches up instead of locking. The first
+    /// shape is taken as it is; a field it lacks is taken, one the frame lacks stays. Increments sampleCount for calm
+    /// frames only.
+    public mutating func observe(_ face: FaceFeatures, shape: FaceShape? = nil)
     /// face.vector - neutral.vector
     public func signedDeviation(of face: FaceFeatures) -> [Double]
     /// Per region: min(1, 2 * mean |deviation| over the region's indices)
@@ -174,8 +249,10 @@ public struct FeatureWeights: Codable, Hashable, Sendable {
 
 ```swift
 public struct PeakHoldConfig: Sendable {
-    public var holdDuration: TimeInterval = 0.3
-    public var newExpressionHold: TimeInterval = 1.0
+    public var holdDuration: TimeInterval = 0.3        // the first query, a stronger version of it, anything new once re-armed
+    public var newExpressionHold: TimeInterval = 1.0   // a new expression with a clear gesture (and a shape held up by its floor, always)
+    public var newFaceHold: TimeInterval = 0.6         // a new expression of the face alone (another face, a cue on the held one)
+    public var rearmAfterCalm: TimeInterval = 0.4      // a calm face this long re-arms the tracker until the next query
     public var strongerRatio: Double = 1.15
     public var sameDirectionCosine: Double = 0.85
     public var minimumIntensity: Double = 0.12
@@ -202,20 +279,22 @@ public final class PeakHoldTracker {
     @discardableResult public func ingest(_ sample: ExpressionSample) -> Bool
     /// Space: makes the last sample with a face (or a gesture hiding it) the query, even if neutral. Returns true if it changed the query.
     @discardableResult public func snap() -> Bool
-    /// Drops the expression being held toward the query (keeps the query and the baseline); the capture view opening.
+    /// Drops the expression being held toward the query (keeps the query and the baseline); the capture view opening. A calm
+    /// face before the gap doesn't count toward re-arming.
     public func clearHold()
-    /// Clears query and candidate (keeps the baseline).
+    /// Clears the query, the candidate and the re-arming (keeps the baseline).
     public func reset()
 }
 ```
 
 Algorithm (binding):
-- `ingest`: set `lastSample`. No face and a gesture strength below `minimumGestureWithoutFace` (0.5) → clear the candidate, `holdProgress = 0`, return false (a facepalm hides the face: its gesture carries on). Grace: a run whose first frame was a clear gesture (strength ≥ 0.4) instead skips such a frame (and one under `minimumIntensity`, and one outside its cone without its shape) while it is within `gestureGrace` (0.3 s) of the last frame it took, keeping the run, candidate and progress; face runs get none. Calm frames with a face feed `baseline.observe`.
-- Effective intensity `e = max(baseline.intensity(of: face) (0 without), 0.8 × gesture strength when it is ≥ 0.4 (else 0))`: half-raised arms with a neutral face are not an expression. Direction vector = `signedDeviation(of: face)` (7 zeros without) + `0.5 × gestureStrength × descriptor.gestureDirection` (a pose without a descriptor: `[activity, 0, 0, 0, 0, 0, 0, 0, 0]`), 16 values, normalized. A different hand sign with the arm where it was is therefore a different expression.
+- `ingest`: set `lastSample`. No face and a gesture strength below `minimumGestureWithoutFace` (0.5) → clear the candidate, `holdProgress = 0`, return false (a facepalm hides the face: its gesture carries on). Grace: a run whose first frame was a clear gesture (strength ≥ 0.4) instead skips such a frame (and one under `minimumIntensity`, and one outside its cone without its shape) while it is within `gestureGrace` (0.3 s) of the last frame it took, keeping the run, candidate and progress; face runs get none. Frames with a face feed `baseline.observe(face, shape: sample.shape)` (it learns from the calm ones) after the frame was judged against the baseline as it was.
+- The face's cues: `baseline.cues(of: sample.shape)` (FaceCues.swift; all 0 without a shape). Effective intensity `e = max(baseline.intensity(of: face) (0 without), 0.8 × gesture strength when it is ≥ 0.4 (else 0), 0.8 × the strongest cue when it is ≥ 0.3 (else 0))`: half-raised arms with a neutral face are not an expression; a tongue out, a wink or a smirk is, though the seven numbers barely move. Direction vector = `signedDeviation(of: face)` (7 zeros without) + `0.5 × gestureStrength × descriptor.gestureDirection` (a pose without a descriptor: `[activity, 0, 0, 0, 0, 0, 0, 0, 0]`) + `0.8 ×` the six cues (zeros without a shape or a face), 22 values, normalized. A different hand sign with the arm where it was is therefore a different expression, and a cue added to a held face points elsewhere. Each frame keeps its clear cue (`FaceCues.clearCue`).
+- Calm and re-arming: a frame with a face and `e < minimumIntensity` (no expression, cue or clear gesture) is calm. Calm frames for `rearmAfterCalm` (0.4 s, from the first calm frame's timestamp) re-arm the tracker until the next query (setting the query, `snap` and `reset` disarm it; `clearHold` and `reset` restart the calm). Any other frame, one without a face included, ends the calm streak, not the re-arming. Relaxing between two faces says the second one is meant; talking never stays calm for 0.4 s between sounds.
 - A sample is a candidate if `e >= minimumIntensity`; otherwise clear the candidate, return false.
-- The candidate is a run of consecutive candidate samples whose direction cosine with the run's first sample is ≥ `sameDirectionCosine`, or whose `bodyShape` one of the run's samples has, with a face that agrees with the run's first sample's (both calm, below `minimumIntensity`, or unseen; or both moved the same way, cosine ≥ `sameDirectionCosine`): a far face flickering swings the direction of a shape held up by its 0.6 floor; a sample outside that starts a new run, which takes the samples skipped by the grace just before it that point its way (cosine ≥ `sameDirectionCosine`; a sample under a gate drops them) and is timed from the first of those, if any: a face flickering between two looks gets no head start. Within a run keep the samples within `bufferWindow` of the newest; the best is the highest `e * sharpness` (the newest winning ties) among the samples with the run's pose word (`gestureMood` when the strength is ≥ 0.4): the word most of them have (the newest's on a tie) when three or more have it (the body is read every other frame, so one reading fills two) or the newest does; else among those without a word. So a noisy reading neither takes a held pose's word away nor gives one to a pose without, and arms caught rising into a celebration take its word as soon as it shows.
-- Required hold: no query → `holdDuration`. Same direction as the query (cosine ≥ `sameDirectionCosine`, or the query's `bodyShape` with faces that agree as above) → `holdDuration`, and only if `bestE >= queryIntensity * strongerRatio` (otherwise `holdProgress = 0`, no replacement). Different direction, a new gesture word, or a new pose → `newExpressionHold` and `candidateIsNewExpression = true`. A new pose: both the best sample and the query are clear gestures with descriptors, not the same shape, and the better of `compare(query, best)` and `compare(query, best.mirrored)` (a comparison covering < 0.6 counts as alike) is < `newPoseSimilarity`: strong poses all reach intensity 0.8 and many point the same way. A best sample held up only by its shape's floor (armStrength < 0.4, no hand sign, the face weaker) needs at least `newExpressionHold`: hands in pockets read as hands on hips for a frame or two now and then. A new gesture word: the best frame has a clear gesture (strength ≥ 0.4, so forearms on armrests reading as a shrug don't count) whose `MoodClassifier.gestureMood` differs from the query's as read when it became the query (nil included). Strong gestures all reach intensity 0.8 and several share a direction (clapping, face in hands, mind blown), and a face is usually held before the arms arrive, so neither strength nor direction would let a hand caught on its way to the face, or a shrug after a held smile, replace the query. A run is the same expression again only when it points the query's way (or holds the query's shape with faces that agree), brings no new gesture word and no new pose: then it is cleared unless 15 % stronger.
-- `holdProgress = min(1, (newest.timestamp - run.start) / required)`. When it reaches 1: `query = best`, `queryIntensity = bestE`, clear the run, `holdProgress = 0`, `candidateIsNewExpression = false`, return true.
+- The candidate is a run of consecutive candidate samples that keep the run's first sample's clear cue (the same one, or none while that one still shows at ≥ 0.3: `keepsCue`; another cue starts a run of its own, so one frame of it never names a face held without it) and whose direction cosine with the run's first sample is ≥ `sameDirectionCosine`, or whose `bodyShape` one of the run's samples has, with a face that agrees with the run's first sample's (both calm, below `minimumIntensity` with the cues' intensity, or unseen; or both moved the same way, the seven deviations and the cues × 0.8 at cosine ≥ `sameDirectionCosine`): a far face flickering swings the direction of a shape held up by its 0.6 floor; a sample outside that starts a new run, which takes the samples skipped by the grace just before it that point its way and keep its cue (cosine ≥ `sameDirectionCosine`; a sample under a gate drops them) and is timed from the first of those, if any: a face flickering between two looks gets no head start. Within a run keep the samples within `bufferWindow` of the newest; the best is the highest `e * sharpness` (the newest winning ties) among the samples with the run's pose word (`gestureMood` when the strength is ≥ 0.4): the word most of them have (the newest's on a tie) when three or more have it (the body is read every other frame, so one reading fills two) or the newest does; else among those without a word. So a noisy reading neither takes a held pose's word away nor gives one to a pose without, and arms caught rising into a celebration take its word as soon as it shows.
+- Required hold: no query → `holdDuration`. Same direction as the query (cosine ≥ `sameDirectionCosine`, or the query's `bodyShape` with faces that agree as above) → `holdDuration`, and only if `bestE >= queryIntensity * strongerRatio` (otherwise `holdProgress = 0`, no replacement; relaxing in between changes nothing). Different direction, a new gesture word, a new cue or a new pose → a new expression, `candidateIsNewExpression = true`, held for `holdDuration` (0.3 s) once re-armed, else `newExpressionHold` (1 s) when the best sample's gesture strength is ≥ 0.4 (arms on their way to a pose pass through others), else `newFaceHold` (0.6 s). A new cue: the best sample has a clear cue (≥ `FaceCues.clear`) other than the query's as read when it became the query (nil included): on a strong face a cue moves the direction and the intensity too little to tell, so a tongue out or a wink on a held smile is new; the query's own cue, even stronger, is the same expression, and a cue fading below clear isn't a new one (one hovering around 0.5 would start search after search). A new pose: both the best sample and the query are clear gestures with descriptors, not the same shape, and the better of `compare(query, best)` and `compare(query, best.mirrored)` (a comparison covering < 0.6 counts as alike) is < `newPoseSimilarity`: strong poses all reach intensity 0.8 and many point the same way. A best sample held up only by its shape's floor (armStrength < 0.4, no hand sign, the face weaker) needs at least `newExpressionHold`, re-armed or not: hands in pockets read as hands on hips for a frame or two now and then. A new gesture word: the best frame has a clear gesture (strength ≥ 0.4, so forearms on armrests reading as a shrug don't count) whose `MoodClassifier.gestureMood` differs from the query's as read when it became the query (nil included). Strong gestures all reach intensity 0.8 and several share a direction (clapping, face in hands, mind blown), and a face is usually held before the arms arrive, so neither strength nor direction would let a hand caught on its way to the face, or a shrug after a held smile, replace the query. A run is the same expression again only when it points the query's way (or holds the query's shape with faces that agree), brings no new gesture word, no new cue and no new pose: then it is cleared unless 15 % stronger.
+- `holdProgress = min(1, (newest.timestamp - run.start) / required)`. When it reaches 1: `query = best`, `queryIntensity = bestE` (its gesture word, clear cue and shape kept with it), clear the run and the re-arming, `holdProgress = 0`, `candidateIsNewExpression = false`, return true.
 - `candidate` is the run's best sample while it is held toward the query; clearing the candidate (and the query being set) makes it nil.
 
 ### PoseBadge.swift
@@ -245,7 +324,7 @@ public struct EarlyMoodTrigger: Sendable {
     public mutating func reset()
 }
 ```
-`.reaction` never fires. AppModel feeds it the mood of `tracker.candidate` and calls `web.warm` with what it returns, so a mood's GIPHY search starts before the hold completes.
+`.reaction` never fires. AppModel feeds it the mood of `tracker.candidate` (with its shape, so a tongue out reads as "tongue out") and calls `web.warm` with what it returns, so a mood's GIPHY search starts before the hold completes (0.3 s, 0.6 s for a new face, 1 s for a new gesture).
 
 ### Mood.swift
 
@@ -254,7 +333,8 @@ public enum Mood: String, CaseIterable, Codable, Hashable, Sendable {
     case shocked, screaming, laughing, happy, smug, sideEye, crying, sad, angry, confused, unimpressed, nervous, excited, reaction
     case celebrate, facepalm, mindBlown, shrug, thumbsUp, pointing, clapping   // body language
     case tPose, flex, dab, handsOnHips, armsCrossed, pickMe, hello, ohNo, peace, bow
-    /// GIPHY query, e.g. "shocked reaction", "side eye", "unimpressed", "reaction"; body language: the label ("mind blown", "thumbs up"), except "t pose", "peace sign", "bowing"
+    case tongueOut, wink, raisedEyebrow, duckFace, smirk, eyeRoll                  // face details (FaceCues)
+    /// GIPHY query: one short tag-like phrase. "shocked reaction" (the face's other moods: label + " reaction"), "side eye", "unimpressed", "reaction"; body language: the label ("mind blown", "thumbs up"), except "t pose", "peace sign", "bowing"; face details: the label ("tongue out", "wink", "raised eyebrow", "duck face", "smirk", "eye roll"), GIPHY's own tags for them
     public var searchQuery: String { get }
     /// Human word, e.g. "shocked", "side eye"
     public var label: String { get }
@@ -264,6 +344,7 @@ public enum MoodClassifier {
     /// Rules in this order (d = signed deviation from baseline.neutral; o = face.mouthOpenness; s = face.smile - 0.5):
     /// 1. pose.descriptor, gestureStrength ≥ 0.4 (Ranker.gestureWithoutFace), with body language that has its own word → gestureMood
     /// 2. face nil → .reaction
+    /// 2b. a clear face cue (`baseline.cues(of: shape).clearCue`: against the resting shape; fixed values without one) → its word (`FaceCues.Cue.mood`)
     /// 3. poses without a descriptor only: pose.handsRaised ≥ 0.5 && o ≥ 0.35 → .screaming;  pose.activity ≥ 0.5 && s > 0.08 → .excited
     /// 4. o ≥ 0.45 && s ≤ 0.05 && (d.eye ≥ 0.1 || d.brow ≥ 0.1) → o ≥ 0.7 ? .screaming : .shocked
     /// 5. o ≥ 0.2 && s > 0.08 → .laughing
@@ -275,7 +356,7 @@ public enum MoodClassifier {
     /// 11. d.brow < -0.12 → .angry
     /// 12. face.headTilt ≥ 0.35 → .confused
     /// 13. else → .unimpressed
-    public static func mood(for face: FaceFeatures?, pose: PoseFeatures?, baseline: RestingBaseline) -> Mood
+    public static func mood(for face: FaceFeatures?, pose: PoseFeatures?, shape: FaceShape? = nil, baseline: RestingBaseline) -> Mood
     /// Each rule needs the joints it reads; in this order (shape = pose.bodyShape):
     /// 1. hand: thumbsUp ≥ 0.7 → .thumbsUp; peace ≥ 0.7 → .peace; point ≥ 0.7 → .pointing
     /// 2. shape dab → .dab; flex → .flex; bolt → .celebrate
@@ -312,6 +393,8 @@ public struct LibraryItem: Codable, Identifiable, Hashable, Sendable {
     public var isSticker: Bool
     public var isAnimated: Bool
     public var face: FaceFeatures?
+    public var faceShape: FaceShape?      // the face's details (FaceCues.swift), read against fixed values; nil without a face or before faces were measured this way
+    public var faceRevision: Int          // 0: face measured in the picture's axes; currentFaceRevision (1) since: the seven features in the face's leveled frame, with its faceShape
     public var pose: PoseFeatures?
     public var poseRevision: Int          // 0: pose not described in detail yet; 1 arms and hands; 2 also the wrists across, elbows out and torso; currentPoseRevision (3) since: also the forearms' rise, no peace sign on the face
     public var intensity: Double          // 0...1 against FaceFeatures.populationNeutral
@@ -326,8 +409,9 @@ public struct LibraryItem: Codable, Identifiable, Hashable, Sendable {
     public var attribution: String?       // web: "via GIPHY"
     public var timesSent: Int
     public var lastSentAt: Date?
-    public init(id: UUID = UUID(), fileURL: URL, displayName: String, kind: ItemKind, tier: ItemTier = .meme, source: String, sourceDetail: String? = nil, addedAt: Date = Date(), fileModifiedAt: Date? = nil, fileSize: Int64 = 0, contentHash: String, isSticker: Bool = false, isAnimated: Bool = false, face: FaceFeatures? = nil, pose: PoseFeatures? = nil, poseRevision: Int = 0, intensity: Double = 0, featurePrint: [Float]? = nil, featurePrintRevision: Int = 0, text: String = "", labels: [String] = [], personID: UUID? = nil, faceEmbedding: [Float]? = nil, remoteURL: URL? = nil, previewURL: URL? = nil, attribution: String? = nil, timesSent: Int = 0, lastSentAt: Date? = nil)
+    public init(id: UUID = UUID(), fileURL: URL, displayName: String, kind: ItemKind, tier: ItemTier = .meme, source: String, sourceDetail: String? = nil, addedAt: Date = Date(), fileModifiedAt: Date? = nil, fileSize: Int64 = 0, contentHash: String, isSticker: Bool = false, isAnimated: Bool = false, face: FaceFeatures? = nil, pose: PoseFeatures? = nil, poseRevision: Int = 0, intensity: Double = 0, featurePrint: [Float]? = nil, featurePrintRevision: Int = 0, text: String = "", labels: [String] = [], personID: UUID? = nil, faceEmbedding: [Float]? = nil, remoteURL: URL? = nil, previewURL: URL? = nil, attribution: String? = nil, timesSent: Int = 0, lastSentAt: Date? = nil, faceShape: FaceShape? = nil, faceRevision: Int = 0)
     public static let currentPoseRevision: Int      // 3
+    public static let currentFaceRevision: Int      // 1
     public var isOwn: Bool { get }          // kind == .mine || kind == .friend
     /// "March 2026" (en_US_POSIX "LLLL yyyy", UTC) of fileModifiedAt ?? addedAt
     public var monthKey: String { get }
@@ -340,7 +424,7 @@ public enum FloatCoding {
     public static func decode(_ string: String) -> [Float]?
 }
 ```
-`LibraryItem` implements `init(from:)` with `decodeIfPresent` + defaults for every non-essential key so older JSON keeps loading.
+`LibraryItem` implements `init(from:)` with `decodeIfPresent` + defaults for every non-essential key so older JSON keeps loading (`faceShape` nil, `faceRevision` 0 when missing or damaged). `faceShape` is written only when present, `faceRevision` always.
 
 ### Person.swift
 
@@ -420,7 +504,7 @@ public struct Ranker: Sendable {
 ```
 
 Scoring (binding):
-- **expressionScore**: target `t = sample.face.map { baseline.intensity(of: $0) } ?? 0.3`. If `item.face` and `sample.face` exist: `qDev = baseline.signedDeviation(of: sample.face)`, `iDev = item.face.vector - populationNeutral.vector`; per region `sim_r = max(0, 1 - meanAbsDiff(qDev[idx_r], iDev[idx_r]) / 0.5)`; `featureSim = Σ w_r·sim_r / Σ w_r`; `poseSim = PoseFeatures.similarity(query: sample.pose, item: item.pose)`; `faceScore = (1 - w.pose)·featureSim + w.pose·poseSim`; `fit = 1 - |item.intensity - t|`; `score = 0.7·faceScore + 0.3·fit`. Without item or sample face: when the sample's gesture strength is ≥ `Ranker.gestureWithoutFace` (0.4) and the item's arms were measured (a descriptor that shows arms), the same with featureSim 0.5 (a facepalm hides the face; the pose carries the match); else `score = 0.25 + 0.3·fit`. Then `+0.02` if `isOwn`, `+0.01·min(timesSent,5)/5`, `-0.01` if `kind == .web`.
+- **expressionScore**: target `t = sample.face.map { baseline.intensity(of: $0) } ?? 0.3`. If `item.face` and `sample.face` exist: `qDev = baseline.signedDeviation(of: sample.face)`, `iDev = item.face.vector - populationNeutral.vector`; per region `sim_r = max(0, 1 - meanAbsDiff(qDev[idx_r], iDev[idx_r]) / 0.5)`; `featureSim = Σ w_r·sim_r / Σ w_r`; `poseSim = PoseFeatures.similarity(query: sample.pose, item: item.pose)`; `faceScore = (1 - w.pose)·featureSim + w.pose·poseSim`; `fit = 1 - |item.intensity - t|`; `score = 0.7·faceScore + 0.3·fit`. When the query shows a clear cue (`baseline.cues(of: sample.shape).clearCue`, against the resting shape) of strength u: `v = 0.45·u`, `cueSim = FaceCues(shape: item.faceShape, rest: nil)[cue]` (0.5, unknown, without a `faceShape` or when it lacks what the cue is read from: `FaceShape.measures(_:)`), `faceScore = (1 - w.pose)·(1 - v)·featureSim + w.pose·poseSim + (1 - w.pose)·v·cueSim`: a face the seven numbers can't tell from a plain one finds the memes that show it. Without a clear cue the score is exactly as without a shape. Without item or sample face: when the sample's gesture strength is ≥ `Ranker.gestureWithoutFace` (0.4) and the item's arms were measured (a descriptor that shows arms), the same with featureSim 0.5 (a facepalm hides the face; the pose carries the match); else `score = 0.25 + 0.3·fit`. Then `+0.02` if `isOwn`, `+0.01·min(timesSent,5)/5`, `-0.01` if `kind == .web`, and with a clear cue `+0.05` when the item's name, text or labels (lowercased) contain one of the cue's words (`Ranker.mentions(_:in:)`: tongue, blep; wink; eyebrow; duck face, duckface, kiss, pout; smirk; eye roll, eyeroll, rolling eyes), in every branch.
 - **expression** results: items with `tier == .meme` only; sort by score desc; keep at most 2 `kind == .friend` items within the first `limit` (extras are dropped from the window); return `limit`.
 - **text**: parse with `TextQuery.parse`. Pool: `tier` meme or maybe, matching filters; every term must be a substring of `lowercased(displayName + " " + text + " " + labels.joined(" ") + " " + source + " " + (sourceDetail ?? "") + " " + person name)`. Order inside groups: by `expressionScore` when `face` is non-nil, else newest first (`fileModifiedAt ?? addedAt`). Groups and `section`: own items grouped by `monthKey` (newest month first), then `.pack` ("Packs"), then `.web` ("From GIPHY"). If fewer than 3 hits, append matching `skipped` items with section "From your photos". Return up to `limit`.
 - **image**: meme tier; `fp = featurePrint != nil && item.featurePrint != nil ? (cosine + 1) / 2 : 0.5`; `fs = face sim with uniform weights using populationNeutral for both (0.5 when either is nil)`; `score = 0.7·fp + 0.3·fs`, then the same own/web adjustments.
@@ -453,11 +537,13 @@ public enum MemeTemplateCatalog {
     public static let entries: [Entry]               // ~80 famous templates, most famous first
     /// The templates for `mood` (entries whose first mood it is, then entries listing it later; each in table order), then the most popular others; `.reaction` = the most popular.
     public static func pick(for mood: Mood, from templates: [TemplateRef], limit: Int) -> [Int]
+    /// The `page`th group of `limit` from the same full order (page 0 = the pick above; a negative page is 0), wrapping around: start = (page mod n) × limit mod n over the n ordered templates; with limit ≥ n every page is all of them.
+    public static func pick(for mood: Mood, from templates: [TemplateRef], limit: Int, page: Int) -> [Int]
     /// Templates matching typed terms, best first; none when nothing matches.
     public static func pick(forTerms terms: [String], from templates: [TemplateRef], limit: Int) -> [Int]
 }
 ```
-Imgflip's list has no tags, so this table says what each famous template is for. An entry matches a listed template by Imgflip id, else by name (lowercased, letters and digits only: "Gru's Plan" = "grusplan"). Typed terms (split into words of 2+ letters) score per template: +3 for a word of its name starting with a term, else +2 for one of its search words; +2 when the typed text contains one of its multi-word phrases ("looking back"); +3 when its first mood is one the words name, +2 for a later mood. Moods are named by single words (`moodWords`: "sad", "lol" → laughing, "mad" → angry, "omg" → shocked, "flex", "dab", "tpose", "bow", "hello", "peace"…) and by phrases (`multiWordMoods`: "side eye", "mind blown", "thumbs up", "t pose", "arms crossed", "hands on hips", "oh no", "pick me"), matched over all the typed words, one-letter ones too ("t-pose"), from the start of a word ("side eyeing"), except "oh no" and "pick me", which end on a whole word ("oh nothing", "pick memes" don't count). A matched phrase's words of 1–2 letters ("oh", "no", "on", "me") aren't scored as terms, so they don't pull in every name starting with them. Ties keep Imgflip's (popularity) order.
+Imgflip's list has no tags, so this table says what each famous template is for. An entry matches a listed template by Imgflip id, else by name (lowercased, letters and digits only: "Gru's Plan" = "grusplan"). Typed terms (split into words of 2+ letters) score per template: +3 for a word of its name starting with a term, else +2 for one of its search words; +2 when the typed text contains one of its multi-word phrases ("looking back"); +3 when its first mood is one the words name, +2 for a later mood. Moods are named by single words (`moodWords`: "sad", "lol" → laughing, "mad" → angry, "omg" → shocked, "smug", "flex", "dab", "tpose", "bow", "hello", "peace", "tongue", "blep", "mlem" → tongue out, "wink", "eyebrow", "duckface", "kissy", "pout" → duck face, "smirk" → smirk (not smug), "eyeroll"…) and by phrases (`multiWordMoods`: "side eye", "mind blown", "thumbs up", "t pose", "arms crossed", "hands on hips", "oh no", "pick me", "tongue out", "raised eyebrow", "duck face", "kissy face", "eye roll", "rolling eyes", "rolled eyes"), matched over all the typed words, one-letter ones too ("t-pose"), from the start of a word ("side eyeing"), except "oh no" and "pick me", which end on a whole word ("oh nothing", "pick memes" don't count). A matched phrase's words aren't scored as terms, so they don't pull in every name starting with them ("oh no" isn't Y U No, "eye roll" isn't Roll Safe, "duck face" isn't Picard Facepalm, "tongue out" isn't Ight Imma Head Out). The face details' moods have templates of their own (for example tongue out: Mocking Spongebob, Doge; wink: Roll Safe, Leonardo Dicaprio Cheers; raised eyebrow: The Rock Eyebrow Raise, Futurama Fry, Third World Skeptical Kid; duck face: Kermit Sipping Tea, Tuxedo Winnie The Pooh; smirk: Creepy Condescending Wonka, Disaster Girl, Evil Kermit; eye roll: Grumpy Cat, Disappointed Black Guy, Kombucha Girl), listed after each entry's earlier moods so the older moods' picks don't change. Ties keep Imgflip's (popularity) order.
 
 ### Classifier.swift
 
@@ -619,8 +705,18 @@ Not thread-safe: used from the main actor only.
 
 ```swift
 enum FaceFeatureExtractor {
+    typealias ColorReader = (CGPoint) -> FaceShapeMeasure.Sample?
     /// nil when the observation has no landmarks.
-    static func features(from face: VNFaceObservation) -> FaceFeatures?
+    static func features(from face: VNFaceObservation) -> FaceFeatures?   // features(from: landmarks(of: face), roll: face.roll)
+    /// The seven features from the contours turned level (`FaceShapeMeasure.leveled`); nil without eyes and lips.
+    static func features(from landmarks: FaceShapeMeasure.Landmarks, roll: Double) -> FaceFeatures?
+    static func landmarks(of face: VNFaceObservation) -> FaceShapeMeasure.Landmarks?   // nil without landmarks
+    /// The face's FaceShape in a camera frame, the tongue read from its 32BGRA pixels (another format: no tongue).
+    static func shape(from face: VNFaceObservation, pixelBuffer: CVPixelBuffer) -> FaceShape?
+    /// The face's FaceShape in an image, the tongue read from `pixels` (nil: no tongue).
+    static func shape(from face: VNFaceObservation, pixels: RGBAPixels?) -> FaceShape?
+    /// `body` gets the frame's colors at face-box points of `box` (nil for a format other than non-planar 32BGRA); the buffer is locked read-only meanwhile.
+    static func withColors<T>(of pixelBuffer: CVPixelBuffer, box: CGRect, _ body: (ColorReader?) -> T) -> T
     /// The body that goes with the face (`BodyJoints.primary`), with the strongest sign of its own hands; nil without a body.
     static func pose(bodies: [VNHumanBodyPoseObservation], hands: [VNHumanHandPoseObservation] = [], faceBox: CGRect?, imageWidth: Int, imageHeight: Int) -> PoseFeatures?
     static func primaryBody(_ bodies: [VNHumanBodyPoseObservation], faceBox: CGRect?, imageWidth: Int, imageHeight: Int) -> BodyJoints?
@@ -628,14 +724,22 @@ enum FaceFeatureExtractor {
     /// Vision-normalized image rects (origin bottom-left) for .eyes (union of both eyes) and .mouth (outer lips), padded 25 %; .brows (union of brows).
     static func regionRects(from face: VNFaceObservation) -> [FaceRegion: CGRect]
 }
+struct PixelSampler { … func sample(at point: CGPoint) -> FaceShapeMeasure.Sample? }   // 8-bit four-channel rows top-down; nil outside the picture
+struct RGBAPixels: Sendable {                      // an image drawn once into sRGB RGBA8 (premultiplied), ≤ 512 px on its longer side
+    static let maximumSide: Int                    // 512
+    let width: Int, height: Int, bytes: [UInt8]    // rows top-down
+    init?(image: CGImage, maximumSide: Int = RGBAPixels.maximumSide)
+    func withColors<T>(box: CGRect, _ body: (FaceFeatureExtractor.ColorReader?) -> T) -> T
+}
 ```
-Mapping (landmark `normalizedPoints` are relative to the face bounding box, origin bottom-left):
+Mapping (landmark `normalizedPoints` are relative to the face bounding box, origin bottom-left). The seven features are measured on the contours turned about the eyes' midpoint until the eye line is level (`FaceShapeMeasure.leveled`, not scaled), so a tilted head doesn't read as an open mouth or raised brows; an upright face measures as before:
 - eye ratio = (maxY − minY) / (maxX − minX) per eye, averaged → `eyeOpenness = clamp((ratio − 0.05) / 0.5)`.
 - brow gap = mean(y of both brows) − mean(y of both eyes) → `browRaise = clamp((gap − 0.02) / 0.2)`.
 - `mouthOpenness = clamp(innerLipsHeight / 0.25)`; `mouthWidth = clamp((outerLipsWidth − 0.2) / 0.5)`.
 - smile: corners = leftmost and rightmost outer-lip points; `s = (mean corner y − mean outer-lip y) / max(width, 0.01)`; `smile = clamp(0.5 + 2.5·s)`.
 - `headTilt = clamp(|roll| / (π/4))` (`face.roll?.doubleValue ?? 0`).
 - gaze: per eye `(pupil.x − eyeCenter.x) / eyeWidth`, averaged → `gazeSide = clamp(|offset| · 3)`; 0.1 when pupils are missing.
+- colors (PixelSampler, for the tongue): a face-box point p of the Vision-normalized box b is pixel x = (b.minX + p.x·b.width)·W, y = (b.minY + p.y·b.height)·H, row = H − 1 − ⌊y⌋ (rows lie top-down in memory); outside the picture → nil. luma = 0.299 R + 0.587 G + 0.114 B, Cr = 128 + 0.5 R − 0.4187 G − 0.0813 B (BT.601).
 - pose: Vision's joints become `BodyJoints` / `HandJoints` (confidence ≥ 0.3, x corrected by the image's aspect) and `PoseFeatures(joints:hand:)` measures them (BodyPose.swift). `bodyVisible` = mean shoulder confidence (0 if missing). `handsRaised` = max over wrists of (wrist above the shoulder line → 1, within 0.6·shoulderWidth of the nose → 0.8, else 0). `armsSpread = clamp((|lw.x − rw.x| / shoulderWidth − 1) / 1.5)`.
 
 ### Vision/ImageAnalyzer.swift
@@ -654,6 +758,7 @@ struct LoadedImage {
 
 struct ImageAnalysis {
     var face: FaceFeatures?
+    var faceShape: FaceShape?      // the same face's details, the tongue read from the frame drawn by RGBAPixels
     var pose: PoseFeatures?
     var intensity: Double
     var featurePrint: [Float]?
@@ -675,12 +780,14 @@ enum ImageAnalyzer {
     static func featurePrint(of cgImage: CGImage) throws -> [Float]
     /// Pose alone (frames decoded to 1024 px), for the indexer's pose pass: the clearest gesture of up to 3 frames.
     static func analyzePose(url: URL) -> PoseReading   // .unreadable or .read(PoseFeatures?)
+    /// The face alone, for the indexer's face pass: the same frames and choice as `analyze` (a face beats none, the most intense wins), without feature print, labels, text or pose.
+    static func analyzeFace(url: URL) -> FaceReading   // .unreadable (the file or its first frame can't be read) or .read(face:shape:intensity:)
     static func sha256Hex(_ data: Data) -> String
     /// kMDItemWhereFroms host, e.g. "reddit.com", if any.
     static func downloadedFromHost(url: URL) -> String?
 }
 ```
-Requests per frame: `VNDetectFaceLandmarksRequest`, `VNDetectHumanBodyPoseRequest` (the body whose head is in the largest face's box), `VNDetectHumanHandPoseRequest` (up to 4 hands, only when a wrist was seen); no pose for frames under 128 px on the short side. The pose kept is that of the frame with the clearest gesture when it is ≥ 0.3 and clearer than the chosen frame's; per image once: `VNGenerateImageFeaturePrintRequest`, `VNClassifyImageRequest` (top labels with confidence ≥ 0.3, at most 8), `VNRecognizeTextRequest` (`.fast`, no language correction, joined, ≤ 200 chars) when `includeText`. Intensity uses `RestingBaseline()` (population neutral).
+Requests per frame: `VNDetectFaceLandmarksRequest` (the largest face's features, and its `FaceShape` with the frame drawn by `RGBAPixels` when it has a face), `VNDetectHumanBodyPoseRequest` (the body whose head is in the largest face's box), `VNDetectHumanHandPoseRequest` (up to 4 hands, only when a wrist was seen); no pose for frames under 128 px on the short side. The pose kept is that of the frame with the clearest gesture when it is ≥ 0.3 and clearer than the chosen frame's; per image once: `VNGenerateImageFeaturePrintRequest`, `VNClassifyImageRequest` (top labels with confidence ≥ 0.3, at most 8), `VNRecognizeTextRequest` (`.fast`, no language correction, joined, ≤ 200 chars) when `includeText`. Intensity uses `RestingBaseline()` (population neutral).
 
 ### Vision/ThumbnailCache.swift
 
@@ -719,7 +826,7 @@ Requests per frame: `VNDetectFaceLandmarksRequest`, `VNDetectHumanBodyPoseReques
     func cancelClip()
 }
 ```
-Frames: `AVCaptureVideoDataOutputSampleBufferDelegate` on a private queue. Every frame first goes to `CaptureRenderer.render` (a no-op unless the capture view is open or a capture runs); Vision is then throttled to 10 fps; per frame `VNDetectFaceLandmarksRequest`, then on even frames `VNDetectHumanBodyPoseRequest` (the body whose head is in the face's box) and on odd frames, while that body shows a wrist, `VNDetectHumanHandPoseRequest` (2 hands; the body's own hands' strongest sign), so at most 2 requests a frame; `VNImageRequestHandler(cvPixelBuffer:orientation: .up)`, image size from the pixel buffer. While the capture view is open no body or hand pose is read, and the face's `FaceGeometry` (plus its intensity, for the clip's best frame) goes to the renderer. Sample timestamp `CACurrentMediaTime()`; sharpness `1`.
+Frames: `AVCaptureVideoDataOutputSampleBufferDelegate` on a private queue. Every frame first goes to `CaptureRenderer.render` (a no-op unless the capture view is open or a capture runs); Vision is then throttled to 10 fps; per frame `VNDetectFaceLandmarksRequest`, then on even frames `VNDetectHumanBodyPoseRequest` (the body whose head is in the face's box) and on odd frames, while that body shows a wrist, `VNDetectHumanHandPoseRequest` (2 hands; the body's own hands' strongest sign), so at most 2 requests a frame; `VNImageRequestHandler(cvPixelBuffer:orientation: .up)`, image size from the pixel buffer. A frame with face features also gets the face's `FaceShape` (`FaceFeatureExtractor.shape(from:pixelBuffer:)`: the same observation and the same 32BGRA buffer, no further request) as the sample's `shape`. While the capture view is open no body or hand pose is read, and the face's `FaceGeometry` (plus its intensity, for the clip's best frame) goes to the renderer. Sample timestamp `CACurrentMediaTime()`; sharpness `1`.
 
 ### Camera/CameraFilter.swift and Camera/CaptureRenderer.swift
 
@@ -817,9 +924,11 @@ struct IndexBatch: Identifiable, Equatable {
     func clearPendingSummary()
 }
 ```
-Scanning: top-level files only; skip hidden files, non-images (UTType conforming to `.image`), files > 25 MB, files already indexed with the same path + modification date + size. Analyze at most 2 at a time at utility priority; pause while `SystemConditions.shouldDeferBackgroundWork`. Item fields: `kind .mine`, `tier` from `MemeTierClassifier`, `source` = folder display name ("Downloads", "Desktop", "Screenshots" for the screenshot folder, else the folder name), `sourceDetail` = "from <host>" via `downloadedFromHost`. Skipped-tier items keep only path, hash, dates, facts-derived tier (no face, fingerprint, text, labels). Save the store at most every 5 s while indexing and at the end. New items get `poseRevision = LibraryItem.currentPoseRevision`.
+Scanning: top-level files only; skip hidden files, non-images (UTType conforming to `.image`), files > 25 MB, files already indexed with the same path + modification date + size. Analyze at most 2 at a time at utility priority; pause while `SystemConditions.shouldDeferBackgroundWork`. Item fields: `kind .mine`, `tier` from `MemeTierClassifier`, `source` = folder display name ("Downloads", "Desktop", "Screenshots" for the screenshot folder, else the folder name), `sourceDetail` = "from <host>" via `downloadedFromHost`. Skipped-tier items keep only path, hash, dates, facts-derived tier (no face, fingerprint, text, labels). Save the store at most every 5 s while indexing and at the end. New items get `poseRevision = LibraryItem.currentPoseRevision`, and (unless skipped) `faceShape` and `faceRevision = LibraryItem.currentFaceRevision`; kept items too.
 
 Pose pass: when no scan is queued (after a scan, on start, after a pause ends), items with `kind .mine`, a tier other than `.skipped` and `poseRevision` below the current one are read again with `ImageAnalyzer.analyzePose(url:)`, one at a time at background priority, waiting while `shouldDeferBackgroundWork`, stopping for a scan or a pause (the scan's end starts it again). Only `pose` and `poseRevision` change (an unreadable file keeps its old pose, so it isn't retried every launch); the store is saved at most once a minute and at the end, and no library change is announced (the next search reads the new poses).
+
+Face pass (`static func needsFaceRefresh(_ item: LibraryItem) -> Bool`: `kind .mine` or `.friend`, a tier other than `.skipped`, `faceRevision` below `LibraryItem.currentFaceRevision`): after the pose pass, never beside it or a scan (it stops for either, and for a pause; the scan's or the pose pass's end starts it again), items are read again with `ImageAnalyzer.analyzeFace(url:)` (frames at 2048 px, like a fresh index), one at a time at background priority, waiting while `shouldDeferBackgroundWork`. `face`, `faceShape` and `intensity` take the new reading (`applyingFaceReading`: a sticker keeps the face measured on its source photo, its file being a cut-out, and no item trades a face for none; those take only a shape that was read) and `faceRevision` becomes current (an unreadable file keeps its old face and still moves to the current revision); saved like the pose pass, no library change announced.
 
 ### System/SystemConditions.swift
 
@@ -886,6 +995,8 @@ enum WebQuery: Hashable, Sendable {
     func isSearching(_ query: WebQuery) -> Bool
     /// Starts the query's search unless fresh or running (the early search while a face is held).
     func warm(_ query: WebQuery)
+    /// The `page`th group of `size` (page 0 the first `size`; start = (page mod n) × size mod n, wrapping around; a negative page is 0; with ≤ size GIFs every page is all of them): the GIPHY row's page.
+    static func page(_ page: Int, of gifs: [WebGIF], size: Int) -> [WebGIF]
     // Each also takes a Mood (= .mood(mood)).
     func cachedStill(for gif: WebGIF) -> NSImage?
     func still(for gif: WebGIF) async -> NSImage?    // fixed_width_small_still through the HTTP cache
@@ -896,7 +1007,7 @@ enum WebQuery: Hashable, Sendable {
     func pruneCache()                                // copy files older than 1 h, and earlier versions' <mood>.json files
 }
 ```
-Compliance with GIPHY's integration rules: results are shown in GIPHY's order, unfiltered, never mixed with the user's memes, never written to disk. Results, running searches and failures are kept per `WebQuery`. A search: the GIPHY search for `query.searchTerms` with `limit=10` (tried once more after a dropped connection, timeout or 5xx, if the hourly limit allows; the retry counts) on an API session without caching; results kept in memory for `resultLifetime`. Media (stills, previews, full GIFs) come from a second session with a `URLCache` (16 MB memory, 64 MB disk in Web/HTTP, `.useProtocolCachePolicy`) and `httpMaximumConnectionsPerHost` 8; decoded stills stay in an `NSCache` (200). Full GIFs are written to Web/files only to be copied or dragged, and deleted after an hour. 429 pauses all searches for 10 min; 401/403 makes that key wait 10 min (`status` says which). API key: `store.settings.giphyAPIKey` (non-empty) ?? `Bundle.main.object(forInfoDictionaryKey: "GiphyAPIKey") as? String` (non-empty and not starting with "$("). Rate guard: at most 90 network searches per rolling hour (timestamps persisted in Web/rate.json).
+Compliance with GIPHY's integration rules: results are shown in GIPHY's order, unfiltered, never mixed with the user's memes, never written to disk. Results, running searches and failures are kept per `WebQuery`. A search: the GIPHY search for `query.searchTerms` (a mood's one short phrase, or the typed words) with `limit=24` (`WebFetcher.resultLimit`: four rows' worth, so the same mood caught again shows other GIFs without another search; GIPHY counts searches, not results) and `offset=0` (tried once more after a dropped connection, timeout or 5xx, if the hourly limit allows; the retry counts) on an API session without caching; results kept in memory for `resultLifetime`. Media (stills, previews, full GIFs) come from a second session with a `URLCache` (16 MB memory, 64 MB disk in Web/HTTP, `.useProtocolCachePolicy`) and `httpMaximumConnectionsPerHost` 8; decoded stills stay in an `NSCache` (200). Full GIFs are written to Web/files only to be copied or dragged, and deleted after an hour. 429 pauses all searches for 10 min; 401/403 makes that key wait 10 min (`status` says which). API key: `store.settings.giphyAPIKey` (non-empty) ?? `Bundle.main.object(forInfoDictionaryKey: "GiphyAPIKey") as? String` (non-empty and not starting with "$("). Rate guard: at most 90 network searches per rolling hour (timestamps persisted in Web/rate.json).
 
 `WebGIF` (GIFProvider.swift) also carries `creator: String?` from the result's `user` (display name, else username).
 
@@ -928,6 +1039,7 @@ struct StickerCut {
     let pngURL: URL
     let faceEmbedding: [Float]     // feature print of the face crop (box expanded 20 %)
     let face: FaceFeatures?
+    let faceShape: FaceShape?      // the face's details, the tongue read from the source photo (drawn once per call by RGBAPixels)
     let intensity: Double
     let featurePrint: [Float]?     // feature print of the sticker image
     let contentHash: String
@@ -976,10 +1088,10 @@ struct StickerBatch: Identifiable, Equatable {
     func forget(personID: UUID)                                                     // removes the person's embeddings and unlinks stickers
 }
 ```
-`func makeOwnSticker(fromCapture url: URL) async throws -> (item: LibraryItem, isNew: Bool)?`: "Save as sticker" for a capture. Analyzes the PNG (no text), cuts out the largest face with `StickerMaker.makeStickers` (no sticker policy, eligibility or grouping) and adds `kind .mine`, `tier .meme`, `isSticker true`, `source "Camera"`, `displayName` "You — " + mood label (face and pose), `poseRevision` current; nil when nothing could be cut; an identical sticker already kept is returned instead, with `isNew false`.
+`func makeOwnSticker(fromCapture url: URL) async throws -> (item: LibraryItem, isNew: Bool)?`: "Save as sticker" for a capture. Analyzes the PNG (no text), cuts out the largest face with `StickerMaker.makeStickers` (no sticker policy, eligibility or grouping) and adds `kind .mine`, `tier .meme`, `isSticker true`, `source "Camera"`, `displayName` "You — " + mood label (face, its shape and pose), `poseRevision`, `faceShape` and `faceRevision` current; nil when nothing could be cut; an identical sticker already kept is returned instead, with `isNew false`.
 `func removeOwnSticker(id: UUID)`: Undo for it: `store.remove(ids:)` (deletes the PNG under rootURL) and save.
 
-Sticker items: `kind .friend`, `isSticker true`, `source "Friend sticker"`, `sourceDetail` = source file name, `displayName` = person name (or "New face") + " — " + mood label of its face, `tier .meme`. Matching only runs when `groupFaces == true`: `.confident` → set `personID` and add the embedding; `.likely` → leave `personID` nil until `confirm`; `.newFace` → create an unnamed `Person` with the embedding and assign it.
+Sticker items: `kind .friend`, `isSticker true`, `source "Friend sticker"`, `sourceDetail` = source file name, `displayName` = person name (or "New face") + " — " + mood label of its face (and `faceShape`: "New face — tongue out"), `faceShape` from the cut, `faceRevision` current, `tier .meme`. Matching only runs when `groupFaces == true`: `.confident` → set `personID` and add the embedding; `.likely` → leave `personID` nil until `confirm`; `.newFace` → create an unnamed `Person` with the embedding and assign it.
 
 ### System/Clipboard.swift
 
@@ -1262,7 +1374,7 @@ enum DropOutcome { case kept(IndexBatch), stickers(StickerBatch), nothing }
     @Published private(set) var newResultIDs: Set<UUID>         // amber ring for 600 ms
     @Published private(set) var ownRows: Int                     // rows of your memes: 1, or 0 (none, nothing drawn); enough for what is shown
     @Published var focusedIndex: Int                             // a TileGrid slot: your memes, then the classic memes row, then the GIPHY row
-    @Published private(set) var giphyResults: [WebGIF]           // ≤ Theme.columns, GIPHY's order
+    @Published private(set) var giphyResults: [WebGIF]           // ≤ Theme.columns, GIPHY's order: the current page of what GIPHY gave (WebDiscover.page)
     @Published private(set) var giphyQuery: WebQuery?            // the face's mood, or typed words
     @Published private(set) var isGiphyLoading: Bool
     @Published private(set) var giphyUnavailable: Bool
@@ -1316,7 +1428,7 @@ enum DropOutcome { case kept(IndexBatch), stickers(StickerBatch), nothing }
     var canMoreLikeFocused: Bool { get }             // only for your memes
     func giphySlot(_ offset: Int) -> Int
     func templateSlot(_ offset: Int) -> Int
-    static func pickTemplates(for query: WebQuery, from list: [MemeTemplate]) -> [MemeTemplate]   // MemeTemplateCatalog, ≤ 5
+    static func pickTemplates(for query: WebQuery, from list: [MemeTemplate], page: Int = 0) -> [MemeTemplate]   // MemeTemplateCatalog, ≤ Theme.columns; a mood's `page`th group (pick(for:from:limit:page:)), typed words have no pages
     func commit(index: Int)
     func commitFocused()
     func commitNumbered(index: Int)                  // 1–9: your memes only
@@ -1361,7 +1473,7 @@ enum DropOutcome { case kept(IndexBatch), stickers(StickerBatch), nothing }
 Other internal helpers that exist outside the contract: `StickerBatchSources` (App/StickerPopoverModel.swift) and `TileDragEvents` (UI/PanelController.swift).
 Behavior summary (details in DESIGN.md):
 - `panelWillShow`: remember previous app + bundle id; reset query state; mode = `.cameraBusy` if `camera.isInUseByAnotherApplication`, `.prompt` if authorization is `.notDetermined`, `.cameraOff` if denied/restricted, else `.warming` (start camera); results = recent for that app (or the newest own memes); with none at all, or when no face can be read (`.cameraOff`, `.cameraBusy`, `.prompt`), the GIPHY row shows `.mood(.reaction)` and the classic memes row the most popular templates; footer per rules; on first run (`!settings.hasCompletedFirstRun`) request camera access 0.6 s after show (activate the app just for the prompt).
-- `camera.onSample` → `tracker.ingest`; the mood of `tracker.candidate` (the expression being held) goes through `EarlyMoodTrigger` (same mood for 0.2 s) → `web.warm(mood)`; publish `holdProgress`; on query change: mood → weights (`automatic(...).pinning(pins)`) → your memes ranked at once (`store.items` without `.web`); the GIPHY row shows `web.cachedGIFs(for: .mood(mood))` at once, else placeholders until `await web.gifs(for:)` (its own task and generation), and the classic memes row `pickTemplates(for: .mood(mood), …)` from `templates.cachedList` at once, else after `await templates.templates()` (its own task and generation). Image and more-like searches leave both rows alone. `normalizeFocus` keeps the focus on a tile: until the user moves it, `startSlot` (`TileGrid.firstSlot`, top to bottom: the first meme, else the first classic meme, else the first GIF; the classic memes row's first slot while nothing has come) for Recent and the face, and nothing for a typed, image or more-like search that finds no meme (with no row of memes drawn, the first web tile). After the user moves it, a focus whose tile went moves to the last tile of its row (its start while the row loads), a meme's focus whose row went to the first web tile, and a focus in a web row whose source went off to the first tile. The search's word goes to the readout (`MoodReadout`: `.pose` for a pose word or a pose without one and no face, `.faceAndPose` for a pose without one over a face, else `.face`; none for "reaction" without a pose). `newResultIDs` for ids not shown before (cleared after 600 ms). The row's first GIF and a focused GIF prefetch their full GIF. No face for 1.5 s → hint "Can’t see your face". `camera.bodyWidth` feeds a `StandingBackDetector`; while it says standing back, that hint is "Reading your pose" instead.
+- `camera.onSample` → `tracker.ingest`; the mood of `tracker.candidate` (the expression being held; `MoodClassifier.mood(for:pose:shape:baseline:)` with the sample's shape, as for the query) goes through `EarlyMoodTrigger` (same mood for 0.2 s) → `web.warm(mood)`; publish `holdProgress`; on query change: mood → weights (`automatic(...).pinning(pins)`) → your memes ranked at once (`store.items` without `.web`); the GIPHY row shows `web.cachedGIFs(for: .mood(mood))` at once, else placeholders until `await web.gifs(for:)` (its own task and generation), and the classic memes row `pickTemplates(for: .mood(mood), …)` from `templates.cachedList` at once, else after `await templates.templates()` (its own task and generation). Paging: the tracker catching a new query (or Space snapping one) runs the search with `newQuery`; when the mood is the one already showing, the rows turn instead of staying put: `giphyPage += 1` (when GIPHY's results are in and more than `Theme.columns`; `giphyFound` keeps everything GIPHY gave for `giphyQuery`) and `templatePage += 1` (moods only, from the kept list). A new mood, or the rows being cleared when the panel opens, starts both at page 0; re-showing the same face (pins, Esc, library changes, back to the face) leaves them as they are. Image and more-like searches leave both rows alone. `normalizeFocus` keeps the focus on a tile: until the user moves it, `startSlot` (`TileGrid.firstSlot`, top to bottom: the first meme, else the first classic meme, else the first GIF; the classic memes row's first slot while nothing has come) for Recent and the face, and nothing for a typed, image or more-like search that finds no meme (with no row of memes drawn, the first web tile). After the user moves it, a focus whose tile went moves to the last tile of its row (its start while the row loads), a meme's focus whose row went to the first web tile, and a focus in a web row whose source went off to the first tile. The search's word goes to the readout (`MoodReadout`: `.pose` for a pose word or a pose without one and no face, `.faceAndPose` for a pose without one over a face, else `.face`; none for "reaction" without a pose). `newResultIDs` for ids not shown before (cleared after 600 ms). The row's first GIF and a focused GIF prefetch their full GIF. No face for 1.5 s → hint "Can’t see your face". `camera.bodyWidth` feeds a `StandingBackDetector`; while it says standing back, that hint is "Reading your pose" instead.
 - Text changes (debounced 80 ms) → text mode; camera stops if typing began within 1 s of show, otherwise `showsFaceToken = true`; naming prompt when `TextQuery.possibleName` is set, no results, and `friends.unnamedPeople` is non-empty. The typed terms (`TextQuery.parse(…).terms`: no filter words or people's names) → `WebQuery.words(from:)`: the classic memes row shows its templates at once; the GIPHY row shows GIPHY's results once typing has paused 0.6 s (any edit restarts the wait; at once when cached; while the naming prompt shows, nothing when `possibleName` isn't `MemeTemplateCatalog.isMemeWord` (mood words, mood labels, the table's search words, minus names such as "jordan" or "kermit"); a nil query leaves both rows alone). Until the user moves the focus, `normalizeFocus` keeps it on `startSlot` as rows fill in, so with no memes the first classic meme takes it (the first GIF when there are no classic memes). Empty text → back to live (restart camera if it was stopped); leaving typed words clears a GIPHY row showing them and puts the classic memes back to the popular ones.
 - `commit`: resolve file (a GIPHY GIF → `await web.prepareForCopy`, a classic meme → `await templates.prepareForCopy`, HUD "Copying…" if it takes > 150 ms); `Clipboard.copy` (a GIPHY GIF as "reaction.gif", a classic meme as "reaction.png": kind `.web`, source "Imgflip", hash "imgflip:<id>"); for your memes only: increment `timesSent`, set `lastSentAt`, `recents.record` (GIPHY GIFs are never kept or listed as recent); first run → `showSetupCard = true` and `hasCompletedFirstRun = true` (panel stays open); otherwise close and HUD "Copied “<title>” · ⌘V — not sent" with the copied file as thumbnail. ↵ is ignored within 300 ms of the last text edit.
 - A capture (`capture.onCaptured`): `commitToken += 1`; `Clipboard.copy(data:fileName:)` as "reaction.gif" / "reaction.png"; the sticker source is that PNG (photo) or the clip's best frame written as `capture.png` in a fresh clipboard folder; close the capture view and the panel; HUD "Copied your photo · ⌘V — not sent" (or GIF) with the copy as thumbnail and the action "Save as sticker" → HUD "Making your sticker…", `friends.makeOwnSticker(fromCapture:)`, then "Saved “<name>” as a sticker" with the action "Undo" (`friends.removeOwnSticker`, then "Sticker removed"), "Already one of your stickers" when it was kept before (both skipped when the panel was reopened meanwhile: they would cover it), or "Couldn’t find you in that one." (shown regardless). Captures are not recorded as sent and don't count as the first pick.

@@ -14,6 +14,7 @@ final class WebStubURLProtocol: URLProtocol {
     private static var mediaBody = Data()
     private static var searches = 0
     private static var mediaRequests = 0
+    private static var lastSearch: URL?
 
     /// Forgets earlier requests and serves `ids` (the search answering `searchStatus`) with `media` for every image.
     static func serve(ids: [String], media: Data, searchStatus status: Int = 200) {
@@ -24,6 +25,7 @@ final class WebStubURLProtocol: URLProtocol {
         mediaBody = media
         searches = 0
         mediaRequests = 0
+        lastSearch = nil
     }
 
     static var searchCount: Int {
@@ -36,6 +38,13 @@ final class WebStubURLProtocol: URLProtocol {
         lock.lock()
         defer { lock.unlock() }
         return mediaRequests
+    }
+
+    /// The last search's URL (its query holds what was asked of GIPHY).
+    static var lastSearchURL: URL? {
+        lock.lock()
+        defer { lock.unlock() }
+        return lastSearch
     }
 
     static func searchJSON(ids: [String]) -> String {
@@ -74,6 +83,7 @@ final class WebStubURLProtocol: URLProtocol {
         let body: Data
         if url.host == "api.giphy.com" {
             WebStubURLProtocol.searches += 1
+            WebStubURLProtocol.lastSearch = url
             status = WebStubURLProtocol.searchStatus
             body = WebStubURLProtocol.searchBody
         } else {
@@ -158,6 +168,39 @@ final class WebDiscoverTests: XCTestCase {
         XCTAssertEqual(again?.map(\.id), ids(7))
         XCTAssertEqual(WebStubURLProtocol.searchCount, 1, "results from the last 10 minutes are reused")
         XCTAssertEqual(WebDiscover.resultLifetime, 600)
+    }
+
+    @MainActor
+    func testASearchAsksForFourRowsAndTheRowPagesThroughThem() async throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.remove() }
+        let (web, _) = try makeWeb(in: sandbox)
+        WebStubURLProtocol.serve(ids: ids(30), media: try gifData(in: sandbox))
+
+        let found = await web.gifs(for: .tongueOut)
+        let gifs = try XCTUnwrap(found)
+        XCTAssertEqual(gifs.map(\.id), ids(24), "24 asked for, and no more kept")
+        let url = try XCTUnwrap(WebStubURLProtocol.lastSearchURL)
+        let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        XCTAssertEqual(query.first { $0.name == "limit" }?.value, "24")
+        XCTAssertEqual(query.first { $0.name == "q" }?.value, "tongue out")
+        XCTAssertEqual(WebStubURLProtocol.searchCount, 1)
+
+        // Six at a time, wrapping around to the first six after the fourth page.
+        XCTAssertEqual(WebDiscover.page(0, of: gifs, size: 6).map(\.id), Array(ids(24)[0..<6]))
+        XCTAssertEqual(WebDiscover.page(1, of: gifs, size: 6).map(\.id), Array(ids(24)[6..<12]))
+        XCTAssertEqual(WebDiscover.page(3, of: gifs, size: 6).map(\.id), Array(ids(24)[18..<24]))
+        XCTAssertEqual(WebDiscover.page(4, of: gifs, size: 6).map(\.id), Array(ids(24)[0..<6]))
+        XCTAssertEqual(WebDiscover.page(-1, of: gifs, size: 6).map(\.id), Array(ids(24)[0..<6]))
+        // Ten results: the second page runs on into the first.
+        let ten = Array(gifs.prefix(10))
+        XCTAssertEqual(WebDiscover.page(1, of: ten, size: 6).map(\.id), ["gif6", "gif7", "gif8", "gif9", "gif0", "gif1"])
+        XCTAssertEqual(WebDiscover.page(2, of: ten, size: 6).map(\.id), ["gif2", "gif3", "gif4", "gif5", "gif6", "gif7"])
+        // Six or fewer: every page is all of them.
+        let four = Array(gifs.prefix(4))
+        XCTAssertEqual(WebDiscover.page(1, of: four, size: 6).map(\.id), ids(4))
+        XCTAssertEqual(WebDiscover.page(5, of: [], size: 6), [])
+        XCTAssertEqual(WebStubURLProtocol.searchCount, 1, "turning pages searches nothing")
     }
 
     @MainActor

@@ -165,7 +165,29 @@ final class ImageAnalyzerTests: XCTestCase {
         XCTAssertEqual(analysis.facts.pixelHeight, 120)
         XCTAssertEqual(MemeTierClassifier.tier(for: analysis.facts), .meme, "Animated images are always memes")
         XCTAssertNil(analysis.face)
+        XCTAssertNil(analysis.faceShape)
         XCTAssertEqual(analysis.facts.faceCount, 0)
+    }
+
+    func testTheFacePassReadsTheFaceAloneOrNothing() throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.remove() }
+        let url = sandbox.file("dance.gif")
+        let frames = try (0..<3).map { try TestImages.shapes(width: 120, height: 120, seed: $0) }
+        try TestImages.writeGIF(frames, to: url)
+
+        guard case let .read(face, shape, intensity) = ImageAnalyzer.analyzeFace(url: url) else {
+            return XCTFail("a readable GIF is read (this test needs Vision face landmarks on the test machine)")
+        }
+        XCTAssertNil(face, "shapes have no face")
+        XCTAssertNil(shape)
+        XCTAssertEqual(intensity, 0)
+
+        let notes = sandbox.file("notes.txt")
+        try Data("not an image".utf8).write(to: notes)
+        guard case .unreadable = ImageAnalyzer.analyzeFace(url: notes) else {
+            return XCTFail("a text file is unreadable")
+        }
     }
 
     func testRecognizesLargeTextInAPNG() throws {

@@ -86,6 +86,10 @@ public struct Ranker: Sendable {
     private static let fewTextHits = 3
     /// A query without a face is still matched by its pose from this gesture strength on.
     public static let gestureWithoutFace = 0.4
+    /// Share of the face match a query's clear cue takes at full strength (`expressionScore`).
+    private static let cueShare = 0.45
+    /// Added for an item whose name, text or labels say the query's clear cue ("tongue out", "wink"...).
+    private static let cueWordBonus = 0.05
 
     public init(baseline: RestingBaseline = RestingBaseline()) {
         self.baseline = baseline
@@ -108,19 +112,35 @@ public struct Ranker: Sendable {
     }
 
     /// Both faces: 0.7 × ((1 − w) × face similarity + w × pose similarity) + 0.3 × intensity fit, w = weights.pose.
+    /// When the query shows a clear cue (`FaceCues.clearCue` of its `shape` against the baseline's resting shape: tongue
+    /// out, wink, one raised brow, pucker, smirk, eye roll) of strength u, v = 0.45 × u of the face part is how
+    /// strongly the item shows that cue (its `faceShape`'s `FaceCues` against fixed values; 0.5, unknown, without
+    /// one): 0.7 × ((1 − w) × (1 − v) × face similarity + w × pose similarity + (1 − w) × v × cue similarity) + 0.3 ×
+    /// fit, so a face the seven features can't tell from a plain one finds the memes that show it.
     /// A face hidden behind a clear gesture (or a meme without a readable face) when the item's arms were measured: the
     /// face part counts 0.5 and the pose carries the match. Otherwise 0.25 + 0.3 × fit.
+    /// With a clear cue, an item whose name, text or labels say it (`mentions(_:in:)`) gets +0.05.
     public func expressionScore(item: LibraryItem, sample: ExpressionSample, weights: FeatureWeights) -> Double {
         let target = sample.face.map { baseline.intensity(of: $0) } ?? 0.3
         let fit = 1 - abs(item.intensity - target)
         let poseWeight = VectorMath.clampUnit(weights.pose)
+        let cues = baseline.cues(of: sample.shape)
+        let clearCue = cues.clearCue
         var score: Double
         if let itemFace = item.face, let queryFace = sample.face {
             let queryDeviation = baseline.signedDeviation(of: queryFace)
             let itemDeviation = Ranker.populationDeviation(of: itemFace)
             let featureSim = Ranker.featureSimilarity(queryDeviation, itemDeviation, weights: weights)
             let poseSim = PoseFeatures.similarity(query: sample.pose, item: item.pose)
-            let faceScore = (1 - poseWeight) * featureSim + poseWeight * poseSim
+            var faceScore = (1 - poseWeight) * featureSim + poseWeight * poseSim
+            if let cue = clearCue {
+                let share = Ranker.cueShare * cues[cue]
+                // Unknown (0.5) without a shape, or when the item's shape lacks what the cue is read from (colors
+                // that couldn't tell a tongue, say).
+                let cueSim = item.faceShape.flatMap { $0.measures(cue) ? FaceCues(shape: $0, rest: nil)[cue] : nil } ?? 0.5
+                faceScore = (1 - poseWeight) * (1 - share) * featureSim + poseWeight * poseSim
+                    + (1 - poseWeight) * share * cueSim
+            }
             score = 0.7 * faceScore + 0.3 * fit
         } else if let queryPose = sample.pose, queryPose.gestureStrength >= Ranker.gestureWithoutFace, item.pose?.descriptor?.showsArms == true {
             let poseSim = PoseFeatures.similarity(query: queryPose, item: item.pose)
@@ -130,6 +150,9 @@ public struct Ranker: Sendable {
             score = 0.25 + 0.3 * fit
         }
         score += Ranker.adjustment(for: item)
+        if let cue = clearCue, Ranker.mentions(cue, in: item) {
+            score += Ranker.cueWordBonus
+        }
         return score.isFinite ? score : 0
     }
 
@@ -331,6 +354,24 @@ public struct Ranker: Sendable {
         delta += 0.01 * Double(min(max(item.timesSent, 0), 5)) / 5
         if item.kind == .web { delta -= 0.01 }
         return delta
+    }
+
+    /// Words a meme showing `cue` is named or tagged with.
+    static func words(for cue: FaceCues.Cue) -> [String] {
+        switch cue {
+        case .tongueOut: return ["tongue", "blep"]
+        case .wink: return ["wink"]
+        case .raisedBrow: return ["eyebrow"]
+        case .pucker: return ["duck face", "duckface", "kiss", "pout"]
+        case .smirk: return ["smirk"]
+        case .eyeRoll: return ["eye roll", "eyeroll", "rolling eyes"]
+        }
+    }
+
+    /// Whether the item's name, text or labels contain one of `cue`'s words (any case).
+    static func mentions(_ cue: FaceCues.Cue, in item: LibraryItem) -> Bool {
+        let text = [item.displayName, item.text, item.labels.joined(separator: " ")].joined(separator: " ").lowercased()
+        return words(for: cue).contains { text.contains($0) }
     }
 
     /// lowercased(displayName + " " + text + " " + labels + " " + source + " " + sourceDetail + " " + person name)

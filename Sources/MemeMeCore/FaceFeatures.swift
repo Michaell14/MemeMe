@@ -185,12 +185,16 @@ public struct PoseFeatures: Codable, Hashable, Sendable {
 public struct ExpressionSample: Codable, Hashable, Sendable {
     public var face: FaceFeatures?
     public var pose: PoseFeatures?
+    /// The face's details beyond the seven features (`FaceShape`), read into `FaceCues` against the resting shape.
+    public var shape: FaceShape?
     public var timestamp: TimeInterval   // seconds, monotonic (CACurrentMediaTime on the app side)
     public var sharpness: Double         // 0...1, 1 when unknown
 
-    public init(face: FaceFeatures?, pose: PoseFeatures? = nil, timestamp: TimeInterval, sharpness: Double = 1) {
+    public init(face: FaceFeatures?, pose: PoseFeatures? = nil, shape: FaceShape? = nil, timestamp: TimeInterval,
+                sharpness: Double = 1) {
         self.face = face
         self.pose = pose
+        self.shape = shape
         self.timestamp = timestamp
         self.sharpness = sharpness
     }

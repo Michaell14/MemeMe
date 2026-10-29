@@ -376,6 +376,9 @@ private final class FrameProcessor: NSObject, AVCaptureVideoDataOutputSampleBuff
         let faces = visionResults(faceRequest.results ?? [], as: VNFaceObservation.self)
         let face = faces.max(by: { boxArea($0.boundingBox) < boxArea($1.boundingBox) })
         let features = face.flatMap { FaceFeatureExtractor.features(from: $0) }
+        // The face's details (each eye and brow, the lips, the tongue's color) from the same landmarks and this
+        // frame's pixels: no further Vision request.
+        let shape = features == nil ? nil : face.flatMap { FaceFeatureExtractor.shape(from: $0, pixelBuffer: pixelBuffer) }
         let rects = face.map { FaceFeatureExtractor.regionRects(from: $0) } ?? [:]
         if renderer.needsFrames {
             renderer.updateFace(face.flatMap { FaceGeometry.geometry(from: $0) }, at: frameTime)
@@ -417,6 +420,7 @@ private final class FrameProcessor: NSObject, AVCaptureVideoDataOutputSampleBuff
         let sample = ExpressionSample(
             face: features,
             pose: lastPose,
+            shape: shape,
             timestamp: CACurrentMediaTime(),
             sharpness: 1
         )

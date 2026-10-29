@@ -52,6 +52,17 @@ public enum MemeTemplateCatalog {
         return picked
     }
 
+    /// The `page`th group of `limit` from the same order as `pick(for:from:limit:)` (the mood's templates, then the
+    /// most popular), so the same mood held again shows other templates: page 0 is `pick(for:from:limit:)`, page 1 the
+    /// next `limit`, and so on, wrapping around to the start when the list runs out. A negative page is page 0.
+    public static func pick(for mood: Mood, from templates: [TemplateRef], limit: Int, page: Int) -> [Int] {
+        let order = pick(for: mood, from: templates, limit: templates.count)
+        guard limit > 0, !order.isEmpty else { return [] }
+        let size = min(limit, order.count)
+        let start = (max(0, page) % order.count) * size % order.count
+        return (0..<size).map { order[(start + $0) % order.count] }
+    }
+
     /// Up to `limit` indexes into `templates` matching typed `terms`, best first: a word of the template's name
     /// starting with a term, a word it is searched by, or a mood the words name ("sad", "lol", "mad"). Only templates
     /// that match at least one term; ties keep Imgflip's order.
@@ -67,8 +78,9 @@ public enum MemeTemplateCatalog {
         let namedMoods = multiWordMoods.filter { key, _ in
             spaced.contains(" \(key)" + (MemeTemplateCatalog.wholeWordMoods.contains(key) ? " " : ""))
         }
-        // A mood's phrase finds the mood, not every name starting with its "no", "on" or "me".
-        let phraseWords = Set(namedMoods.keys.flatMap { $0.split(separator: " ").map(String.init) }.filter { $0.count <= 2 })
+        // A mood's phrase finds the mood, not every name starting with one of its words: "oh no" isn't Y U No, "eye
+        // roll" isn't Roll Safe, "duck face" isn't Facepalm.
+        let phraseWords = Set(namedMoods.keys.flatMap { $0.split(separator: " ").map(String.init) })
         let cleaned = allWords.filter { $0.count >= 2 && !phraseWords.contains($0) }
         let moods = Set(allWords.compactMap { moodWords[$0] } + namedMoods.map(\.value))
         let indexes = entryIndexes(for: templates)
@@ -135,8 +147,9 @@ public enum MemeTemplateCatalog {
     private static let nameWords: Set<String> = [
         "andre", "anakin", "arthur", "bernie", "boromir", "brian", "cheems", "chloe", "dicaprio", "django", "doge",
         "drake", "dwayne", "eric", "escobar", "fry", "gandalf", "gatsby", "giorgio", "gru", "hannibal", "harold", "jack",
-        "jerry", "jordan", "kermit", "krabs", "leo", "morpheus", "oprah", "pablo", "padme", "picard", "pikachu", "pooh",
-        "robin", "scooby", "shaq", "smudge", "sparrow", "squidward", "tom", "winnie",
+        "jerry", "jordan", "kermit", "krabs", "leo", "mckayla", "morpheus", "oprah", "pablo", "padme", "picard",
+        "pikachu", "pooh", "robin", "scooby", "shaq", "smudge", "sparrow", "squidward", "tom", "willy", "winnie",
+        "wonka",
     ]
 
     /// For each entry, the template in `templates` it describes (by Imgflip id, else by name), if Imgflip lists it.
@@ -176,7 +189,7 @@ public enum MemeTemplateCatalog {
         "laughing": .laughing, "laugh": .laughing, "lol": .laughing, "lmao": .laughing, "haha": .laughing,
         "funny": .laughing,
         "happy": .happy, "smile": .happy, "glad": .happy, "nice": .happy, "good": .happy,
-        "smug": .smug, "smirk": .smug, "petty": .smug, "sarcastic": .smug, "sarcasm": .smug,
+        "smug": .smug, "petty": .smug, "sarcastic": .smug, "sarcasm": .smug,
         "crying": .crying, "cry": .crying, "tears": .crying, "sob": .crying,
         "sad": .sad, "depressed": .sad, "lonely": .sad, "down": .sad, "upset": .sad,
         "angry": .angry, "mad": .angry, "rage": .angry, "furious": .angry, "annoyed": .angry,
@@ -194,11 +207,19 @@ public enum MemeTemplateCatalog {
         "clapping": .clapping, "clap": .clapping, "applause": .clapping, "bravo": .clapping,
         "flex": .flex, "flexing": .flex, "dab": .dab, "dabbing": .dab, "tpose": .tPose, "bow": .bow, "bowing": .bow,
         "hello": .hello, "peace": .peace,
+        "tongue": .tongueOut, "blep": .tongueOut, "mlem": .tongueOut,
+        "wink": .wink, "winking": .wink, "winky": .wink,
+        "eyebrow": .raisedEyebrow, "eyebrows": .raisedEyebrow,
+        "duckface": .duckFace, "kissy": .duckFace, "pout": .duckFace, "pouty": .duckFace, "pouting": .duckFace,
+        "smirk": .smirk, "smirking": .smirk,
+        "eyeroll": .eyeRoll, "eyerolling": .eyeRoll,
     ]
 
     private static let multiWordMoods: [String: Mood] = [
         "side eye": .sideEye, "mind blown": .mindBlown, "thumbs up": .thumbsUp, "t pose": .tPose,
         "arms crossed": .armsCrossed, "hands on hips": .handsOnHips, "oh no": .ohNo, "pick me": .pickMe,
+        "tongue out": .tongueOut, "raised eyebrow": .raisedEyebrow, "duck face": .duckFace, "kissy face": .duckFace,
+        "eye roll": .eyeRoll, "rolling eyes": .eyeRoll, "rolled eyes": .eyeRoll,
     ]
 
     /// Phrases whose last word starts many others ("oh nothing", "pick memes"): matched as whole words only.
@@ -220,17 +241,17 @@ public enum MemeTemplateCatalog {
               words: ["harold", "pain", "awkward", "fake smile", "old man", "coping"]),
         Entry(names: ["This Is Fine"], id: "55311130", moods: [.nervous, .shrug, .ohNo],
               words: ["fine", "fire", "dog", "burning", "chaos", "everything is fine"]),
-        Entry(names: ["Disaster Girl"], id: "97984", moods: [.smug],
+        Entry(names: ["Disaster Girl"], id: "97984", moods: [.smug, .smirk],
               words: ["disaster", "fire", "girl", "evil", "smirk", "arson"]),
-        Entry(names: ["Roll Safe Think About It"], id: "89370399", moods: [.smug, .mindBlown],
+        Entry(names: ["Roll Safe Think About It"], id: "89370399", moods: [.smug, .mindBlown, .wink, .smirk],
               words: ["think", "thinking", "smart", "tap head", "genius", "logic", "roll safe"]),
-        Entry(names: ["Mocking Spongebob"], id: "102156234", moods: [.smug, .angry],
+        Entry(names: ["Mocking Spongebob"], id: "102156234", moods: [.smug, .angry, .tongueOut],
               words: ["mocking", "spongebob", "sarcastic", "sarcasm", "chicken", "mock"]),
         Entry(names: ["Change My Mind"], id: "129242436", moods: [.smug],
               words: ["change my mind", "debate", "opinion", "prove me wrong"]),
         Entry(names: ["Monkey Puppet"], id: "148909805", moods: [.sideEye, .nervous],
               words: ["monkey", "puppet", "side eye", "awkward", "look away", "awkward look"]),
-        Entry(names: ["Side Eyeing Chloe", "Chloe Side Eye"], id: nil, moods: [.sideEye, .unimpressed],
+        Entry(names: ["Side Eyeing Chloe", "Chloe Side Eye"], id: nil, moods: [.sideEye, .unimpressed, .raisedEyebrow],
               words: ["chloe", "side eye", "suspicious", "skeptical"]),
         Entry(names: ["Sad Pablo Escobar"], id: "80707627", moods: [.sad, .unimpressed],
               words: ["sad", "pablo", "escobar", "waiting", "lonely", "alone", "bored"]),
@@ -260,11 +281,12 @@ public enum MemeTemplateCatalog {
               words: ["handshake", "agree", "agreement", "teamwork", "same", "together"]),
         Entry(names: ["Anakin Padme 4 Panel"], id: "322841258", moods: [.confused, .nervous],
               words: ["anakin", "padme", "right", "for the better"]),
-        Entry(names: ["Tuxedo Winnie The Pooh"], id: "178591752", moods: [.smug, .happy],
+        Entry(names: ["Tuxedo Winnie The Pooh"], id: "178591752", moods: [.smug, .happy, .duckFace],
               words: ["winnie", "pooh", "tuxedo", "fancy", "classy", "sophisticated"]),
         Entry(names: ["Panik Kalm Panik"], id: "226297822", moods: [.nervous, .screaming, .ohNo],
               words: ["panik", "kalm", "panic", "calm", "meme man"]),
-        Entry(names: ["Leonardo Dicaprio Cheers"], id: "5496396", moods: [.celebrate, .happy, .excited, .clapping, .thumbsUp],
+        Entry(names: ["Leonardo Dicaprio Cheers"], id: "5496396",
+              moods: [.celebrate, .happy, .excited, .clapping, .thumbsUp, .wink],
               words: ["cheers", "toast", "dicaprio", "gatsby", "congrats", "congratulations"]),
         Entry(names: ["Success Kid"], id: "61544", moods: [.celebrate, .happy, .thumbsUp, .clapping],
               words: ["success", "win", "victory", "fist", "yes", "kid"]),
@@ -280,7 +302,7 @@ public enum MemeTemplateCatalog {
               words: ["krabs", "blur", "dizzy", "spongebob"]),
         Entry(names: ["Math Lady/Confused Lady", "Confused Math Lady", "Math Lady"], id: nil, moods: [.confused],
               words: ["math", "calculating", "confused lady", "thinking"]),
-        Entry(names: ["Grumpy Cat"], id: "405658", moods: [.unimpressed, .angry],
+        Entry(names: ["Grumpy Cat"], id: "405658", moods: [.unimpressed, .angry, .eyeRoll],
               words: ["grumpy", "cat", "no", "annoyed"]),
         Entry(names: ["Captain Picard Facepalm"], id: "1509839", moods: [.facepalm],
               words: ["picard", "facepalm", "star trek", "disappointed"]),
@@ -288,10 +310,12 @@ public enum MemeTemplateCatalog {
               words: ["clown", "makeup", "foolish", "stupid"]),
         Entry(names: ["Bike Fall"], id: "79132341", moods: [.facepalm],
               words: ["bike", "fall", "self sabotage", "stick"]),
-        Entry(names: ["Futurama Fry"], id: "61520", moods: [.sideEye, .confused],
+        Entry(names: ["Futurama Fry"], id: "61520", moods: [.sideEye, .confused, .raisedEyebrow],
               words: ["fry", "not sure if", "suspicious", "squint", "futurama"]),
-        Entry(names: ["Third World Skeptical Kid"], id: "101288", moods: [.sideEye, .unimpressed],
+        Entry(names: ["Third World Skeptical Kid"], id: "101288", moods: [.sideEye, .unimpressed, .raisedEyebrow],
               words: ["skeptical", "kid", "doubt", "suspicious"]),
+        Entry(names: ["Creepy Condescending Wonka"], id: "61582", moods: [.smirk, .smug, .raisedEyebrow, .wink],
+              words: ["wonka", "willy wonka", "condescending", "tell me more", "creepy"]),
         Entry(names: ["Bad Luck Brian"], id: "61585", moods: [.sad],
               words: ["bad luck", "brian", "unlucky", "fail"]),
         Entry(names: ["First World Problems"], id: "61539", moods: [.crying, .sad],
@@ -300,9 +324,10 @@ public enum MemeTemplateCatalog {
               words: ["jordan", "crying", "tears"]),
         Entry(names: ["Finding Neverland"], id: "6235864", moods: [.crying, .sad],
               words: ["neverland", "crying", "tears"]),
-        Entry(names: ["Evil Kermit"], id: "84341851", moods: [.smug],
+        Entry(names: ["Evil Kermit"], id: "84341851", moods: [.smug, .smirk],
               words: ["evil", "kermit", "temptation", "dark side", "hoodie"]),
-        Entry(names: ["But That's None Of My Business", "Kermit Sipping Tea"], id: "16464531", moods: [.smug],
+        Entry(names: ["But That's None Of My Business", "Kermit Sipping Tea"], id: "16464531",
+              moods: [.smug, .duckFace],
               words: ["kermit", "tea", "sipping", "none of my business", "petty"]),
         Entry(names: ["Oprah You Get A"], id: "28251713", moods: [.excited, .celebrate, .pointing, .clapping],
               words: ["oprah", "you get a", "everyone gets", "giveaway"]),
@@ -332,10 +357,13 @@ public enum MemeTemplateCatalog {
               words: ["head out", "leaving", "ight", "spongebob", "bye", "leave"]),
         Entry(names: ["I Bet He's Thinking About Other Women"], id: "110163934", moods: [.sad, .sideEye],
               words: ["thinking", "other women", "overthinking", "bed"]),
-        Entry(names: ["Disappointed Black Guy"], id: nil, moods: [.unimpressed, .sad],
+        Entry(names: ["Disappointed Black Guy"], id: nil, moods: [.unimpressed, .sad, .eyeRoll],
               words: ["disappointed", "really", "ugh"]),
-        Entry(names: ["Kombucha Girl"], id: nil, moods: [.unimpressed, .confused],
+        Entry(names: ["Kombucha Girl"], id: nil, moods: [.unimpressed, .confused, .eyeRoll],
               words: ["kombucha", "disgusted", "unsure"]),
+        Entry(names: ["McKayla Maroney Not Impressed", "McKayla Not Impressed"], id: nil,
+              moods: [.unimpressed, .eyeRoll, .smirk, .duckFace],
+              words: ["not impressed", "mckayla", "gymnast"]),
         Entry(names: ["Leonardo Dicaprio Pointing", "Rick Dalton Pointing"], id: nil, moods: [.pointing, .excited],
               words: ["pointing", "recognize", "that's me", "dicaprio"]),
         Entry(names: ["Spider Man Pointing", "Spider-Man Pointing at Spider-Man"], id: nil, moods: [.pointing, .confused],
@@ -348,13 +376,16 @@ public enum MemeTemplateCatalog {
               words: ["mask", "reveal", "unmask", "scooby"]),
         Entry(names: ["The Rock Driving"], id: "21735", moods: [.shocked, .sideEye],
               words: ["rock", "driving", "car", "dwayne"]),
+        Entry(names: ["The Rock Eyebrow Raise", "The Rock Eyebrow", "Dwayne Johnson Eyebrow Raise"], id: nil,
+              moods: [.raisedEyebrow, .sideEye],
+              words: ["rock", "dwayne", "eyebrow", "raised eyebrow", "sus"]),
         Entry(names: ["Jack Sparrow Being Chased"], id: nil, moods: [.nervous],
               words: ["running", "chased", "jack sparrow", "run"]),
         Entry(names: ["Mother Ignoring Kid Drowning In A Pool"], id: nil, moods: [.sad],
               words: ["ignoring", "pool", "drowning", "skeleton"]),
         Entry(names: ["Squidward Window", "Squidward"], id: nil, moods: [.sad, .sideEye],
               words: ["squidward", "window", "jealous", "watching"]),
-        Entry(names: ["Doge"], id: "8072285", moods: [.happy, .excited],
+        Entry(names: ["Doge"], id: "8072285", moods: [.happy, .excited, .tongueOut],
               words: ["doge", "wow", "such", "much"]),
         Entry(names: ["Grandma Finds The Internet"], id: "61556", moods: [.excited, .confused],
               words: ["grandma", "internet", "computer", "old"]),

@@ -99,6 +99,29 @@ final class MemeTemplatesTests: XCTestCase {
     }
 
     @MainActor
+    func testTheSameMoodCaughtAgainTurnsToTheNextTemplates() throws {
+        // Eleven plain templates and Surprised Pikachu (made for shocked) last in Imgflip's order: for shocked,
+        // Pikachu first, then the plain ones in order.
+        var list: [MemeTemplate] = []
+        for number in 1...11 {
+            let url = try XCTUnwrap(URL(string: "https://i.imgflip.com/plain\(number).jpg"))
+            list.append(MemeTemplate(id: "plain\(number)", name: "Plain Template \(number)", url: url, width: 500, height: 500))
+        }
+        let pikachuURL = try XCTUnwrap(URL(string: "https://i.imgflip.com/2kbn1e.jpg"))
+        list.append(MemeTemplate(id: "155067746", name: "Surprised Pikachu", url: pikachuURL, width: 1893, height: 1893))
+
+        let first = AppModel.pickTemplates(for: .mood(.shocked), from: list).map(\.name)
+        XCTAssertEqual(first, ["Surprised Pikachu"] + (1...5).map { "Plain Template \($0)" })
+        XCTAssertEqual(AppModel.pickTemplates(for: .mood(.shocked), from: list, page: 0).map(\.name), first)
+        XCTAssertEqual(AppModel.pickTemplates(for: .mood(.shocked), from: list, page: 1).map(\.name),
+                       (6...11).map { "Plain Template \($0)" })
+        XCTAssertEqual(AppModel.pickTemplates(for: .mood(.shocked), from: list, page: 2).map(\.name), first,
+                       "back to the start once all twelve were shown")
+        // Typed words have no pages.
+        XCTAssertEqual(AppModel.pickTemplates(for: .words("pikachu"), from: list, page: 1).map(\.name), ["Surprised Pikachu"])
+    }
+
+    @MainActor
     func testTheListIsFetchedOnceKeptAndItsImagesLoadAndCopy() async throws {
         let sandbox = try TestSandbox()
         defer { sandbox.remove() }

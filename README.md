@@ -82,7 +82,7 @@ Every change to the app on the default branch is released automatically. When `S
 | | |
 |---|---|
 | ⌃⌘M | Open or close the panel (in any app, no permission needed) |
-| Make a face | Hold it for about 0.3 s; a different face needs about 1 s (the ring fills) |
+| Make a face | Hold it for about 0.3 s; a different face needs about 0.6 s (the ring fills), or 0.3 s if you relax your face in between. Small changes count: stick your tongue out, wink, raise one eyebrow, purse your lips, smirk or roll your eyes, and the search goes by "tongue out", "wink", "raised eyebrow", "duck face", "smirk" or "eye roll". The same word caught again shows the next GIFs and classic memes |
 | Strike a pose | Arms up, a T-pose, a flex, a dab, hands on hips, arms crossed, one arm up, a wave, a bow, hands on your head, a facepalm, a shrug, clapping, a thumbs up, peace, pointing: memes with that pose come first, GIPHY and the classic memes are searched for it, and the word under the mirror names the pose. Step back so your arms (and hips) are in view, and hold each pose for a second |
 | Space | Use the current face now, even a neutral one (only while the search field is empty) |
 | ⇧Space or the camera button on the mirror | Send yourself: tap the shutter (or Space) for a photo, hold it for a GIF of up to 3 s; ← → pick a filter (looks: Noir, Comic, 8-bit, Deep fried; on your face: Dog, Cat, Bunny, Rainbow, Flowers, Heart eyes, Deal with it, Devil, Angel, Crown, Bug eyes, Clown, Mustache, Pig). It's copied, ready to paste; **Save as sticker** on the notice keeps your face as a sticker |
@@ -105,7 +105,7 @@ Every change to the app on the default branch is released automatically. When `S
 - **Folders.** After **Find my memes** (or from the menu), MemeMe indexes images in Downloads, Desktop and your screenshot folder. macOS asks once per folder. Files are never copied or moved: the index stores features, a compact image fingerprint and the text found in each image (about 4 KB per meme). Personal photos and chat screenshots are sorted out and keep no face data or text. Only images you hand in yourself (dropped on the icon, or **Keep it**) are copied, into `~/Library/Application Support/MemeMe/Kept`.
 - **No Accessibility access, ever.** MemeMe only writes to the clipboard. You paste.
 - **Network.** Only with Web Discover on:
-  - **GIPHY** (with a key set): the one mood word for your face (for example "shocked reaction") goes to GIPHY, sometimes a moment before you finish making the face. What you type in the search field goes too, once you pause typing, without filter words (`mine`, `gif`, `sticker`) or the names of your people. GIPHY's results show in their own row, in GIPHY's order, and are kept in memory for 10 minutes. Their images load from GIPHY with ordinary web caching; a GIF you copy or drag is downloaded to a temporary file that is deleted within the hour. Nothing from GIPHY goes into your library.
+  - **GIPHY** (with a key set): the one mood word for your face (for example "shocked reaction" or "tongue out") goes to GIPHY, sometimes a moment before you finish making the face. What you type in the search field goes too, once you pause typing, without filter words (`mine`, `gif`, `sticker`) or the names of your people. GIPHY's results show in their own row, in GIPHY's order, and are kept in memory for 10 minutes. Their images load from GIPHY with ordinary web caching; a GIF you copy or drag is downloaded to a temporary file that is deleted within the hour. Nothing from GIPHY goes into your library.
   - **Imgflip** (no key): once a day MemeMe fetches Imgflip's public list of popular meme templates (the request carries nothing about you) and keeps it in `~/Library/Caches/MemeMe/Templates`. Which templates fit your face or your words is worked out on your Mac, so neither is sent; the images of the templates picked then load from Imgflip (with ordinary web caching), so Imgflip sees which ones were shown; one you copy or drag goes to a temporary file deleted within the hour.
 - **Update checks.** Release builds fetch `latest.json` from GitHub Releases every 6 hours. The request carries nothing about you or your library. The new DMG is downloaded only after you click **Update**.
 - **Friend stickers.** Grouping stickers by person is opt-in. Face matching compares a sticker's face only with stickers you made, and the data never leaves your Mac.
@@ -134,10 +134,11 @@ Turn Web Discover off from the menu to keep MemeMe offline, apart from the updat
 Package.swift                 SwiftPM manifest: MemeMeCore (library), MemeMeApp (executable "MemeMe"), tests
 Sources/MemeMeCore/           Foundation-only logic, also builds on Linux
   FaceFeatures, Baseline        face features and the learned resting face
+  FaceCues, FaceShapeMeasure    the face's details (tongue out, wink, one eyebrow, duck face, smirk, eye roll) from its landmarks
   PeakHoldTracker               turns camera frames into a stable query ("no shutter")
   FeatureWeights, Ranker        scoring for face, text, image, more-like and recent searches
   EarlyMoodTrigger, TileGrid     when a held face's mood is clear (early GIPHY search); keyboard focus across rows
-  Mood                          face → mood word for GIPHY
+  Mood, MemeTemplateCatalog     face → mood word for GIPHY; the classic memes for a mood or words
   Classifier, LibraryItem,      library model, meme/maybe/skipped sorting, JSON store
   LibraryStore, RecentStore,
   Person, AppSettings, VectorMath
@@ -174,7 +175,7 @@ docs/                         DESIGN.md (product spec) and ARCHITECTURE.md (code
 ## Limitations
 
 - **Friend grouping is not face recognition.** It compares Vision's generic image feature prints of face crops. That is not an identity model, so the thresholds are conservative, and MemeMe asks ("Jordan?") when it is unsure.
-- **Expressions are approximate.** Features come from Vision's 2D face landmarks; strong lighting, glasses or a turned head make them noisier. Moods are a coarse set of words.
+- **Expressions are approximate.** Features come from Vision's 2D face landmarks; strong lighting, glasses or a turned head make them noisier. Moods are a coarse set of words. A tongue is found by its color under the lips, so gray or colored light (or lipstick close to it) can hide it.
 - **KLIPY is not wired up yet.** The provider protocol is ready, but its API shape is unverified, so GIPHY is the only web source.
 - **The shortcut is fixed to ⌃⌘M in v1.** If another app already holds it, the first-run card says so.
 - **Out of scope for v1:** auto-paste, a full library window, Photos library access, importing Messages history.

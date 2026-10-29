@@ -24,6 +24,76 @@ final class MemeTemplateCatalogTests: XCTestCase {
         XCTAssertEqual(MemeTemplateCatalog.pick(for: .laughing, from: popular, limit: 5).first, 8)
     }
 
+    func testPagesContinueTheSameOrderAndWrapAround() {
+        // Shocked: Surprised Pikachu, then the popular ones.
+        XCTAssertEqual(MemeTemplateCatalog.pick(for: .shocked, from: popular, limit: 5, page: 0), [3, 0, 1, 2, 4])
+        XCTAssertEqual(MemeTemplateCatalog.pick(for: .shocked, from: popular, limit: 5, page: 1), [5, 6, 7, 8, 3])
+        XCTAssertEqual(MemeTemplateCatalog.pick(for: .shocked, from: popular, limit: 5, page: 2), [0, 1, 2, 4, 5])
+        XCTAssertEqual(MemeTemplateCatalog.pick(for: .reaction, from: popular, limit: 4, page: 1), [4, 5, 6, 7])
+        XCTAssertEqual(MemeTemplateCatalog.pick(for: .reaction, from: popular, limit: 4, page: 2), [8, 0, 1, 2])
+        XCTAssertEqual(MemeTemplateCatalog.pick(for: .shocked, from: popular, limit: 5, page: -1), [3, 0, 1, 2, 4])
+        // Fewer templates than a page: every page is all of them.
+        XCTAssertEqual(MemeTemplateCatalog.pick(for: .shocked, from: popular, limit: 20, page: 3), [3, 0, 1, 2, 4, 5, 6, 7, 8])
+        XCTAssertEqual(MemeTemplateCatalog.pick(for: .shocked, from: [], limit: 5, page: 1), [])
+        XCTAssertEqual(MemeTemplateCatalog.pick(for: .shocked, from: popular, limit: 0, page: 1), [])
+    }
+
+    func testPageZeroIsThePick() {
+        for mood in [Mood.shocked, .sad, .nervous, .reaction, .tongueOut, .smirk] {
+            for limit in [0, 1, 3, 5, 9, 20] {
+                XCTAssertEqual(MemeTemplateCatalog.pick(for: mood, from: popular, limit: limit, page: 0),
+                               MemeTemplateCatalog.pick(for: mood, from: popular, limit: limit), "\(mood) \(limit)")
+            }
+        }
+    }
+
+    /// Imgflip's order; Spongebob Ight Imma Head Out, Captain Picard Facepalm and Roll Safe share a word with the cues'
+    /// phrases ("tongue out", "duck face", "eye roll") but aren't those faces.
+    private let cueTemplates = [
+        TemplateRef(id: "181913649", name: "Drake Hotline Bling"),
+        TemplateRef(id: "102156234", name: "Mocking Spongebob"),
+        TemplateRef(id: "89370399", name: "Roll Safe Think About It"),
+        TemplateRef(id: "61582", name: "Creepy Condescending Wonka"),
+        TemplateRef(id: "61520", name: "Futurama Fry"),
+        TemplateRef(id: "16464531", name: "But That's None Of My Business"),
+        TemplateRef(id: "405658", name: "Grumpy Cat"),
+        TemplateRef(id: "196652226", name: "Spongebob Ight Imma Head Out"),
+        TemplateRef(id: "1509839", name: "Captain Picard Facepalm"),
+        TemplateRef(id: "97984", name: "Disaster Girl"),
+    ]
+
+    func testFaceCueMoodsPutTheirTemplatesFirst() {
+        XCTAssertEqual(MemeTemplateCatalog.pick(for: .tongueOut, from: cueTemplates, limit: 3), [1, 0, 2])
+        XCTAssertEqual(MemeTemplateCatalog.pick(for: .wink, from: cueTemplates, limit: 3), [2, 3, 0])
+        XCTAssertEqual(MemeTemplateCatalog.pick(for: .raisedEyebrow, from: cueTemplates, limit: 3), [4, 3, 0])
+        XCTAssertEqual(MemeTemplateCatalog.pick(for: .duckFace, from: cueTemplates, limit: 3), [5, 0, 1])
+        XCTAssertEqual(MemeTemplateCatalog.pick(for: .smirk, from: cueTemplates, limit: 3), [3, 9, 2])
+        XCTAssertEqual(MemeTemplateCatalog.pick(for: .eyeRoll, from: cueTemplates, limit: 3), [6, 0, 1])
+    }
+
+    func testTypedFaceCueWordsFindTheirTemplates() {
+        XCTAssertEqual(MemeTemplateCatalog.pick(forTerms: ["tongue out"], from: cueTemplates, limit: 5), [1])
+        XCTAssertEqual(MemeTemplateCatalog.pick(forTerms: ["blep"], from: cueTemplates, limit: 5), [1])
+        XCTAssertEqual(MemeTemplateCatalog.pick(forTerms: ["Tongue"], from: cueTemplates, limit: 5), [1])
+        XCTAssertEqual(MemeTemplateCatalog.pick(forTerms: ["wink"], from: cueTemplates, limit: 5), [2, 3])
+        XCTAssertEqual(MemeTemplateCatalog.pick(forTerms: ["raised eyebrow"], from: cueTemplates, limit: 5), [3, 4])
+        XCTAssertEqual(MemeTemplateCatalog.pick(forTerms: ["eyebrow"], from: cueTemplates, limit: 5), [3, 4])
+        XCTAssertEqual(MemeTemplateCatalog.pick(forTerms: ["duck face"], from: cueTemplates, limit: 5), [5])
+        XCTAssertEqual(MemeTemplateCatalog.pick(forTerms: ["kissy"], from: cueTemplates, limit: 5), [5])
+        // Disaster Girl is also searched by "smirk".
+        XCTAssertEqual(MemeTemplateCatalog.pick(forTerms: ["smirk"], from: cueTemplates, limit: 5), [9, 3, 2])
+        XCTAssertEqual(MemeTemplateCatalog.pick(forTerms: ["eye roll"], from: cueTemplates, limit: 5), [6])
+        XCTAssertEqual(MemeTemplateCatalog.pick(forTerms: ["Eye", "roll!"], from: cueTemplates, limit: 5), [6])
+        XCTAssertEqual(MemeTemplateCatalog.pick(forTerms: ["eyeroll"], from: cueTemplates, limit: 5), [6])
+        XCTAssertEqual(MemeTemplateCatalog.pick(forTerms: ["rolling eyes"], from: cueTemplates, limit: 5), [6])
+        for word in ["tongue", "blep", "wink", "eyebrow", "kissy", "smirk", "eyeroll"] {
+            XCTAssertTrue(MemeTemplateCatalog.isMemeWord(word), word)
+        }
+        for word in ["wonka", "mckayla"] {
+            XCTAssertFalse(MemeTemplateCatalog.isMemeWord(word), word)
+        }
+    }
+
     func testNoFaceYetIsTheMostPopular() {
         XCTAssertEqual(MemeTemplateCatalog.pick(for: .reaction, from: popular, limit: 5), [0, 1, 2, 3, 4])
         XCTAssertEqual(MemeTemplateCatalog.pick(for: .reaction, from: Array(popular.prefix(2)), limit: 5), [0, 1])

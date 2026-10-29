@@ -14,6 +14,8 @@ struct StickerCut {
     let pngURL: URL
     let faceEmbedding: [Float]     // feature print of the face crop (box expanded 20 %)
     let face: FaceFeatures?
+    /// The face's details beyond the seven features (`FaceShape`), its tongue read from the source photo's colors.
+    let faceShape: FaceShape?
     let intensity: Double
     let featurePrint: [Float]?     // feature print of the sticker image
     let contentHash: String
@@ -102,6 +104,8 @@ enum StickerMaker {
 
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
         let landmarkFaces = detectLandmarkFaces(handler: handler)
+        // The photo's colors for the faces' shapes, drawn once for every cut.
+        let pixels = landmarkFaces.isEmpty ? nil : RGBAPixels(image: image)
 
         var cuts: [StickerCut] = []
         for label in labelOrder {
@@ -114,6 +118,7 @@ enum StickerMaker {
                     image: image,
                     faceBox: faces[faceIndex],
                     landmarkFaces: landmarkFaces,
+                    pixels: pixels,
                     directory: directory,
                     outline: outline
                 )
@@ -134,6 +139,7 @@ enum StickerMaker {
         image: CGImage,
         faceBox: CGRect,
         landmarkFaces: [VNFaceObservation],
+        pixels: RGBAPixels?,
         directory: URL,
         outline: Bool
     ) throws -> StickerCut {
@@ -148,7 +154,9 @@ enum StickerMaker {
         let pngData = try encodePNG(sticker)
 
         let embedding = (try? faceEmbedding(image: image, faceBox: faceBox)) ?? []
-        let face = bestLandmarkFace(for: faceBox, among: landmarkFaces).flatMap { FaceFeatureExtractor.features(from: $0) }
+        let landmarkFace = bestLandmarkFace(for: faceBox, among: landmarkFaces)
+        let face = landmarkFace.flatMap { FaceFeatureExtractor.features(from: $0) }
+        let faceShape = face == nil ? nil : landmarkFace.flatMap { FaceFeatureExtractor.shape(from: $0, pixels: pixels) }
         let intensity = face.map { RestingBaseline().intensity(of: $0) } ?? 0
         let stickerPrint = try? ImageAnalyzer.featurePrint(of: sticker)
 
@@ -159,6 +167,7 @@ enum StickerMaker {
             pngURL: fileURL,
             faceEmbedding: embedding,
             face: face,
+            faceShape: faceShape,
             intensity: intensity,
             featurePrint: stickerPrint,
             contentHash: ImageAnalyzer.sha256Hex(pngData),

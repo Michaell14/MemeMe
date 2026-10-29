@@ -93,7 +93,7 @@ private struct BatchRecord {
             let embedding: [Float]? = cut.faceEmbedding.isEmpty ? nil : cut.faceEmbedding
             let item = LibraryItem(
                 fileURL: cut.pngURL,
-                displayName: FriendService.displayName(personName: nil, face: cut.face),
+                displayName: FriendService.displayName(personName: nil, face: cut.face, shape: cut.faceShape),
                 kind: .friend,
                 tier: .meme,
                 source: "Friend sticker",
@@ -109,7 +109,9 @@ private struct BatchRecord {
                 featurePrintRevision: cut.featurePrint == nil ? 0 : ImageAnalyzer.featurePrintRevision,
                 text: "",
                 labels: [],
-                faceEmbedding: embedding
+                faceEmbedding: embedding,
+                faceShape: cut.faceShape,
+                faceRevision: LibraryItem.currentFaceRevision
             )
 
             if store.add(item) {
@@ -165,7 +167,7 @@ private struct BatchRecord {
         }.value
         guard let work else { return nil }
         let cut = work.cut
-        let mood = MoodClassifier.mood(for: cut.face, pose: work.pose, baseline: RestingBaseline())
+        let mood = MoodClassifier.mood(for: cut.face, pose: work.pose, shape: cut.faceShape, baseline: RestingBaseline())
         let item = LibraryItem(
             fileURL: cut.pngURL,
             displayName: "You — " + mood.label,
@@ -181,7 +183,9 @@ private struct BatchRecord {
             poseRevision: LibraryItem.currentPoseRevision,
             intensity: cut.intensity,
             featurePrint: cut.featurePrint,
-            featurePrintRevision: cut.featurePrint == nil ? 0 : ImageAnalyzer.featurePrintRevision
+            featurePrintRevision: cut.featurePrint == nil ? 0 : ImageAnalyzer.featurePrintRevision,
+            faceShape: cut.faceShape,
+            faceRevision: LibraryItem.currentFaceRevision
         )
         guard store.add(item) else {
             try? FileManager.default.removeItem(at: cut.pngURL)
@@ -243,7 +247,7 @@ private struct BatchRecord {
             store.upsert(person)
         }
         item.personID = personID
-        item.displayName = FriendService.displayName(personName: person.name, face: item.face)
+        item.displayName = FriendService.displayName(personName: person.name, face: item.face, shape: item.faceShape)
         store.update(item)
         if let previous = previousPersonID, previous != personID {
             detach(embedding: item.faceEmbedding, fromPerson: previous)
@@ -335,7 +339,7 @@ private struct BatchRecord {
         store.upsert(person)
         for item in store.items where item.personID == personID {
             var renamed = item
-            renamed.displayName = FriendService.displayName(personName: trimmed, face: item.face)
+            renamed.displayName = FriendService.displayName(personName: trimmed, face: item.face, shape: item.faceShape)
             store.update(renamed)
         }
         saveStore()
@@ -349,7 +353,7 @@ private struct BatchRecord {
             guard var item = store.item(id: stickerID) else { continue }
             item.personID = nil
             item.faceEmbedding = nil
-            item.displayName = FriendService.displayName(personName: nil, face: item.face)
+            item.displayName = FriendService.displayName(personName: nil, face: item.face, shape: item.faceShape)
             store.update(item)
         }
         saveStore()
@@ -373,7 +377,7 @@ private struct BatchRecord {
             person.addEmbedding(embedding)
             store.upsert(person)
             item.personID = personID
-            item.displayName = FriendService.displayName(personName: person.name, face: item.face)
+            item.displayName = FriendService.displayName(personName: person.name, face: item.face, shape: item.faceShape)
             store.update(item)
             return (match: match, personName: person.name)
         case .likely(let personID, _):
@@ -382,7 +386,7 @@ private struct BatchRecord {
             let person = Person(embeddings: [embedding])
             store.upsert(person)
             item.personID = person.id
-            item.displayName = FriendService.displayName(personName: nil, face: item.face)
+            item.displayName = FriendService.displayName(personName: nil, face: item.face, shape: item.faceShape)
             store.update(item)
             return (match: .newFace, personName: nil)
         }
@@ -476,7 +480,7 @@ private struct BatchRecord {
                 }
             } else {
                 item.personID = nil
-                item.displayName = FriendService.displayName(personName: nil, face: item.face)
+                item.displayName = FriendService.displayName(personName: nil, face: item.face, shape: item.faceShape)
             }
         }
         return store.add(item)
@@ -496,14 +500,15 @@ private struct BatchRecord {
         }
     }
 
-    /// Person name (or "New face") + " — " + the mood label of the sticker's face.
-    private static func displayName(personName: String?, face: FaceFeatures?) -> String {
+    /// Person name (or "New face") + " — " + the mood label of the sticker's face (and its shape: a tongue out, a
+    /// wink...).
+    private static func displayName(personName: String?, face: FaceFeatures?, shape: FaceShape?) -> String {
         var name = "New face"
         if let personName = personName {
             let trimmed = personName.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty { name = trimmed }
         }
-        let mood = MoodClassifier.mood(for: face, pose: nil, baseline: RestingBaseline())
+        let mood = MoodClassifier.mood(for: face, pose: nil, shape: shape, baseline: RestingBaseline())
         return name + " — " + mood.label
     }
 
