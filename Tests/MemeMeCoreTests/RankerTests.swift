@@ -149,6 +149,93 @@ final class RankerTests: XCTestCase {
         XCTAssertEqual(custom.expressionScore(item: item, sample: sample(wideEyed), weights: .uniform), 1.0, accuracy: 1e-9)
     }
 
+    // MARK: Face cues
+
+    /// Tongue out: a tongue share of 0.6 reads as tongueOut 1 against fixed values (0.3 only as 0.4, not clear).
+    private let tongueShape = FaceShape(tongue: 0.6)
+
+    /// A pack item (no own bonus) whose `faceShape` shows `tongue` (nil: no shape).
+    private func cueItem(_ name: String, face: FaceFeatures?, tongue: Double?, intensity: Double) -> LibraryItem {
+        var item = makeItem(name: name, kind: .pack, face: face, intensity: intensity)
+        item.faceShape = tongue.map { FaceShape(tongue: $0) }
+        return item
+    }
+
+    func testATongueOutQueryPrefersMemesShowingATongue() {
+        let openMouth = makeFace(mouth: 0.35)
+        let target = intensity(openMouth)
+        // The tongue meme's mouth is a little less open, so by the seven numbers alone the plain open mouth wins. (Its
+        // name has none of the cue's words, so only its shape counts.)
+        let tongue = cueItem("showing", face: makeFace(mouth: 0.2), tongue: 0.5, intensity: target)
+        let plain = cueItem("plain", face: openMouth, tongue: 0.05, intensity: target)
+        let unread = cueItem("unread", face: openMouth, tongue: nil, intensity: target)
+
+        let plainQuery = ExpressionSample(face: openMouth, timestamp: 0)
+        XCTAssertEqual(names(ranker.rank([tongue, plain], query: .expression(plainQuery, weights: .uniform))), ["plain", "showing"])
+
+        let tongueQuery = ExpressionSample(face: openMouth, shape: tongueShape, timestamp: 0)
+        let results = ranker.rank([plain, unread, tongue], query: .expression(tongueQuery, weights: .uniform))
+        XCTAssertEqual(names(results), ["showing", "unread", "plain"])
+        // v = 0.45 × 1; face similarity 29/30 (mouth 0.9) for the tongue, 1 for the others; pose 1; fit 1:
+        // 0.7 × (0.85 × 0.55 × face + 0.15 + 0.85 × 0.45 × cue) + 0.3 with cue 1, unknown 0.5, 0.
+        let tongueFace: Double = 29.0 / 30.0
+        XCTAssertEqual(results[0].score, 0.7 * (0.4675 * tongueFace + 0.15 + 0.3825) + 0.3, accuracy: 1e-9)
+        XCTAssertEqual(results[1].score, 0.866125, accuracy: 1e-9)
+        XCTAssertEqual(results[2].score, 0.73225, accuracy: 1e-9)
+    }
+
+    func testATongueOutQueryPrefersMemesNamedForIt() {
+        let openMouth = makeFace(mouth: 0.35)
+        let target = intensity(openMouth)
+        let cat = cueItem("cat", face: openMouth, tongue: nil, intensity: target)
+        let named = cueItem("Tongue out", face: openMouth, tongue: nil, intensity: target)
+        var tagged = cueItem("dog", face: openMouth, tongue: nil, intensity: target)
+        tagged.labels = ["BLEP"]
+        let tongueQuery = ExpressionSample(face: openMouth, shape: tongueShape, timestamp: 0)
+
+        let catScore = ranker.expressionScore(item: cat, sample: tongueQuery, weights: .uniform)
+        XCTAssertEqual(ranker.expressionScore(item: named, sample: tongueQuery, weights: .uniform) - catScore, 0.05, accuracy: 1e-9)
+        XCTAssertEqual(ranker.expressionScore(item: tagged, sample: tongueQuery, weights: .uniform) - catScore, 0.05, accuracy: 1e-9)
+        XCTAssertEqual(names(ranker.rank([cat, named], query: .expression(tongueQuery, weights: .uniform))), ["Tongue out", "cat"])
+        // A meme without a readable face too: 0.25 + 0.3 × fit + 0.05.
+        let faceless = cueItem("tongue out gif", face: nil, tongue: nil, intensity: 0.5)
+        XCTAssertEqual(ranker.expressionScore(item: faceless, sample: tongueQuery, weights: .uniform),
+                       0.25 + 0.3 * (1 - abs(0.5 - target)) + 0.05, accuracy: 1e-9)
+        // Without the cue the name doesn't count.
+        let plainQuery = ExpressionSample(face: openMouth, timestamp: 0)
+        XCTAssertEqual(ranker.expressionScore(item: named, sample: plainQuery, weights: .uniform),
+                       ranker.expressionScore(item: cat, sample: plainQuery, weights: .uniform))
+    }
+
+    func testWithoutAClearCueScoresAreUnchanged() {
+        let openMouth = makeFace(mouth: 0.35)
+        let target = intensity(openMouth)
+        let items = [cueItem("tongue out", face: makeFace(mouth: 0.2), tongue: 0.5, intensity: target),
+                     cueItem("plain", face: openMouth, tongue: 0.05, intensity: target),
+                     cueItem("faceless", face: nil, tongue: nil, intensity: 0.5)]
+        let plainQuery = ExpressionSample(face: openMouth, timestamp: 0)
+        // A little tongue (0.4) isn't a clear cue; nor is 0.6 for someone whose resting face already reads 0.55.
+        let littleTongue = ExpressionSample(face: openMouth, shape: FaceShape(tongue: 0.3), timestamp: 0)
+        let tongueQuery = ExpressionSample(face: openMouth, shape: tongueShape, timestamp: 0)
+        let rested = Ranker(baseline: RestingBaseline(restShape: FaceShape(tongue: 0.55)))
+        for item in items {
+            let plain = ranker.expressionScore(item: item, sample: plainQuery, weights: .uniform)
+            XCTAssertEqual(ranker.expressionScore(item: item, sample: littleTongue, weights: .uniform), plain, item.displayName)
+            XCTAssertEqual(rested.expressionScore(item: item, sample: tongueQuery, weights: .uniform), plain, item.displayName)
+        }
+    }
+
+    func testCueWordsInNamesTextAndLabels() {
+        XCTAssertTrue(Ranker.mentions(.tongueOut, in: makeItem(name: "dog blep")))
+        XCTAssertTrue(Ranker.mentions(.wink, in: makeItem(name: "x", text: "WINKING")))
+        XCTAssertTrue(Ranker.mentions(.raisedBrow, in: makeItem(name: "Raised Eyebrows")))
+        XCTAssertTrue(Ranker.mentions(.pucker, in: makeItem(name: "kissy face")))
+        XCTAssertTrue(Ranker.mentions(.smirk, in: makeItem(name: "x", labels: ["smirking"])))
+        XCTAssertTrue(Ranker.mentions(.eyeRoll, in: makeItem(name: "Rolling eyes")))
+        XCTAssertFalse(Ranker.mentions(.eyeRoll, in: makeItem(name: "roll safe")))
+        XCTAssertFalse(Ranker.mentions(.wink, in: makeItem(name: "cat", source: "wink folder")))
+    }
+
     // MARK: Text
 
     /// A small library spanning months, kinds and tiers.

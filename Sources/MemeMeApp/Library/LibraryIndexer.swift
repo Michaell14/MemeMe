@@ -44,6 +44,8 @@ struct IndexBatch: Identifiable, Equatable {
     private var resumeTask: Task<Void, Never>?
     /// Measures again the poses of items analyzed before poses were described in detail (see `refreshPoses`).
     private var poseTask: Task<Void, Never>?
+    /// Reads again the faces of items analyzed before faces were measured in their own frame (see `refreshFaces`).
+    private var faceTask: Task<Void, Never>?
     private var lastSave = Date.distantPast
     private var lastNotify = Date.distantPast
     private var hasUnsavedChanges = false
@@ -56,8 +58,9 @@ struct IndexBatch: Identifiable, Equatable {
     private static let deferredRetryNanoseconds: UInt64 = 10_000_000_000
     /// Scans with at least this many new files report progress (isIndexing) even when the user didn't ask.
     private static let busyThreshold = 10
-    /// The pose pass saves this seldom: it changes nothing a search shows at once, and the library file is large.
-    private static let poseSaveInterval: TimeInterval = 60
+    /// The pose and face passes save this seldom: they change nothing a search shows at once, and the library file is
+    /// large.
+    private static let passSaveInterval: TimeInterval = 60
 
     init(store: LibraryStore) {
         self.store = store
@@ -98,6 +101,8 @@ struct IndexBatch: Identifiable, Equatable {
         resumeTask = nil
         poseTask?.cancel()
         poseTask = nil
+        faceTask?.cancel()
+        faceTask = nil
         cancelScan()
         scanQueue.removeAll()
         activeBatch = nil
@@ -386,8 +391,9 @@ struct IndexBatch: Identifiable, Equatable {
     private func startScanIfNeeded() {
         guard scanTask == nil, !isCollectingPaused else { return }
         guard !scanQueue.isEmpty else {
-            // Nothing to scan: catch up on older items' poses.
+            // Nothing to scan: catch up on older items' poses, then their faces.
             startPoseRefreshIfNeeded()
+            startFaceRefreshIfNeeded()
             return
         }
         scanGeneration += 1
@@ -644,7 +650,7 @@ struct IndexBatch: Identifiable, Equatable {
             current.poseRevision = LibraryItem.currentPoseRevision
             store.update(current)
             changed = true
-            if Date().timeIntervalSince(lastPoseSave) >= LibraryIndexer.poseSaveInterval {
+            if Date().timeIntervalSince(lastPoseSave) >= LibraryIndexer.passSaveInterval {
                 lastPoseSave = Date()
                 saveNow()
                 changed = false
@@ -655,6 +661,89 @@ struct IndexBatch: Identifiable, Equatable {
         }
         if !Task.isCancelled {
             poseTask = nil
+            // The poses are done (or a scan or a pause stopped them, and the face pass waits too).
+            startFaceRefreshIfNeeded()
+        }
+    }
+
+    // MARK: - Face pass
+
+    /// Your memes and stickers whose face was read by an older analysis (`LibraryItem.currentFaceRevision`) that can be
+    /// read again.
+    static func needsFaceRefresh(_ item: LibraryItem) -> Bool {
+        (item.kind == .mine || item.kind == .friend) && item.tier != .skipped
+            && item.faceRevision < LibraryItem.currentFaceRevision
+    }
+
+    /// `item` after the face pass read `face`, `shape` and `intensity` from its file, at the current revision. A sticker
+    /// keeps the face it was measured with on its source photo (its file is a cut-out, often too small for landmarks),
+    /// and no item trades a face it had for none: those take only the shape, when one was read.
+    static func applyingFaceReading(_ item: LibraryItem, face: FaceFeatures?, shape: FaceShape?, intensity: Double) -> LibraryItem {
+        var updated = item
+        if item.isSticker || (face == nil && item.face != nil) {
+            if let shape {
+                updated.faceShape = shape
+            }
+        } else {
+            updated.face = face
+            updated.faceShape = shape
+            updated.intensity = intensity
+        }
+        updated.faceRevision = LibraryItem.currentFaceRevision
+        return updated
+    }
+
+    /// Starts after the pose pass, never beside it or a scan.
+    private func startFaceRefreshIfNeeded() {
+        guard faceTask == nil, poseTask == nil, scanTask == nil, !isCollectingPaused else { return }
+        let pending = store.items.filter(LibraryIndexer.needsFaceRefresh).map(\.id)
+        guard !pending.isEmpty else { return }
+        faceTask = Task(priority: .background) { [weak self] in
+            await self?.refreshFaces(pending)
+        }
+    }
+
+    /// One image at a time, in the background: reads the face again (features, shape, intensity) and keeps everything
+    /// else. Stops for a scan, the pose pass (a scan's end can start it while this one waits on an image) or a pause
+    /// (the scan's or the pose pass's end starts it again) and waits while the Mac is in Low Power Mode or hot. A file
+    /// that can't be read keeps its old face, so it isn't tried on every launch.
+    private func refreshFaces(_ ids: [UUID]) async {
+        var lastFaceSave = Date()
+        var changed = false
+        var index = 0
+        while index < ids.count, !Task.isCancelled, scanTask == nil, poseTask == nil, !isCollectingPaused {
+            if SystemConditions.shouldDeferBackgroundWork {
+                try? await Task.sleep(nanoseconds: LibraryIndexer.deferredRetryNanoseconds)
+                continue
+            }
+            let id = ids[index]
+            index += 1
+            guard let item = store.item(id: id), LibraryIndexer.needsFaceRefresh(item) else { continue }
+            let url = item.fileURL
+            let reading = await Task.detached(priority: .background) {
+                ImageAnalyzer.analyzeFace(url: url)
+            }.value
+            guard !Task.isCancelled else { break }
+            // The file may have changed (and been analyzed afresh) meanwhile.
+            guard var current = store.item(id: id), current.fileURL == url, LibraryIndexer.needsFaceRefresh(current) else { continue }
+            if case let .read(face, shape, intensity) = reading {
+                current = LibraryIndexer.applyingFaceReading(current, face: face, shape: shape, intensity: intensity)
+            } else {
+                current.faceRevision = LibraryItem.currentFaceRevision
+            }
+            store.update(current)
+            changed = true
+            if Date().timeIntervalSince(lastFaceSave) >= LibraryIndexer.passSaveInterval {
+                lastFaceSave = Date()
+                saveNow()
+                changed = false
+            }
+        }
+        if changed {
+            saveNow()
+        }
+        if !Task.isCancelled {
+            faceTask = nil
         }
     }
 
@@ -968,6 +1057,8 @@ private enum IndexWork {
         if tier != .skipped, let analysis = analysis {
             item.sourceDetail = ImageAnalyzer.downloadedFromHost(url: file.url).map { "from " + $0 }
             item.face = analysis.face
+            item.faceShape = analysis.faceShape
+            item.faceRevision = LibraryItem.currentFaceRevision
             item.pose = analysis.pose
             item.poseRevision = LibraryItem.currentPoseRevision
             item.intensity = analysis.intensity
@@ -1053,7 +1144,9 @@ private enum KeepWork {
                 featurePrint: analysis.featurePrint,
                 featurePrintRevision: analysis.featurePrintRevision,
                 text: analysis.text,
-                labels: analysis.labels
+                labels: analysis.labels,
+                faceShape: analysis.faceShape,
+                faceRevision: LibraryItem.currentFaceRevision
             )
             return .item(item)
         } catch {

@@ -9,8 +9,21 @@ final class PeakHoldTrackerTests: XCTestCase {
     }
 
     /// Frame `step` of a 10 fps stream (timestamp = step / 10 s).
-    private func frame(_ face: FaceFeatures?, _ step: Int, sharpness: Double = 1, pose: PoseFeatures? = nil) -> ExpressionSample {
-        ExpressionSample(face: face, pose: pose, timestamp: Double(step) / 10, sharpness: sharpness)
+    private func frame(_ face: FaceFeatures?, _ step: Int, sharpness: Double = 1, pose: PoseFeatures? = nil,
+                       shape: FaceShape? = nil) -> ExpressionSample {
+        ExpressionSample(face: face, pose: pose, shape: shape, timestamp: Double(step) / 10, sharpness: sharpness)
+    }
+
+    /// A resting mouth's shape: a little lip color under the lower lip, the lip 0.1 eye distances thick.
+    private let restingMouth = FaceShape(lowerLip: 0.1, tongue: 0.05)
+    /// The tongue out over it: (0.3 − 0.05 − 0.12) / 0.25 = 0.52, + 0.3 for the lower lip twice as thick = 0.82.
+    private let tongueOut = FaceShape(lowerLip: 0.2, tongue: 0.3)
+
+    /// Calm frames (the resting face) on `steps`.
+    private func relax(_ tracker: PeakHoldTracker, _ steps: ClosedRange<Int>, file: StaticString = #filePath, line: UInt = #line) {
+        for step in steps {
+            XCTAssertFalse(tracker.ingest(frame(TestFaces.neutral, step)), "step \(step)", file: file, line: line)
+        }
     }
 
     /// Holds the surprise face on steps 1...4; it becomes the query on step 4 (0.3 s after step 1).
@@ -26,6 +39,8 @@ final class PeakHoldTrackerTests: XCTestCase {
         let config = PeakHoldConfig()
         XCTAssertEqual(config.holdDuration, 0.3)
         XCTAssertEqual(config.newExpressionHold, 1.0)
+        XCTAssertEqual(config.newFaceHold, 0.6)
+        XCTAssertEqual(config.rearmAfterCalm, 0.4)
         XCTAssertEqual(config.strongerRatio, 1.15)
         XCTAssertEqual(config.sameDirectionCosine, 0.85)
         XCTAssertEqual(config.minimumIntensity, 0.12)
@@ -93,23 +108,23 @@ final class PeakHoldTrackerTests: XCTestCase {
         XCTAssertEqual(tracker.query?.sharpness, 1.0)
     }
 
-    func testADifferentExpressionMustBeHeldForOneSecond() {
+    func testADifferentFaceMustBeHeldForSixTenthsOfASecond() {
         let tracker = makeTracker()
         establishSurprise(tracker)
 
         XCTAssertFalse(tracker.ingest(frame(TestFaces.smile, 5)))
         XCTAssertTrue(tracker.candidateIsNewExpression)
         XCTAssertEqual(tracker.holdProgress, 0, accuracy: 1e-9)
-        for step in 6...14 {
+        for step in 6...10 {
             XCTAssertFalse(tracker.ingest(frame(TestFaces.smile, step)), "step \(step)")
             XCTAssertTrue(tracker.candidateIsNewExpression, "step \(step)")
             XCTAssertEqual(tracker.query?.face, TestFaces.surprise, "step \(step)")
         }
-        XCTAssertEqual(tracker.holdProgress, 0.9, accuracy: 1e-6)
+        XCTAssertEqual(tracker.holdProgress, 0.5 / 0.6, accuracy: 1e-6)
 
-        XCTAssertTrue(tracker.ingest(frame(TestFaces.smile, 15)))
+        XCTAssertTrue(tracker.ingest(frame(TestFaces.smile, 11)))
         XCTAssertEqual(tracker.query?.face, TestFaces.smile)
-        XCTAssertEqual(tracker.query?.timestamp, 1.5)
+        XCTAssertEqual(tracker.query?.timestamp, 1.1)
         XCTAssertEqual(tracker.queryIntensity, RestingBaseline().intensity(of: TestFaces.smile), accuracy: 1e-12)
         XCTAssertFalse(tracker.candidateIsNewExpression)
         XCTAssertEqual(tracker.holdProgress, 0)
@@ -118,12 +133,12 @@ final class PeakHoldTrackerTests: XCTestCase {
     func testThePeakIsChosenFromTheLastHalfSecondOnly() {
         let tracker = makeTracker()
         establishSurprise(tracker)
-        // The first smile frame is the sharpest, but it is more than 0.5 s old when the hold completes.
-        for step in 10...19 {
+        // The first smile frame is the sharpest, but it is more than 0.5 s old when the hold completes (0.6 s).
+        for step in 10...15 {
             XCTAssertFalse(tracker.ingest(frame(TestFaces.smile, step, sharpness: step == 10 ? 1 : 0.5)), "step \(step)")
         }
-        XCTAssertTrue(tracker.ingest(frame(TestFaces.smile, 20, sharpness: 0.5)))
-        XCTAssertEqual(tracker.query?.timestamp, 2.0)
+        XCTAssertTrue(tracker.ingest(frame(TestFaces.smile, 16, sharpness: 0.5)))
+        XCTAssertEqual(tracker.query?.timestamp, 1.6)
         XCTAssertEqual(tracker.query?.sharpness, 0.5)
     }
 
@@ -174,15 +189,15 @@ final class PeakHoldTrackerTests: XCTestCase {
         XCTAssertEqual(tracker.queryIntensity, 0)
         XCTAssertFalse(tracker.snap())                         // already the query
 
-        // Any expression now differs from the deadpan query, so it needs the long hold.
+        // Any expression now differs from the deadpan query, so it needs a new face's hold (0.6 s).
         XCTAssertFalse(tracker.ingest(frame(TestFaces.surprise, 2)))
         XCTAssertTrue(tracker.candidateIsNewExpression)
-        for step in 3...11 {
+        for step in 3...7 {
             XCTAssertFalse(tracker.ingest(frame(TestFaces.surprise, step)), "step \(step)")
         }
-        XCTAssertTrue(tracker.ingest(frame(TestFaces.surprise, 12)))
+        XCTAssertTrue(tracker.ingest(frame(TestFaces.surprise, 8)))
         XCTAssertEqual(tracker.query?.face, TestFaces.surprise)
-        XCTAssertEqual(tracker.query?.timestamp, 1.2)
+        XCTAssertEqual(tracker.query?.timestamp, 0.8)
     }
 
     func testSnapUsesTheLastFrameThatHadAFace() {
@@ -298,6 +313,206 @@ final class PeakHoldTrackerTests: XCTestCase {
         }
         XCTAssertTrue(tracker.ingest(frame(TestFaces.smile, 9)))
         XCTAssertEqual(tracker.query?.face, TestFaces.smile)
+    }
+
+    // MARK: Face cues
+
+    func testATongueOutStartsASearchAfterTheShortHold() throws {
+        // The seven numbers barely move (intensity ≈ 0.038, under the gate); the tongue cue 0.82 against the resting
+        // shape makes the frame's intensity 0.8 × 0.82.
+        let tracker = PeakHoldTracker(baseline: RestingBaseline(sampleCount: 100, restShape: restingMouth))
+        let face = makeFace(mouth: 0.1)
+        XCTAssertFalse(tracker.ingest(frame(TestFaces.neutral, 0, shape: restingMouth)))
+        for step in 1...3 {
+            XCTAssertFalse(tracker.ingest(frame(face, step, shape: tongueOut)), "step \(step)")
+        }
+        XCTAssertTrue(tracker.ingest(frame(face, 4, shape: tongueOut)))
+        let query = try XCTUnwrap(tracker.query)
+        XCTAssertEqual(query.shape, tongueOut)
+        XCTAssertEqual(tracker.queryIntensity, 0.656, accuracy: 1e-9)
+        XCTAssertEqual(MoodClassifier.mood(for: query.face, pose: query.pose, shape: query.shape, baseline: tracker.baseline),
+                       .tongueOut)
+
+        // The same face without its shape is never held.
+        let blind = makeTracker()
+        for step in 1...10 {
+            XCTAssertFalse(blind.ingest(frame(face, step)), "step \(step)")
+            XCTAssertNil(blind.candidate, "step \(step)")
+        }
+        XCTAssertNil(blind.query)
+    }
+
+    func testCalmFramesTeachTheRestingShapeAndATongueOutBarelyMovesIt() {
+        let tracker = makeTracker()
+        XCTAssertFalse(tracker.ingest(frame(TestFaces.neutral, 1, shape: restingMouth)))
+        XCTAssertEqual(tracker.baseline.restShape, restingMouth)
+        XCTAssertEqual(tracker.baseline.sampleCount, 101)
+        XCTAssertFalse(tracker.ingest(frame(TestFaces.neutral, 2, shape: tongueOut)))
+        XCTAssertEqual(tracker.baseline.restShape?.tongue ?? 0, 0.0525, accuracy: 1e-12)       // 0.05 + 0.01 × 0.25
+        XCTAssertEqual(tracker.baseline.restShape?.lowerLip ?? 0, 0.101, accuracy: 1e-12)      // 0.1 + 0.01 × 0.1
+        XCTAssertEqual(tracker.baseline.sampleCount, 102)
+    }
+
+    func testATongueOutOnAHeldSmileIsANewExpression() {
+        let tracker = PeakHoldTracker(baseline: RestingBaseline(sampleCount: 100, restShape: restingMouth))
+        for step in 1...3 {
+            XCTAssertFalse(tracker.ingest(frame(TestFaces.smile, step, shape: restingMouth)), "step \(step)")
+        }
+        XCTAssertTrue(tracker.ingest(frame(TestFaces.smile, 4, shape: restingMouth)))
+
+        // Still smiling, tongue out: a new expression of the face, held for 0.6 s.
+        XCTAssertFalse(tracker.ingest(frame(TestFaces.smile, 5, shape: tongueOut)))
+        XCTAssertTrue(tracker.candidateIsNewExpression)
+        for step in 6...10 {
+            XCTAssertFalse(tracker.ingest(frame(TestFaces.smile, step, shape: tongueOut)), "step \(step)")
+            XCTAssertTrue(tracker.candidateIsNewExpression, "step \(step)")
+            XCTAssertEqual(tracker.query?.shape, restingMouth, "step \(step)")
+        }
+        XCTAssertEqual(tracker.holdProgress, 0.5 / 0.6, accuracy: 1e-6)
+        XCTAssertTrue(tracker.ingest(frame(TestFaces.smile, 11, shape: tongueOut)))
+        XCTAssertEqual(tracker.query?.shape, tongueOut)
+        XCTAssertEqual(tracker.query?.timestamp, 1.1)
+        XCTAssertEqual(tracker.queryIntensity, 0.656, accuracy: 1e-9)
+    }
+
+    func testAClearCueOnAStrongHeldFaceIsANewExpression() {
+        // A smirk (0.6 against the fixed values) on a strong surprise: the direction barely moves (cosine ≈ 0.90) and
+        // the intensity stays the face's, so only the cue tells it apart.
+        let smirk = FaceShape(cornerTilt: 0.13)
+        let tracker = makeTracker()
+        for step in 1...3 {
+            XCTAssertFalse(tracker.ingest(frame(TestFaces.strongSurprise, step)), "step \(step)")
+        }
+        XCTAssertTrue(tracker.ingest(frame(TestFaces.strongSurprise, 4)))
+        for step in 5...10 {
+            XCTAssertFalse(tracker.ingest(frame(TestFaces.strongSurprise, step, shape: smirk)), "step \(step)")
+            XCTAssertTrue(tracker.candidateIsNewExpression, "step \(step)")
+        }
+        XCTAssertTrue(tracker.ingest(frame(TestFaces.strongSurprise, 11, shape: smirk)))
+        XCTAssertEqual(tracker.query?.shape, smirk)
+
+        // The query's own cue on the same face, even a stronger one (1), is the same expression, not 15 % stronger.
+        for step in 12...30 {
+            XCTAssertFalse(tracker.ingest(frame(TestFaces.strongSurprise, step, shape: FaceShape(cornerTilt: 0.2))), "step \(step)")
+            XCTAssertEqual(tracker.holdProgress, 0, "step \(step)")
+            XCTAssertFalse(tracker.candidateIsNewExpression, "step \(step)")
+        }
+        XCTAssertEqual(tracker.query?.timestamp, 1.1)
+    }
+
+    // MARK: Relaxing in between
+
+    func testRelaxingFirstLetsTheNextFaceReplaceAfterTheShortHold() {
+        let tracker = makeTracker()
+        establishSurprise(tracker)
+        // Calm for 0.4 s (steps 5...9), then a smile: it replaces the query after 0.3 s, as the first one did.
+        relax(tracker, 5...9)
+        for step in 10...12 {
+            XCTAssertFalse(tracker.ingest(frame(TestFaces.smile, step)), "step \(step)")
+            XCTAssertTrue(tracker.candidateIsNewExpression, "step \(step)")
+        }
+        XCTAssertEqual(tracker.holdProgress, 2.0 / 3.0, accuracy: 1e-6)
+        XCTAssertTrue(tracker.ingest(frame(TestFaces.smile, 13)))
+        XCTAssertEqual(tracker.query?.face, TestFaces.smile)
+        XCTAssertEqual(tracker.query?.timestamp, 1.3)
+
+        // A new query needs the face to relax again: the next face straight after it is held for 0.6 s.
+        for step in 14...19 {
+            XCTAssertFalse(tracker.ingest(frame(TestFaces.surprise, step)), "step \(step)")
+        }
+        XCTAssertTrue(tracker.ingest(frame(TestFaces.surprise, 20)))
+        XCTAssertEqual(tracker.query?.face, TestFaces.surprise)
+    }
+
+    func testRelaxingTooBrieflyKeepsANewFacesHold() {
+        let tracker = makeTracker()
+        establishSurprise(tracker)
+        relax(tracker, 5...8)      // 0.3 s
+        for step in 9...14 {
+            XCTAssertFalse(tracker.ingest(frame(TestFaces.smile, step)), "step \(step)")
+        }
+        XCTAssertTrue(tracker.ingest(frame(TestFaces.smile, 15)))
+        XCTAssertEqual(tracker.query?.timestamp, 1.5)
+    }
+
+    func testRelaxingDoesntMakeTheSameFaceNewAndLastsUntilTheNextQuery() {
+        let tracker = makeTracker()
+        establishSurprise(tracker)
+        relax(tracker, 5...9)
+        // The same face again, no stronger: still ignored.
+        for step in 10...19 {
+            XCTAssertFalse(tracker.ingest(frame(TestFaces.surprise, step)), "step \(step)")
+            XCTAssertEqual(tracker.holdProgress, 0, "step \(step)")
+            XCTAssertFalse(tracker.candidateIsNewExpression, "step \(step)")
+        }
+        XCTAssertEqual(tracker.query?.timestamp, 0.4)
+        // Holding it didn't use up the relaxing: a smile after it still needs only 0.3 s.
+        for step in 20...22 {
+            XCTAssertFalse(tracker.ingest(frame(TestFaces.smile, step)), "step \(step)")
+        }
+        XCTAssertTrue(tracker.ingest(frame(TestFaces.smile, 23)))
+        XCTAssertEqual(tracker.query?.timestamp, 2.3)
+    }
+
+    func testSnapNeedsTheFaceToRelaxAgain() {
+        let tracker = makeTracker()
+        establishSurprise(tracker)
+        relax(tracker, 5...9)
+        XCTAssertTrue(tracker.snap())
+        XCTAssertEqual(tracker.query?.timestamp, 0.9)
+        for step in 10...15 {
+            XCTAssertFalse(tracker.ingest(frame(TestFaces.surprise, step)), "step \(step)")
+        }
+        XCTAssertTrue(tracker.ingest(frame(TestFaces.surprise, 16)))
+        XCTAssertEqual(tracker.query?.face, TestFaces.surprise)
+    }
+
+    func testTalkingNeverReplacesTheQuery() {
+        let tracker = makeTracker()
+        establishSurprise(tracker)
+        let open = makeFace(mouth: 0.35)      // intensity ≈ 0.227
+        // Relaxed long enough to re-arm, then talking: the mouth open for three frames at most, closed in between.
+        relax(tracker, 5...9)
+        for step in 10...60 {
+            XCTAssertFalse(tracker.ingest(frame(step % 4 == 0 ? TestFaces.neutral : open, step)), "step \(step)")
+        }
+        XCTAssertEqual(tracker.query?.face, TestFaces.surprise)
+        XCTAssertEqual(tracker.query?.timestamp, 0.4)
+    }
+
+    func testANewGestureIsHeldForASecondUnlessTheFaceRelaxedFirst() {
+        let celebrating = TestPoses.features(TestPoses.both(TestPoses.up))
+        let facepalm = TestPoses.features(TestPoses.body(left: TestPoses.onFace, right: TestPoses.rest.otherSide))
+        let resting = TestPoses.features(TestPoses.both(TestPoses.rest))
+
+        // Arms up, then straight into a facepalm hiding the face: a gesture after a gesture, held for a second.
+        let tracker = makeTracker()
+        for step in 1...3 {
+            XCTAssertFalse(tracker.ingest(frame(TestFaces.neutral, step, pose: celebrating)), "step \(step)")
+        }
+        XCTAssertTrue(tracker.ingest(frame(TestFaces.neutral, 4, pose: celebrating)))
+        for step in 5...14 {
+            XCTAssertFalse(tracker.ingest(frame(nil, step, pose: facepalm)), "step \(step)")
+            XCTAssertTrue(tracker.candidateIsNewExpression, "step \(step)")
+        }
+        XCTAssertEqual(tracker.holdProgress, 0.9, accuracy: 1e-6)
+        XCTAssertTrue(tracker.ingest(frame(nil, 15, pose: facepalm)))
+        XCTAssertEqual(tracker.query?.pose, facepalm)
+
+        // Arms down and the face calm for 0.4 s first: the facepalm replaces the query after 0.3 s.
+        let relaxed = makeTracker()
+        for step in 1...3 {
+            XCTAssertFalse(relaxed.ingest(frame(TestFaces.neutral, step, pose: celebrating)), "step \(step)")
+        }
+        XCTAssertTrue(relaxed.ingest(frame(TestFaces.neutral, 4, pose: celebrating)))
+        for step in 5...9 {
+            XCTAssertFalse(relaxed.ingest(frame(TestFaces.neutral, step, pose: resting)), "step \(step)")
+        }
+        for step in 10...12 {
+            XCTAssertFalse(relaxed.ingest(frame(nil, step, pose: facepalm)), "step \(step)")
+        }
+        XCTAssertTrue(relaxed.ingest(frame(nil, 13, pose: facepalm)))
+        XCTAssertEqual(relaxed.query?.pose, facepalm)
     }
 
     func testCustomConfiguration() {

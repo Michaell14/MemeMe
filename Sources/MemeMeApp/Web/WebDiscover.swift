@@ -49,7 +49,8 @@ enum WebQuery: Hashable, Sendable {
 /// never stored on disk. A query's results are reused for 10 minutes in memory, images load from GIPHY's URLs
 /// through ordinary HTTP caching, and full GIFs go to short-lived files only so they can be copied or dragged into
 /// a chat. A search starts as soon as the mood is clear (`warm`). Searches are rate-limited (90 per rolling hour,
-/// persisted).
+/// persisted). Each search asks for 24 results (GIPHY counts searches, not results), so the row can show a mood's next
+/// GIFs (`page`) without searching again.
 @MainActor final class WebDiscover: ObservableObject {
     /// What Web Discover can do right now, for the menu.
     enum Status: Equatable {
@@ -161,6 +162,16 @@ enum WebQuery: Hashable, Sendable {
 
     func cachedGIFs(for mood: Mood) -> [WebGIF]? {
         cachedGIFs(for: .mood(mood))
+    }
+
+    /// The `page`th group of `size` of a query's GIFs (GIPHY's order), so the same mood caught again shows others:
+    /// page 0 is the first `size`, page 1 the next `size`, and so on, wrapping around to the start when they run out.
+    /// A negative page is page 0; with `size` GIFs or fewer, every page is all of them in order.
+    static func page(_ page: Int, of gifs: [WebGIF], size: Int) -> [WebGIF] {
+        guard size > 0, !gifs.isEmpty else { return [] }
+        let count = min(size, gifs.count)
+        let start = (max(0, page) % gifs.count) * count % gifs.count
+        return (0..<count).map { gifs[(start + $0) % gifs.count] }
     }
 
     /// GIPHY's results for `query`, in GIPHY's order: from the last 10 minutes at once, else from the running
@@ -565,8 +576,9 @@ private enum WebFetchError: Error {
 }
 
 private enum WebFetcher {
-    /// Results asked of GIPHY; the row shows the first of them.
-    static let resultLimit = 10
+    /// Results asked of GIPHY: four rows' worth, so a mood caught again shows other GIFs without another search (GIPHY
+    /// counts searches, not results).
+    static let resultLimit = 24
     /// A failed search is tried once more after this, unless GIPHY refused it.
     static let searchRetryDelayNanoseconds: UInt64 = 500_000_000
     /// Files for copying and dragging are deleted after this.

@@ -265,8 +265,16 @@ struct MoodReadout: Equatable {
     private var giphyTask: Task<Void, Never>?
     private var giphyGeneration = 0
     private var giphyWordsTask: Task<Void, Never>?
+    /// Every GIF GIPHY gave for `giphyQuery`, in its order; the row shows `giphyPage`'s `Theme.columns` of them.
+    private var giphyFound: [WebGIF] = []
+    /// Which of `giphyFound` the row shows (`WebDiscover.page`): a new face caught with the same mood turns to the
+    /// next ones. 0 for each new query and each time the panel opens.
+    private var giphyPage = 0
     private var templateTask: Task<Void, Never>?
     private var templateGeneration = 0
+    /// Which of the mood's templates the classic memes row shows (`MemeTemplateCatalog.pick(for:from:limit:page:)`),
+    /// turned like `giphyPage`.
+    private var templatePage = 0
     private var cleanupTask: Task<Void, Never>?
     private var imageTask: Task<Void, Never>?
     private var cameraAccessTask: Task<Void, Never>?
@@ -526,7 +534,7 @@ struct MoodReadout: Equatable {
         guard mode == .live, !showSetupCard, tracker.snap() else { return }
         if holdProgress != 0 { holdProgress = 0 }
         let previousPose = heldPose
-        runExpressionSearch(animate: true)
+        runExpressionSearch(animate: true, newQuery: true)
         notePoseCaught(after: previousPose)
         refreshHint()
     }
@@ -929,7 +937,9 @@ struct MoodReadout: Equatable {
         standingBack.observe(bodyWidth: camera.bodyWidth, at: sample.timestamp)
         let queryChanged = tracker.ingest(sample)
         // Search the web for the expression being held, so its results are in by the time the hold completes.
-        let candidateMood = tracker.candidate.map { MoodClassifier.mood(for: $0.face, pose: $0.pose, baseline: tracker.baseline) }
+        let candidateMood = tracker.candidate.map {
+            MoodClassifier.mood(for: $0.face, pose: $0.pose, shape: $0.shape, baseline: tracker.baseline)
+        }
         if let mood = earlyMood.observe(candidateMood, at: sample.timestamp) {
             web.warm(mood)
         }
@@ -940,7 +950,7 @@ struct MoodReadout: Equatable {
 
         if queryChanged {
             let previousPose = heldPose
-            runExpressionSearch(animate: true)
+            runExpressionSearch(animate: true, newQuery: true)
             notePoseCaught(after: previousPose)
         }
         refreshHint()
@@ -1083,13 +1093,15 @@ struct MoodReadout: Equatable {
 
     /// Face query: mood → weights → your memes ranked at once; the GIPHY row shows GIPHY's results for the mood
     /// (often already searched while the face was being held), the classic memes row the templates for it.
-    private func runExpressionSearch(animate: Bool) {
+    /// `newQuery`: the tracker just caught a new face (or Space snapped one), so web rows already showing its mood turn
+    /// to their next GIFs and templates; re-showing the same face (pins, Esc, library changes) leaves them as they are.
+    private func runExpressionSearch(animate: Bool, newQuery: Bool = false) {
         guard let sample = tracker.query else {
             showRecentResults()
             return
         }
         resultSource = .expression
-        let mood = MoodClassifier.mood(for: sample.face, pose: sample.pose, baseline: tracker.baseline)
+        let mood = MoodClassifier.mood(for: sample.face, pose: sample.pose, shape: sample.shape, baseline: tracker.baseline)
         let badge = PoseBadge.of(sample, baseline: tracker.baseline)
         if heldPose != badge { heldPose = badge }
         switch badge {
@@ -1109,22 +1121,30 @@ struct MoodReadout: Equatable {
         let ranker = Ranker(baseline: tracker.baseline)
         let ranked = ranker.rank(ownItems, query: .expression(sample, weights: weights), people: store.people, limit: limit)
         setResults(ranked, animateNew: animate, resetFocus: true)
-        showGiphy(for: .mood(mood))
-        showTemplates(for: .mood(mood))
+        showGiphy(for: .mood(mood), turningPage: newQuery)
+        showTemplates(for: .mood(mood), turningPage: newQuery)
     }
 
     // MARK: - GIPHY row
 
     /// Shows GIPHY's results for `query` in the GIPHY row: at once when searched in the last 10 minutes, else when
-    /// the search answers. The same query already showing (or loading) is left alone.
-    private func showGiphy(for query: WebQuery) {
+    /// the search answers. The same query already showing (or loading) is left alone, unless `turningPage` (a new face
+    /// caught with the same mood): then the row shows the next `Theme.columns` of GIPHY's results, wrapping around.
+    private func showGiphy(for query: WebQuery, turningPage: Bool = false) {
         guard showsGiphyRow else { return }
-        if query == giphyQuery && (isGiphyLoading || !giphyResults.isEmpty) { return }
+        if query == giphyQuery && (isGiphyLoading || !giphyResults.isEmpty) {
+            if turningPage && !isGiphyLoading && giphyFound.count > Theme.columns {
+                giphyPage += 1
+                showGiphyPage()
+            }
+            return
+        }
         giphyGeneration += 1
         let generation = giphyGeneration
         giphyTask?.cancel()
         giphyTask = nil
         giphyQuery = query
+        giphyPage = 0
         if giphyUnavailable { giphyUnavailable = false }
         if let cached = web.cachedGIFs(for: query) {
             if isGiphyLoading { isGiphyLoading = false }
@@ -1148,8 +1168,15 @@ struct MoodReadout: Equatable {
         }
     }
 
+    /// Keeps all of `gifs` for paging and shows the current page of them.
     private func setGiphyResults(_ gifs: [WebGIF]) {
-        let row = Array(gifs.prefix(Theme.columns))
+        giphyFound = gifs
+        showGiphyPage()
+    }
+
+    /// Shows `giphyPage`'s GIFs of `giphyFound` in the row.
+    private func showGiphyPage() {
+        let row = WebDiscover.page(giphyPage, of: giphyFound, size: Theme.columns)
         if giphyResults != row {
             giphyResults = row
         }
@@ -1166,6 +1193,8 @@ struct MoodReadout: Equatable {
         giphyTask = nil
         giphyWordsTask?.cancel()
         giphyWordsTask = nil
+        giphyFound = []
+        giphyPage = 0
         if !giphyResults.isEmpty { giphyResults = [] }
         if giphyQuery != nil { giphyQuery = nil }
         if isGiphyLoading { isGiphyLoading = false }
@@ -1193,19 +1222,27 @@ struct MoodReadout: Equatable {
     // MARK: - Classic memes row
 
     /// Shows the templates for `query` (picked on the Mac from Imgflip's list): at once from the list kept from
-    /// earlier, else once Imgflip answers. The same query already showing (or loading) is left alone.
-    private func showTemplates(for query: WebQuery) {
+    /// earlier, else once Imgflip answers. The same query already showing (or loading) is left alone, unless
+    /// `turningPage` (a new face caught with the same mood): then the row shows the mood's next templates.
+    private func showTemplates(for query: WebQuery, turningPage: Bool = false) {
         guard showsTemplateRow else { return }
-        if query == templateQuery && (isTemplatesLoading || !templateResults.isEmpty) { return }
+        if query == templateQuery && (isTemplatesLoading || !templateResults.isEmpty) {
+            if turningPage, !isTemplatesLoading, case .mood = query, let list = templates.cachedList {
+                templatePage += 1
+                setTemplateResults(AppModel.pickTemplates(for: query, from: list, page: templatePage))
+            }
+            return
+        }
         templateGeneration += 1
         let generation = templateGeneration
         templateTask?.cancel()
         templateTask = nil
         templateQuery = query
+        templatePage = 0
         if templatesUnavailable { templatesUnavailable = false }
         if let list = templates.cachedList {
             if isTemplatesLoading { isTemplatesLoading = false }
-            setTemplateResults(AppModel.pickTemplates(for: query, from: list))
+            setTemplateResults(AppModel.pickTemplates(for: query, from: list, page: templatePage))
         } else {
             setTemplateResults([])
             isTemplatesLoading = true
@@ -1221,16 +1258,18 @@ struct MoodReadout: Equatable {
                 if self.templateResults.isEmpty { self.templatesUnavailable = true }
                 return
             }
-            self.setTemplateResults(AppModel.pickTemplates(for: query, from: list))
+            self.setTemplateResults(AppModel.pickTemplates(for: query, from: list, page: self.templatePage))
         }
     }
 
-    static func pickTemplates(for query: WebQuery, from list: [MemeTemplate]) -> [MemeTemplate] {
+    /// The classic memes row for `query`: for a mood, its `page`th group of `Theme.columns` templates (page 0 the ones
+    /// made for it, then the most popular; later pages the next ones, wrapping around); for words, the best matches.
+    static func pickTemplates(for query: WebQuery, from list: [MemeTemplate], page: Int = 0) -> [MemeTemplate] {
         let refs = list.map(\.ref)
         let indexes: [Int]
         switch query {
         case let .mood(mood):
-            indexes = MemeTemplateCatalog.pick(for: mood, from: refs, limit: Theme.columns)
+            indexes = MemeTemplateCatalog.pick(for: mood, from: refs, limit: Theme.columns, page: page)
         case let .words(text):
             indexes = MemeTemplateCatalog.pick(forTerms: [text], from: refs, limit: Theme.columns)
         }
@@ -1249,6 +1288,7 @@ struct MoodReadout: Equatable {
         templateGeneration += 1
         templateTask?.cancel()
         templateTask = nil
+        templatePage = 0
         if !templateResults.isEmpty { templateResults = [] }
         if templateQuery != nil { templateQuery = nil }
         if isTemplatesLoading { isTemplatesLoading = false }

@@ -107,5 +107,95 @@ final class BaselineTests: XCTestCase {
         let partial = try JSONDecoder().decode(RestingBaseline.self, from: Data(#"{"sampleCount": 7}"#.utf8))
         XCTAssertEqual(partial.sampleCount, 7)
         XCTAssertEqual(partial.neutral, FaceFeatures.populationNeutral)
+        XCTAssertNil(partial.restShape)
+    }
+
+    func testCalmFramesTeachTheRestingShape() {
+        var baseline = RestingBaseline()
+        let rest = FaceShape(lipWidth: 0.8, lowerLip: 0.1, tongue: 0.05)
+        baseline.observe(TestFaces.neutral, shape: rest)
+        XCTAssertEqual(baseline.restShape, rest)       // the first one is taken as it is
+        XCTAssertEqual(baseline.sampleCount, 1)
+
+        // Then each field moves 0.2 of the way (still warming up); a field the rest lacks is taken, one the frame
+        // lacks stays.
+        baseline.observe(TestFaces.neutral, shape: FaceShape(lipWidth: 0.81, gazeUp: 0.05))
+        XCTAssertEqual(baseline.sampleCount, 2)
+        XCTAssertEqual(baseline.restShape?.lipWidth ?? 0, 0.802, accuracy: 1e-9)      // 0.8 + 0.2 × 0.01
+        XCTAssertEqual(baseline.restShape?.gazeUp ?? 0, 0.05, accuracy: 1e-12)
+        XCTAssertEqual(baseline.restShape?.lowerLip ?? 0, 0.1, accuracy: 1e-12)
+        XCTAssertEqual(baseline.restShape?.tongue ?? 0, 0.05, accuracy: 1e-12)
+        XCTAssertNil(baseline.restShape?.leftEyeOpen)
+
+        // A frame without a shape teaches the seven numbers only.
+        baseline.observe(TestFaces.neutral)
+        XCTAssertEqual(baseline.sampleCount, 3)
+        XCTAssertEqual(baseline.restShape?.lipWidth ?? 0, 0.802, accuracy: 1e-9)
+
+        // Settled: 0.05 of the way.
+        var settled = RestingBaseline(sampleCount: 30, restShape: rest)
+        settled.observe(TestFaces.neutral, shape: FaceShape(lipWidth: 0.82))
+        XCTAssertEqual(settled.restShape?.lipWidth ?? 0, 0.801, accuracy: 1e-9)      // 0.8 + 0.05 × 0.02
+    }
+
+    func testAFrameShowingACueTeachesTheRestOnlySlowly() {
+        // With no rest yet, the first shape is the rest whatever it shows (a wrong one catches up, below).
+        var fresh = RestingBaseline()
+        fresh.observe(TestFaces.neutral, shape: FaceShape(tongue: 0.45))      // tongue out 1 against the fixed value
+        XCTAssertEqual(fresh, RestingBaseline(sampleCount: 1, restShape: FaceShape(tongue: 0.45)))
+
+        // A held tongue (tongue out 0.52) moves the rest only 0.01 of the way.
+        let rest = FaceShape(lowerLip: 0.1, tongue: 0.05)
+        var learned = RestingBaseline(restShape: rest)
+        learned.observe(TestFaces.neutral, shape: FaceShape(lowerLip: 0.1, tongue: 0.3))
+        XCTAssertEqual(learned.sampleCount, 1)
+        XCTAssertEqual(learned.restShape?.tongue ?? 0, 0.0525, accuracy: 1e-12)      // 0.05 + 0.01 × 0.25
+        XCTAssertEqual(learned.restShape?.lowerLip ?? 0, 0.1, accuracy: 1e-12)
+
+        // Under the limit (tongue out (0.21 − 0.0525 − 0.12) / 0.25 = 0.15) is calm: 0.2 of the way (warming up).
+        learned.observe(TestFaces.neutral, shape: FaceShape(lowerLip: 0.1, tongue: 0.21))
+        XCTAssertEqual(learned.sampleCount, 2)
+        XCTAssertEqual(learned.restShape?.tongue ?? 0, 0.084, accuracy: 1e-9)      // 0.0525 + 0.2 × 0.1575
+
+        // A rest that no longer fits (a smirk of 1 on a level face) catches up instead of locking.
+        let level = FaceShape(cornerTilt: 0)
+        var stale = RestingBaseline(sampleCount: 30, restShape: FaceShape(cornerTilt: 0.15))
+        XCTAssertEqual(stale.cues(of: level).clearCue, .smirk)
+        for _ in 0..<200 {
+            stale.observe(TestFaces.neutral, shape: level)
+        }
+        XCTAssertEqual(stale.sampleCount, 230)
+        XCTAssertLessThan(stale.restShape?.cornerTilt ?? 1, 0.01)
+        XCTAssertNil(stale.cues(of: level).clearCue)
+
+        // An expressive face teaches nothing, its shape included.
+        var expressive = RestingBaseline()
+        expressive.observe(makeFace(mouth: 0.55), shape: rest)
+        XCTAssertEqual(expressive, RestingBaseline())
+    }
+
+    func testTheRestingShapeIsSavedAndOldSettingsStillLoad() throws {
+        let baseline = RestingBaseline(neutral: makeFace(brow: 0.5), sampleCount: 42,
+                                       restShape: FaceShape(leftEyeOpen: 0.25, rightEyeOpen: 0.24, lipWidth: 0.8, tongue: 0.05))
+        let data = try JSONEncoder().encode(baseline)
+        XCTAssertEqual(try JSONDecoder().decode(RestingBaseline.self, from: data), baseline)
+
+        // Settings saved before the resting shape existed.
+        let old = Data(#"""
+        {"neutral": {"browRaise": 0.5, "eyeOpenness": 0.45, "mouthOpenness": 0.05, "mouthWidth": 0.45, "smile": 0.5,
+                     "headTilt": 0, "gazeSide": 0.1},
+         "sampleCount": 42}
+        """#.utf8)
+        let decoded = try JSONDecoder().decode(RestingBaseline.self, from: old)
+        XCTAssertEqual(decoded, RestingBaseline(neutral: makeFace(brow: 0.5), sampleCount: 42))
+        XCTAssertNil(decoded.restShape)
+
+        // A resting shape that doesn't decode is dropped; one with a bad field keeps the others.
+        let broken = try JSONDecoder().decode(RestingBaseline.self, from: Data(#"{"sampleCount": 3, "restShape": "x"}"#.utf8))
+        XCTAssertEqual(broken.sampleCount, 3)
+        XCTAssertNil(broken.restShape)
+        let partial = try JSONDecoder().decode(RestingBaseline.self,
+                                               from: Data(#"{"restShape": {"tongue": "x", "lipWidth": 0.8}}"#.utf8))
+        XCTAssertEqual(partial.restShape, FaceShape(lipWidth: 0.8))
     }
 }

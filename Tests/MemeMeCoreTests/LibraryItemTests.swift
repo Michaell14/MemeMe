@@ -44,7 +44,9 @@ final class LibraryItemTests: XCTestCase {
                     previewURL: URL(string: "https://media.giphy.com/media/abc/200w.gif"),
                     attribution: "via GIPHY",
                     timesSent: 3,
-                    lastSentAt: TestDates.september5)
+                    lastSentAt: TestDates.september5,
+                    faceShape: FaceShape(leftEyeOpen: 0.25, rightEyeOpen: 0.05, lipWidth: 0.75, tongue: 0.5),
+                    faceRevision: LibraryItem.currentFaceRevision)
     }
 
     private func jsonObject(_ item: LibraryItem) throws -> [String: Any] {
@@ -60,6 +62,8 @@ final class LibraryItemTests: XCTestCase {
         XCTAssertFalse(item.isSticker)
         XCTAssertFalse(item.isAnimated)
         XCTAssertNil(item.face)
+        XCTAssertNil(item.faceShape)
+        XCTAssertEqual(item.faceRevision, 0)
         XCTAssertEqual(item.intensity, 0)
         XCTAssertEqual(item.featurePrintRevision, 0)
         XCTAssertEqual(item.text, "")
@@ -86,11 +90,56 @@ final class LibraryItemTests: XCTestCase {
 
     func testNilOptionalsAreOmitted() throws {
         let object = try jsonObject(makeItem(name: "plain"))
-        for key in ["sourceDetail", "fileModifiedAt", "face", "pose", "featurePrint", "personID", "faceEmbedding",
-                    "remoteURL", "previewURL", "attribution", "lastSentAt"] {
+        for key in ["sourceDetail", "fileModifiedAt", "face", "faceShape", "pose", "featurePrint", "personID",
+                    "faceEmbedding", "remoteURL", "previewURL", "attribution", "lastSentAt"] {
             XCTAssertNil(object[key], key)
         }
         XCTAssertNotNil(object["timesSent"])
+        XCTAssertEqual(object["faceRevision"] as? Int, 0)
+    }
+
+    func testFaceShapeAndRevisionAreStored() throws {
+        let item = fullItem()
+        let object = try jsonObject(item)
+        let shape = try XCTUnwrap(object["faceShape"] as? [String: Any])
+        XCTAssertEqual(shape["tongue"] as? Double, 0.5)
+        XCTAssertEqual(shape["lipWidth"] as? Double, 0.75)
+        XCTAssertNil(shape["gazeUp"])
+        XCTAssertEqual(object["faceRevision"] as? Int, LibraryItem.currentFaceRevision)
+
+        let decoded = try makeDecoder().decode(LibraryItem.self, from: makeEncoder().encode(item))
+        XCTAssertEqual(decoded.faceShape, FaceShape(leftEyeOpen: 0.25, rightEyeOpen: 0.05, lipWidth: 0.75, tongue: 0.5))
+        XCTAssertEqual(decoded.faceRevision, 1)
+    }
+
+    func testItemsFromBeforeFaceShapesDecodeWithout() throws {
+        // Stored by an earlier version: a face, no shape, no revision.
+        let old = """
+        {"id": "\(UUID().uuidString)", "fileURL": "file:///tmp/a.png", "contentHash": "h",
+         "face": {"browRaise": 0.5, "eyeOpenness": 0.5, "mouthOpenness": 0, "mouthWidth": 0.5, "smile": 0.5,
+                  "headTilt": 0, "gazeSide": 0}}
+        """
+        let item = try makeDecoder().decode(LibraryItem.self, from: Data(old.utf8))
+        XCTAssertNotNil(item.face)
+        XCTAssertNil(item.faceShape)
+        XCTAssertEqual(item.faceRevision, 0)
+
+        // Damaged: a shape that isn't one and a revision that isn't a number fall back; a shape's field of the wrong
+        // type only drops that field.
+        let damaged = """
+        {"id": "\(UUID().uuidString)", "fileURL": "file:///tmp/a.png", "contentHash": "h",
+         "faceShape": "x", "faceRevision": "one"}
+        """
+        let broken = try makeDecoder().decode(LibraryItem.self, from: Data(damaged.utf8))
+        XCTAssertNil(broken.faceShape)
+        XCTAssertEqual(broken.faceRevision, 0)
+        let partly = """
+        {"id": "\(UUID().uuidString)", "fileURL": "file:///tmp/a.png", "contentHash": "h",
+         "faceShape": {"tongue": "x", "lipWidth": 0.75}, "faceRevision": 1}
+        """
+        let partial = try makeDecoder().decode(LibraryItem.self, from: Data(partly.utf8))
+        XCTAssertEqual(partial.faceShape, FaceShape(lipWidth: 0.75))
+        XCTAssertEqual(partial.faceRevision, 1)
     }
 
     func testDecodingMinimalJSONUsesDefaults() throws {
@@ -111,6 +160,8 @@ final class LibraryItemTests: XCTestCase {
         XCTAssertFalse(item.isSticker)
         XCTAssertFalse(item.isAnimated)
         XCTAssertNil(item.face)
+        XCTAssertNil(item.faceShape)
+        XCTAssertEqual(item.faceRevision, 0)
         XCTAssertNil(item.pose)
         XCTAssertEqual(item.intensity, 0)
         XCTAssertNil(item.featurePrint)

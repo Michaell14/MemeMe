@@ -1,7 +1,8 @@
 import Foundation
 
 /// Decides when the mood of an expression that is still being held is clear enough to start its web
-/// search, so results are ready by the time the hold completes (0.3 s, or 1 s for a new expression).
+/// search, so results are ready by the time the hold completes (0.3 s; for a new expression 0.6 s, or
+/// 1 s with a gesture, unless the face relaxed in between).
 ///
 /// A mood counts as clear once every frame for `settleTime` reads the same; it fires once per streak.
 /// Frames with no expression being held (`nil`) end the streak.

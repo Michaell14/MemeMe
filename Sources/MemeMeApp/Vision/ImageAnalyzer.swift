@@ -20,6 +20,8 @@ struct LoadedImage {
 
 struct ImageAnalysis {
     var face: FaceFeatures?
+    /// The same face's details beyond the seven features (`FaceShape`), its tongue read from the frame's colors.
+    var faceShape: FaceShape?
     var pose: PoseFeatures?
     var intensity: Double
     var featurePrint: [Float]?
@@ -36,6 +38,12 @@ struct ImageAnalysis {
 enum PoseReading: Sendable {
     case unreadable
     case read(PoseFeatures?)
+}
+
+/// What the background face pass found in one file: the face as `ImageAnalyzer.analyze` reads it (nil without one).
+enum FaceReading: Sendable {
+    case unreadable
+    case read(face: FaceFeatures?, shape: FaceShape?, intensity: Double)
 }
 
 private let visionLog = Logger(subsystem: "com.mememe.app", category: "vision")
@@ -239,6 +247,7 @@ enum ImageAnalyzer {
 
         return ImageAnalysis(
             face: chosen.face,
+            faceShape: chosen.shape,
             pose: pose,
             intensity: chosen.intensity,
             featurePrint: featurePrint,
@@ -294,10 +303,23 @@ enum ImageAnalyzer {
 
     private struct FrameAnalysis {
         let frame: CGImage
-        let face: FaceFeatures?
+        let faces: FrameFaces
         let pose: PoseFeatures?
+
+        var face: FaceFeatures? { faces.face }
+        var shape: FaceShape? { faces.shape }
+        var intensity: Double { faces.intensity }
+        var faceBoxes: [CGRect] { faces.faceBoxes }
+        var rank: Double { faces.rank }
+    }
+
+    /// One frame's faces: the largest one's features, shape and intensity, and every face's box.
+    private struct FrameFaces {
+        let face: FaceFeatures?
+        let shape: FaceShape?
         let intensity: Double
         let faceBoxes: [CGRect]
+        let primaryBox: CGRect?
 
         /// Frames with a face beat frames without one; among faces, the most intense wins.
         var rank: Double { face == nil ? -1 : intensity }
@@ -305,22 +327,31 @@ enum ImageAnalyzer {
 
     private static func analyzeFrame(_ frame: CGImage, baseline: RestingBaseline) throws -> FrameAnalysis {
         let handler = VNImageRequestHandler(cgImage: frame, options: [:])
+        let faces = try readFaces(frame, handler: handler, baseline: baseline)
+        let pose = readPose(frame, handler: handler, faceBox: faces.primaryBox)
+        return FrameAnalysis(frame: frame, faces: faces, pose: pose)
+    }
 
+    /// The faces in one frame (face landmarks request): the largest face's seven features, and its `FaceShape` with
+    /// the colors of the frame drawn at most `RGBAPixels.maximumSide` on its longer side.
+    private static func readFaces(_ frame: CGImage, handler: VNImageRequestHandler,
+                                  baseline: RestingBaseline) throws -> FrameFaces {
         let faceRequest = VNDetectFaceLandmarksRequest()
         try handler.perform([faceRequest])
         let faces = observations(faceRequest.results ?? [], as: VNFaceObservation.self)
         let primaryFace = faces.max(by: { area($0.boundingBox) < area($1.boundingBox) })
         let face = primaryFace.flatMap { FaceFeatureExtractor.features(from: $0) }
-
-        let pose = readPose(frame, handler: handler, faceBox: primaryFace?.boundingBox)
-
+        var shape: FaceShape?
+        if face != nil, let primaryFace {
+            shape = FaceFeatureExtractor.shape(from: primaryFace, pixels: RGBAPixels(image: frame))
+        }
         let intensity = face.map { baseline.intensity(of: $0) } ?? 0
-        return FrameAnalysis(
-            frame: frame,
+        return FrameFaces(
             face: face,
-            pose: pose,
+            shape: shape,
             intensity: intensity,
-            faceBoxes: faces.map { $0.boundingBox }
+            faceBoxes: faces.map { $0.boundingBox },
+            primaryBox: primaryFace?.boundingBox
         )
     }
 
@@ -374,6 +405,27 @@ enum ImageAnalyzer {
             }
         }
         return .read(poses.max { $0.gestureStrength < $1.gestureStrength })
+    }
+
+    /// The face alone, for items whose face was read by an older analysis (`LibraryItem.currentFaceRevision`): the
+    /// same frames as `analyze` and the same choice among them (a face beats none, the most intense face wins),
+    /// without the feature print, labels, text or pose. Unreadable when the file can't be loaded or its first frame
+    /// can't be read, as `analyze` would fail.
+    static func analyzeFace(url: URL) -> FaceReading {
+        guard let image = load(url: url) else { return .unreadable }
+        let baseline = RestingBaseline()
+        var best: FrameFaces?
+        for (offset, frame) in (image.frames.isEmpty ? [image.cgImage] : image.frames).enumerated() {
+            let handler = VNImageRequestHandler(cgImage: frame, options: [:])
+            guard let candidate = try? readFaces(frame, handler: handler, baseline: baseline) else {
+                if offset == 0 { return .unreadable }
+                continue
+            }
+            if let current = best, current.rank >= candidate.rank { continue }
+            best = candidate
+        }
+        guard let chosen = best else { return .unreadable }
+        return .read(face: chosen.face, shape: chosen.shape, intensity: chosen.intensity)
     }
 
     private static func runFeaturePrint(handler: VNImageRequestHandler) throws -> [Float] {

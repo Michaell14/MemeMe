@@ -24,6 +24,12 @@ public struct LibraryItem: Codable, Identifiable, Hashable, Sendable {
     public var isSticker: Bool
     public var isAnimated: Bool
     public var face: FaceFeatures?
+    /// The face's details beyond the seven features (`FaceShape`: each eye and brow, the lips, the tongue), read into
+    /// `FaceCues` against fixed values; nil without a face, or for an item read before faces were measured this way.
+    public var faceShape: FaceShape?
+    /// The face analysis this item's `face` and `faceShape` come from: 0 before faces were measured in their own
+    /// leveled frame. An item behind `currentFaceRevision` can be read again.
+    public var faceRevision: Int
     public var pose: PoseFeatures?
     /// The pose analysis this item's `pose` comes from: 0 before poses were described in detail. Items behind
     /// `currentPoseRevision` are measured again in the background.
@@ -46,7 +52,11 @@ public struct LibraryItem: Codable, Identifiable, Hashable, Sendable {
     /// the face.
     public static let currentPoseRevision = 3
 
-    public init(id: UUID = UUID(), fileURL: URL, displayName: String, kind: ItemKind, tier: ItemTier = .meme, source: String, sourceDetail: String? = nil, addedAt: Date = Date(), fileModifiedAt: Date? = nil, fileSize: Int64 = 0, contentHash: String, isSticker: Bool = false, isAnimated: Bool = false, face: FaceFeatures? = nil, pose: PoseFeatures? = nil, poseRevision: Int = 0, intensity: Double = 0, featurePrint: [Float]? = nil, featurePrintRevision: Int = 0, text: String = "", labels: [String] = [], personID: UUID? = nil, faceEmbedding: [Float]? = nil, remoteURL: URL? = nil, previewURL: URL? = nil, attribution: String? = nil, timesSent: Int = 0, lastSentAt: Date? = nil) {
+    /// Face analysis: 1 the seven features measured in the face's own frame, turned level by the line through the eyes
+    /// (a tilted head no longer reads as an open mouth), with its `FaceShape`.
+    public static let currentFaceRevision = 1
+
+    public init(id: UUID = UUID(), fileURL: URL, displayName: String, kind: ItemKind, tier: ItemTier = .meme, source: String, sourceDetail: String? = nil, addedAt: Date = Date(), fileModifiedAt: Date? = nil, fileSize: Int64 = 0, contentHash: String, isSticker: Bool = false, isAnimated: Bool = false, face: FaceFeatures? = nil, pose: PoseFeatures? = nil, poseRevision: Int = 0, intensity: Double = 0, featurePrint: [Float]? = nil, featurePrintRevision: Int = 0, text: String = "", labels: [String] = [], personID: UUID? = nil, faceEmbedding: [Float]? = nil, remoteURL: URL? = nil, previewURL: URL? = nil, attribution: String? = nil, timesSent: Int = 0, lastSentAt: Date? = nil, faceShape: FaceShape? = nil, faceRevision: Int = 0) {
         self.id = id
         self.fileURL = fileURL
         self.displayName = displayName
@@ -61,6 +71,8 @@ public struct LibraryItem: Codable, Identifiable, Hashable, Sendable {
         self.isSticker = isSticker
         self.isAnimated = isAnimated
         self.face = face
+        self.faceShape = faceShape
+        self.faceRevision = faceRevision
         self.pose = pose
         self.poseRevision = poseRevision
         self.intensity = intensity
@@ -116,7 +128,7 @@ public struct LibraryItem: Codable, Identifiable, Hashable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id, fileURL, displayName, kind, tier, source, sourceDetail, addedAt, fileModifiedAt, fileSize, contentHash
         case isSticker, isAnimated, face, pose, poseRevision, intensity, featurePrint, featurePrintRevision, text, labels, personID
-        case faceEmbedding, remoteURL, previewURL, attribution, timesSent, lastSentAt
+        case faceEmbedding, remoteURL, previewURL, attribution, timesSent, lastSentAt, faceShape, faceRevision
     }
 
     /// `id`, `fileURL` and `contentHash` are required; every other key falls back to a default so older JSON keeps loading.
@@ -142,6 +154,8 @@ public struct LibraryItem: Codable, Identifiable, Hashable, Sendable {
         isSticker = container.decodeLenient(Bool.self, forKey: .isSticker, default: false)
         isAnimated = container.decodeLenient(Bool.self, forKey: .isAnimated, default: false)
         face = container.decodeLenientIfPresent(FaceFeatures.self, forKey: .face)
+        faceShape = container.decodeLenientIfPresent(FaceShape.self, forKey: .faceShape)
+        faceRevision = container.decodeLenient(Int.self, forKey: .faceRevision, default: 0)
         pose = container.decodeLenientIfPresent(PoseFeatures.self, forKey: .pose)
         poseRevision = container.decodeLenient(Int.self, forKey: .poseRevision, default: 0)
         intensity = container.decodeLenient(Double.self, forKey: .intensity, default: 0)
@@ -174,6 +188,8 @@ public struct LibraryItem: Codable, Identifiable, Hashable, Sendable {
         try container.encode(isSticker, forKey: .isSticker)
         try container.encode(isAnimated, forKey: .isAnimated)
         try container.encodeIfPresent(face, forKey: .face)
+        try container.encodeIfPresent(faceShape, forKey: .faceShape)
+        try container.encode(faceRevision, forKey: .faceRevision)
         try container.encodeIfPresent(pose, forKey: .pose)
         try container.encode(poseRevision, forKey: .poseRevision)
         try container.encode(intensity, forKey: .intensity)

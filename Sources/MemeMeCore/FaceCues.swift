@@ -21,7 +21,8 @@ public struct FaceShape: Codable, Hashable, Sendable {
     public var lowerLip: Double?
     /// One mouth corner higher than the other: the left corner's height minus the right one's.
     public var cornerTilt: Double?
-    /// The middle of the mouth to one side of the line down the face through the eyes' midpoint.
+    /// The middle of the mouth to one side of the line down the face through the eyes' midpoint. Not read as a cue: a
+    /// head turned with the camera above or below the eyes moves it as much as a mouth pulled aside.
     public var mouthShift: Double?
     /// The pupils' mean height in their eyes, in eye heights from the eye's middle (+ up, about 0 looking ahead).
     public var gazeUp: Double?
@@ -144,13 +145,12 @@ public struct FaceCues: Hashable, Sendable {
     /// against fixed values. Formulas (clamp to 0...1; lengths in eye distances; r = rest):
     /// - tongueOut: (tongue − r.tongue − 0.12) / 0.25, + 0.3 when the lower lip is ≥ 1.6 × r.lowerLip and the tongue
     ///   share grew ≥ 0.06; without a rest (tongue − 0.2) / 0.25
-    /// - wink: with each eye's opening over its rest (o), when the lower is ≤ 0.55 and the higher ≥ 0.75:
-    ///   (higher − lower − 0.3) / 0.4; without a rest (ln(higher eye / lower eye) − 0.7) / 0.7
+    /// - wink: with each eye's opening over its rest, when the lower is ≤ 0.55 and the higher ≥ 0.5 (a smile narrows the
+    ///   open eye too): (higher − lower − 0.3) / 0.4; without a rest (ln(higher eye / lower eye) − 0.7) / 0.7
     /// - raisedBrow: (|(leftBrowGap − rightBrowGap) − rest's| − 0.05) / 0.1; without a rest (|difference| − 0.07) / 0.1
     /// - pucker (duck face, kissy lips; mouth closed, lipOpening ≤ 0.12): (1 − lipWidth / r.lipWidth − 0.1) / 0.15;
     ///   without a rest (0.7 − lipWidth) / 0.15 when lipHeight / lipWidth ≥ 0.4
-    /// - smirk: the larger of (|cornerTilt − r| − 0.05) / 0.1 and (|mouthShift − r| − 0.06) / 0.12; without a rest
-    ///   (|cornerTilt| − 0.07) / 0.1 and (|mouthShift| − 0.12) / 0.12
+    /// - smirk (one corner up): (|cornerTilt − r| − 0.05) / 0.1; without a rest (|cornerTilt| − 0.07) / 0.1
     /// - eyeRoll: (gazeUp − r.gazeUp − 0.12) / 0.15; without a rest (gazeUp − 0.18) / 0.15
     public init(shape: FaceShape, rest: FaceShape?) {
         func clamp(_ value: Double) -> Double { min(1, max(0, value)) }
@@ -182,7 +182,7 @@ public struct FaceCues: Hashable, Sendable {
                     let rightShare = right / restRight
                     let lower = min(leftShare, rightShare)
                     let higher = max(leftShare, rightShare)
-                    values.append(lower <= 0.55 && higher >= 0.75 ? clamp((higher - lower - 0.3) / 0.4) : 0)
+                    values.append(lower <= 0.55 && higher >= 0.5 ? clamp((higher - lower - 0.3) / 0.4) : 0)
                 } else {
                     let lower = max(min(left, right), 0.005)
                     let higher = max(left, right)
@@ -211,16 +211,11 @@ public struct FaceCues: Hashable, Sendable {
                     values.append(0)
                 }
             case .smirk:
-                var value = 0.0
-                if let tilt = shape.cornerTilt {
-                    value = rest?.cornerTilt.map { clamp((abs(tilt - $0) - 0.05) / 0.1) } ?? clamp((abs(tilt) - 0.07) / 0.1)
+                guard let tilt = shape.cornerTilt else {
+                    values.append(0)
+                    continue
                 }
-                if let shift = shape.mouthShift {
-                    let sideways = rest?.mouthShift.map { clamp((abs(shift - $0) - 0.06) / 0.12) }
-                        ?? clamp((abs(shift) - 0.12) / 0.12)
-                    value = max(value, sideways)
-                }
-                values.append(value)
+                values.append(rest?.cornerTilt.map { clamp((abs(tilt - $0) - 0.05) / 0.1) } ?? clamp((abs(tilt) - 0.07) / 0.1))
             case .eyeRoll:
                 guard let up = shape.gazeUp else {
                     values.append(0)

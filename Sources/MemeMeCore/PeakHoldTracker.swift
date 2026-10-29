@@ -2,8 +2,19 @@ import Foundation
 
 /// Tuning for `PeakHoldTracker`.
 public struct PeakHoldConfig: Sendable {
+    /// How long an expression is held before it becomes the first query, a version of the query `strongerRatio`
+    /// stronger replaces it, or (once the face has been calm for `rearmAfterCalm`) a new expression replaces it.
     public var holdDuration: TimeInterval = 0.3
+    /// How long a new expression with a clear gesture is held before it replaces the query: arms on their way to a
+    /// pose pass through others. A shape held up only by its strength floor is held this long even after a calm face.
     public var newExpressionHold: TimeInterval = 1.0
+    /// How long a new expression of the face (no clear gesture) is held before it replaces the query: another face,
+    /// or a tongue out or a wink on the one held.
+    public var newFaceHold: TimeInterval = 0.6
+    /// A face calm (under `minimumIntensity`) for this long re-arms the tracker: until the next query, a new expression
+    /// replaces the query after `holdDuration`, as the first one did. Relaxing between two faces says the second one is
+    /// meant; talking never stays calm this long between words.
+    public var rearmAfterCalm: TimeInterval = 0.4
     public var strongerRatio: Double = 1.15
     public var sameDirectionCosine: Double = 0.85
     public var minimumIntensity: Double = 0.12
@@ -22,7 +33,8 @@ public struct PeakHoldConfig: Sendable {
 
 /// Turns a stream of analyzed frames into a stable query: a held expression becomes the query,
 /// relaxing or talking does nothing, a stronger version of the same expression or a different
-/// expression held long enough replaces it.
+/// expression held long enough replaces it (`newFaceHold` for a face, `newExpressionHold` for a
+/// gesture, only `holdDuration` once the face has relaxed in between).
 public final class PeakHoldTracker {
     public var baseline: RestingBaseline
     public let config: PeakHoldConfig
@@ -37,7 +49,8 @@ public final class PeakHoldTracker {
     /// Timestamp of the last sample that had a face or a gesture strong enough to stand in for one.
     public private(set) var lastSeenTimestamp: TimeInterval?
 
-    /// A frame with its effective intensity and unit direction (7 signed face deviations + 9 gesture numbers).
+    /// A frame with its effective intensity and unit direction (7 signed face deviations + 9 gesture numbers + 6 face
+    /// cues).
     private struct Entry {
         let sample: ExpressionSample
         let intensity: Double
@@ -46,6 +59,8 @@ public final class PeakHoldTracker {
         let strength: Double
         /// The pose's word (`MoodClassifier.gestureMood`) when the gesture is clear, else nil.
         let word: Mood?
+        /// The face's clear cue (`FaceCues.clearCue`: a tongue out, a wink, ...), else nil.
+        let cue: FaceCues.Cue?
         let shape: BodyShape?
         /// Held up only by the shape's strength floor (hands on hips, arms crossed, a bow): the arms alone are near
         /// rest, and no hand sign or face carries it. Such a shape is held for `newExpressionHold`, so a frame or two
@@ -72,16 +87,40 @@ public final class PeakHoldTracker {
         var skipped: [Entry] = []
     }
 
+    /// What a frame's face says against the baseline: its seven signed deviations, its cues × `cueWeight` (zeros
+    /// without a shape), its clear cue, and how strongly it shows (the larger of its intensity and `cueWeight` × its
+    /// strongest cue when that is at least `minimumCue`).
+    private struct FaceReading {
+        let intensity: Double
+        let deviation: [Double]
+        let cues: [Double]
+        let cue: FaceCues.Cue?
+
+        var direction: [Double] { deviation + cues }
+    }
+
     private var run: Run?
     private var queryDirection: [Double]?
-    /// The query's pose word and shape, as read when it became the query.
+    /// The query's pose word, face cue and shape, as read when it became the query.
     private var queryWord: Mood?
+    private var queryCue: FaceCues.Cue?
     private var queryShape: BodyShape?
     /// The last sample with a face, or with a gesture strong enough to stand in for one: what `snap` takes.
     private var lastSeenSample: ExpressionSample?
+    /// When the face became calm (a frame with a face under `minimumIntensity`); nil while it isn't.
+    private var calmSince: TimeInterval?
+    /// The face has been calm for `rearmAfterCalm` since the query was set: a new expression needs only
+    /// `holdDuration`.
+    private var rearmed = false
 
     /// A gesture weaker than this adds nothing to a frame's intensity (`Ranker.gestureWithoutFace`).
     private static let minimumGesture = Ranker.gestureWithoutFace
+
+    /// A face cue weaker than this adds nothing to a frame's intensity.
+    private static let minimumCue = 0.3
+
+    /// A face cue's weight in a frame's intensity and direction, as a clear gesture's in its intensity.
+    private static let cueWeight = 0.8
 
     /// Frame clocks are never exact: a hold that is short of its target by less than this
     /// fraction counts as complete, so a nominal 0.3 s hold does not cost an extra frame.
@@ -102,9 +141,12 @@ public final class PeakHoldTracker {
             lastSeenSample = sample
             // Judge the frame against the baseline as it was when the frame arrived, then let calm frames refine it.
             let entry = makeEntry(for: sample)
-            baseline.observe(face)
+            baseline.observe(face, shape: sample.shape)
+            noteCalm(entry)
             return hold(entry)
         }
+        // A frame without a face isn't calm.
+        calmSince = nil
         // No face: only a clear gesture (a facepalm hides the face) keeps the hold going.
         guard (sample.pose?.gestureStrength ?? 0) >= config.minimumGestureWithoutFace else {
             skipUnderGate(at: sample.timestamp)
@@ -163,23 +205,25 @@ public final class PeakHoldTracker {
             let sameShapeAsQuery = best.shape != nil && best.shape == queryShape
                 && (query.map { facesAgree($0, best.sample) } ?? false)
             let sameDirection = VectorMath.cosine(current.direction, reference) >= config.sameDirectionCosine || sameShapeAsQuery
-            if sameDirection, !changesGestureWord(best), !isNewPose(best) {
+            if sameDirection, !changesGestureWord(best), !changesCue(best), !isNewPose(best) {
                 guard best.intensity >= queryIntensity * config.strongerRatio else {
-                    // Same expression, not clearly stronger: nothing to hold toward. Dropping the run means a
-                    // later, stronger version is held for the full `holdDuration` from its first frame.
+                    // Same expression, not clearly stronger (relaxing in between changes nothing): nothing to hold
+                    // toward. Dropping the run means a later, stronger version is held for the full `holdDuration`
+                    // from its first frame.
                     clearCandidate()
                     return false
                 }
                 required = config.holdDuration
                 candidateIsNewExpression = false
             } else {
-                required = config.newExpressionHold
+                required = holdForNewExpression(best)
                 candidateIsNewExpression = true
             }
         } else {
             required = config.holdDuration
             candidateIsNewExpression = false
         }
+        // A shape held up only by its strength floor needs the long hold even after a calm face.
         if best.isCarriedByShape {
             required = max(required, config.newExpressionHold)
         }
@@ -209,47 +253,94 @@ public final class PeakHoldTracker {
     }
 
     /// Drops the expression being held toward the query (keeps the query and the baseline): frames stopped coming in
-    /// for a while (the capture view was open), so the next one starts a new hold.
+    /// for a while (the capture view was open), so the next one starts a new hold, and a calm face before the gap
+    /// doesn't count toward re-arming (`rearmAfterCalm`).
     public func clearHold() {
         clearCandidate()
+        calmSince = nil
     }
 
-    /// Clears query and candidate (keeps the baseline).
+    /// Clears the query, the candidate and the re-arming (keeps the baseline).
     public func reset() {
         query = nil
         queryIntensity = 0
         queryDirection = nil
         queryWord = nil
+        queryCue = nil
         queryShape = nil
+        rearmed = false
+        calmSince = nil
         clearCandidate()
     }
 
     // MARK: Private
 
+    /// Makes `entry` the query; the face must relax again (`rearmAfterCalm`) before a new expression is held for only
+    /// `holdDuration`.
     private func setQuery(_ entry: Entry) {
         query = entry.sample
         queryIntensity = entry.intensity
         queryDirection = entry.direction
         queryWord = entry.word
+        queryCue = entry.cue
         queryShape = entry.shape
+        rearmed = false
+        calmSince = nil
     }
 
-    /// Whether two frames' faces say the same thing: both calm (below `minimumIntensity`) or not seen, or both
-    /// moved the same way (`sameDirectionCosine`).
-    private func facesAgree(_ a: ExpressionSample, _ b: ExpressionSample) -> Bool {
-        func expressive(_ face: FaceFeatures?) -> FaceFeatures? {
-            guard let face, baseline.intensity(of: face) >= config.minimumIntensity else { return nil }
-            return face
+    /// A frame with a face under `minimumIntensity` (no expression, cue or clear gesture) is calm; calm frames for
+    /// `rearmAfterCalm` re-arm the tracker. Any other frame ends the calm, not the re-arming: that lasts until the
+    /// next query.
+    private func noteCalm(_ entry: Entry) {
+        guard entry.intensity < config.minimumIntensity else {
+            calmSince = nil
+            return
         }
-        switch (expressive(a.face), expressive(b.face)) {
+        let timestamp = entry.sample.timestamp
+        let since = calmSince ?? timestamp
+        calmSince = since
+        if timestamp - since >= config.rearmAfterCalm - PeakHoldTracker.progressTolerance {
+            rearmed = true
+        }
+    }
+
+    /// How long a new expression is held before it replaces the query: `holdDuration` once the face has been calm
+    /// since the query was set (`rearmAfterCalm`); else `newExpressionHold` for a clear gesture (at least
+    /// `minimumGesture`), `newFaceHold` for the face alone.
+    private func holdForNewExpression(_ entry: Entry) -> TimeInterval {
+        if rearmed {
+            return config.holdDuration
+        }
+        return entry.strength >= PeakHoldTracker.minimumGesture ? config.newExpressionHold : config.newFaceHold
+    }
+
+    /// Whether two frames' faces say the same thing: both calm (below `minimumIntensity`, cues included) or not seen,
+    /// or both moved the same way, cues included (`sameDirectionCosine`).
+    private func facesAgree(_ a: ExpressionSample, _ b: ExpressionSample) -> Bool {
+        func expressive(_ sample: ExpressionSample) -> FaceReading? {
+            guard let reading = faceReading(of: sample), reading.intensity >= config.minimumIntensity else { return nil }
+            return reading
+        }
+        switch (expressive(a), expressive(b)) {
         case (nil, nil):
             return true
         case let (first?, second?):
-            return VectorMath.cosine(baseline.signedDeviation(of: first), baseline.signedDeviation(of: second))
-                >= config.sameDirectionCosine
+            return VectorMath.cosine(first.direction, second.direction) >= config.sameDirectionCosine
         default:
             return false
         }
+    }
+
+    /// The face of `sample` against the baseline (`FaceReading`); nil without a face.
+    private func faceReading(of sample: ExpressionSample) -> FaceReading? {
+        guard let face = sample.face else { return nil }
+        let cues = baseline.cues(of: sample.shape)
+        let strongest = cues.strongest?.value ?? 0
+        let cueIntensity = strongest >= PeakHoldTracker.minimumCue ? PeakHoldTracker.cueWeight * strongest : 0
+        return FaceReading(intensity: max(baseline.intensity(of: face), cueIntensity),
+                           deviation: baseline.signedDeviation(of: face),
+                           cues: cues.values.map { PeakHoldTracker.cueWeight * $0 },
+                           cue: cues.clearCue)
     }
 
     /// A frame under a gate (no face and no clear gesture, or too little intensity): bridged within a gesture run's
@@ -276,22 +367,26 @@ public final class PeakHoldTracker {
         candidateIsNewExpression = false
     }
 
-    /// intensity = max(face intensity, 0.8 × gesture strength when ≥ 0.4); direction = the face's signed deviations (zeros without
-    /// a face) + the pose's gesture numbers × 0.5 × its gesture strength, so arms at rest or on a desk coming into view
-    /// don't turn the same face into a new expression (a pose measured the old way: [activity, 0, 0, 0, 0, 0, 0, 0, 0]).
+    /// intensity = max(face intensity, 0.8 × gesture strength when ≥ 0.4, 0.8 × the face's strongest cue when ≥ 0.3);
+    /// direction = the face's signed deviations (zeros without a face) + the pose's gesture numbers × 0.5 × its gesture
+    /// strength, so arms at rest or on a desk coming into view don't turn the same face into a new expression (a pose
+    /// measured the old way: [activity, 0, 0, 0, 0, 0, 0, 0, 0]) + the face's cues × 0.8 (zeros without a shape), so a
+    /// tongue out on a held smile points elsewhere. The cues are read against the resting shape (`FaceCues`).
     private func makeEntry(for sample: ExpressionSample) -> Entry {
-        let faceIntensity = sample.face.map { baseline.intensity(of: $0) } ?? 0
+        let face = faceReading(of: sample)
+        let faceIntensity = face?.intensity ?? 0
         // Only a clear gesture stands in for a face: a neutral face with half-raised arms isn't an expression.
         let strength = sample.pose?.gestureStrength ?? 0
         let gesture = strength >= PeakHoldTracker.minimumGesture ? strength : 0
         let intensity = max(faceIntensity, 0.8 * gesture)
         let descriptor = sample.pose?.descriptor
-        var direction = sample.face.map { baseline.signedDeviation(of: $0) } ?? [Double](repeating: 0, count: 7)
+        var direction = face?.deviation ?? [Double](repeating: 0, count: 7)
         if let descriptor {
             direction += descriptor.gestureDirection.map { 0.5 * strength * $0 }
         } else {
             direction += [sample.pose?.activity ?? 0, 0, 0, 0, 0, 0, 0, 0, 0]
         }
+        direction += face?.cues ?? [Double](repeating: 0, count: FaceCues.Cue.allCases.count)
         let word = gesture > 0 ? descriptor.flatMap { MoodClassifier.gestureMood($0, face: sample.face, baseline: baseline) } : nil
         let shape = descriptor?.bodyShape
         let isCarriedByShape = shape != nil && gesture > 0
@@ -299,7 +394,7 @@ public final class PeakHoldTracker {
             && (descriptor?.hand?.signStrength ?? 0) < 0.7
             && faceIntensity < intensity
         return Entry(sample: sample, intensity: intensity, direction: VectorMath.normalized(direction), strength: strength,
-                     word: word, shape: shape, isCarriedByShape: isCarriedByShape)
+                     word: word, cue: face?.cue, shape: shape, isCarriedByShape: isCarriedByShape)
     }
 
     /// A clear gesture (at least `minimumGesture`) with a word the query doesn't have: a facepalm after the hold caught
@@ -310,6 +405,15 @@ public final class PeakHoldTracker {
     private func changesGestureWord(_ entry: Entry) -> Bool {
         guard query != nil, let word = entry.word else { return false }
         return word != queryWord
+    }
+
+    /// A clear face cue (`FaceCues.clearCue`) the query doesn't have: a tongue out or a wink on a held smile, a smirk
+    /// after a wink. On a strong face a cue moves the direction and the intensity too little to tell, so the cue does:
+    /// it is a new expression, held for `newFaceHold`. The query's own cue on the same face is the same expression; a
+    /// cue fading below `FaceCues.clear` isn't a new one.
+    private func changesCue(_ entry: Entry) -> Bool {
+        guard query != nil, let cue = entry.cue else { return false }
+        return cue != queryCue
     }
 
     /// A clear gesture after a clear gesture that is shaped quite differently (`newPoseSimilarity`), though both have

@@ -125,6 +125,12 @@ final class MoodTests: XCTestCase {
             .ohNo: "oh no",
             .peace: "peace sign",
             .bow: "bowing",
+            .tongueOut: "tongue out",
+            .wink: "wink",
+            .raisedEyebrow: "raised eyebrow",
+            .duckFace: "duck face",
+            .smirk: "smirk",
+            .eyeRoll: "eye roll",
         ]
         XCTAssertEqual(expected.count, Mood.allCases.count)
         for mood in Mood.allCases {
@@ -137,6 +143,13 @@ final class MoodTests: XCTestCase {
         XCTAssertEqual(Mood.sideEye.label, "side eye")
         XCTAssertEqual(Mood.unimpressed.label, "unimpressed")
         XCTAssertEqual(Mood.reaction.label, "reaction")
+        let faceDetails: [Mood: String] = [
+            .tongueOut: "tongue out", .wink: "wink", .raisedEyebrow: "raised eyebrow", .duckFace: "duck face",
+            .smirk: "smirk", .eyeRoll: "eye roll",
+        ]
+        for (mood, label) in faceDetails {
+            XCTAssertEqual(mood.label, label, "\(mood)")
+        }
         for mood in Mood.allCases {
             XCTAssertFalse(mood.label.isEmpty)
             XCTAssertEqual(mood.label, mood.label.lowercased())
@@ -145,5 +158,18 @@ final class MoodTests: XCTestCase {
 
     func testRawValuesAreStable() {
         XCTAssertEqual(Mood.sideEye.rawValue, "sideEye")
+        XCTAssertEqual(Mood.tongueOut.rawValue, "tongueOut")
+        XCTAssertEqual(Mood.raisedEyebrow.rawValue, "raisedEyebrow")
+        XCTAssertEqual(Mood.duckFace.rawValue, "duckFace")
+    }
+
+    func testAClearFaceCueComesAfterTheGestureAndNoFaceRules() {
+        let tongueOut = FaceShape(tongue: 0.45)
+        XCTAssertEqual(MoodClassifier.mood(for: TestFaces.surprise, pose: nil, shape: tongueOut, baseline: RestingBaseline()),
+                       .tongueOut)
+        XCTAssertEqual(MoodClassifier.mood(for: nil, pose: nil, shape: tongueOut, baseline: RestingBaseline()), .reaction)
+        // Poses measured the old way have no gesture word: the cue comes before their rules too.
+        XCTAssertEqual(MoodClassifier.mood(for: makeFace(mouth: 0.4), pose: pose(hands: 0.6), shape: tongueOut,
+                                           baseline: RestingBaseline()), .tongueOut)
     }
 }

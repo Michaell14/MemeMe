@@ -34,6 +34,8 @@ final class LibraryIndexerKeepTests: XCTestCase {
         XCTAssertEqual(item.contentHash, ImageAnalyzer.sha256Hex(originalBytes))
         XCTAssertEqual(item.fileSize, Int64(originalBytes.count))
         XCTAssertFalse(item.isAnimated)
+        XCTAssertEqual(item.faceRevision, LibraryItem.currentFaceRevision, "a new item's face is read the current way")
+        XCTAssertEqual(item.poseRevision, LibraryItem.currentPoseRevision)
         XCTAssertEqual(
             item.fileURL.deletingLastPathComponent().standardizedFileURL.path,
             store.keptDirectory.standardizedFileURL.path,
@@ -68,6 +70,53 @@ final class LibraryIndexerKeepTests: XCTestCase {
         let again = await indexer.keep(urls: [original], source: "Kept")
         XCTAssertEqual(again.addedIDs.count, 1)
         XCTAssertEqual(again.duplicates, 0)
+    }
+
+    @MainActor
+    func testTheFacePassReadsYourMemesAndStickersBehindTheFaceRevision() {
+        func item(_ kind: ItemKind, tier: ItemTier = .meme, faceRevision: Int = 0) -> LibraryItem {
+            LibraryItem(fileURL: URL(fileURLWithPath: "/tmp/face.png"), displayName: "face", kind: kind, tier: tier,
+                        source: "Downloads", contentHash: "hash", faceRevision: faceRevision)
+        }
+        XCTAssertTrue(LibraryIndexer.needsFaceRefresh(item(.mine)))
+        XCTAssertTrue(LibraryIndexer.needsFaceRefresh(item(.mine, tier: .maybe)))
+        XCTAssertTrue(LibraryIndexer.needsFaceRefresh(item(.friend)), "stickers are read again too")
+        XCTAssertFalse(LibraryIndexer.needsFaceRefresh(item(.mine, tier: .skipped)), "skipped files keep no face")
+        XCTAssertFalse(LibraryIndexer.needsFaceRefresh(item(.web)))
+        XCTAssertFalse(LibraryIndexer.needsFaceRefresh(item(.pack)))
+        XCTAssertFalse(LibraryIndexer.needsFaceRefresh(item(.mine, faceRevision: LibraryItem.currentFaceRevision)))
+        XCTAssertFalse(LibraryIndexer.needsFaceRefresh(item(.friend, faceRevision: LibraryItem.currentFaceRevision)))
+    }
+
+    func testTheFacePassNeverTradesAFaceForNone() {
+        let old = FaceFeatures(browRaise: 0.6, eyeOpenness: 0.5, mouthOpenness: 0.3, mouthWidth: 0.5, smile: 0.7,
+                               headTilt: 0, gazeSide: 0.1)
+        let new = FaceFeatures.populationNeutral
+        let shape = FaceShape(lipWidth: 0.8, tongue: 0.4)
+        var meme = LibraryItem(fileURL: URL(fileURLWithPath: "/tmp/face.png"), displayName: "face", kind: .mine,
+                               source: "Downloads", contentHash: "hash", face: old, intensity: 0.4)
+
+        // A meme read afresh takes the new face, shape and intensity.
+        let reread = LibraryIndexer.applyingFaceReading(meme, face: new, shape: shape, intensity: 0.1)
+        XCTAssertEqual(reread.face, new)
+        XCTAssertEqual(reread.faceShape, shape)
+        XCTAssertEqual(reread.intensity, 0.1)
+        XCTAssertEqual(reread.faceRevision, LibraryItem.currentFaceRevision)
+
+        // No face found this time: the old face stays.
+        let missed = LibraryIndexer.applyingFaceReading(meme, face: nil, shape: nil, intensity: 0)
+        XCTAssertEqual(missed.face, old)
+        XCTAssertEqual(missed.intensity, 0.4)
+        XCTAssertNil(missed.faceShape)
+        XCTAssertEqual(missed.faceRevision, LibraryItem.currentFaceRevision)
+
+        // A sticker keeps the face read on its source photo and takes only the shape of its cut-out.
+        meme.isSticker = true
+        let sticker = LibraryIndexer.applyingFaceReading(meme, face: new, shape: shape, intensity: 0.1)
+        XCTAssertEqual(sticker.face, old)
+        XCTAssertEqual(sticker.intensity, 0.4)
+        XCTAssertEqual(sticker.faceShape, shape)
+        XCTAssertEqual(sticker.faceRevision, LibraryItem.currentFaceRevision)
     }
 
     @MainActor

@@ -10,8 +10,10 @@ public struct RestingBaseline: Codable, Equatable, Sendable {
     /// Calm frames before the baseline switches from fast to slow learning.
     private static let warmUpSamples = 30
 
-    /// A frame showing a cue at least this strong isn't calm, so a held tongue or pucker isn't learned as the rest.
+    /// A calm frame showing a cue at least this strong teaches only at `cueAlpha`, so a held tongue or pucker is barely
+    /// learned as the rest, while a rest that no longer fits (the camera moved) still catches up.
     static let calmCueLimit = 0.2
+    static let cueAlpha = 0.01
 
     public init(neutral: FaceFeatures = .populationNeutral, sampleCount: Int = 0, restShape: FaceShape? = nil) {
         self.neutral = neutral
@@ -19,16 +21,17 @@ public struct RestingBaseline: Codable, Equatable, Sendable {
         self.restShape = restShape
     }
 
-    /// Updates an EMA from calm frames: a frame is calm when intensity(of:) < (sampleCount < 30 ? 0.25 : 0.08) and
-    /// none of `shape`'s cues reaches `calmCueLimit`. alpha = sampleCount < 30 ? 0.2 : 0.05, for the seven numbers and
-    /// each field of the resting shape. Increments sampleCount for calm frames only.
+    /// Updates an EMA from calm frames: a frame is calm when intensity(of:) < (sampleCount < 30 ? 0.25 : 0.08).
+    /// alpha = sampleCount < 30 ? 0.2 : 0.05 for the seven numbers and each field of the resting shape, or `cueAlpha`
+    /// when one of `shape`'s cues reaches `calmCueLimit`; the first shape is taken as it is. Increments sampleCount for
+    /// calm frames only.
     public mutating func observe(_ face: FaceFeatures, shape: FaceShape? = nil) {
         let face = face.clamped()
         let warmingUp = sampleCount < RestingBaseline.warmUpSamples
         let calmLimit = warmingUp ? 0.25 : 0.08
-        guard intensity(of: face) < calmLimit,
-              (cues(of: shape).strongest?.value ?? 0) < RestingBaseline.calmCueLimit else { return }
-        let alpha = warmingUp ? 0.2 : 0.05
+        guard intensity(of: face) < calmLimit else { return }
+        let showsCue = (cues(of: shape).strongest?.value ?? 0) >= RestingBaseline.calmCueLimit
+        let alpha = showsCue ? RestingBaseline.cueAlpha : (warmingUp ? 0.2 : 0.05)
         if let shape {
             restShape = restShape?.blended(toward: shape, amount: alpha) ?? shape
         }
