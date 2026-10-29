@@ -83,10 +83,14 @@ final class FaceCuesTests: XCTestCase {
     }
 
     func testEyeRoll() {
-        // Without a rest: (0.3 − 0.18) / 0.15 = 0.8; against a rest of 0.05: (0.3 − 0.05 − 0.12) / 0.15.
-        assertOnly(.eyeRoll, 0.8, FaceShape(gazeUp: 0.3))
-        assertOnly(.eyeRoll, 0.13 / 0.15, FaceShape(gazeUp: 0.3), rest: FaceShape(gazeUp: 0.05))
+        // Without a rest: (0.11 − 0.07) / 0.05 = 0.8; against a rest of 0.03: (0.1 − 0.03 − 0.04) / 0.05 = 0.6.
+        assertOnly(.eyeRoll, 0.8, FaceShape(gazeUp: 0.11))
+        assertOnly(.eyeRoll, 0.6, FaceShape(gazeUp: 0.1), rest: FaceShape(gazeUp: 0.03))
         assertOnly(.eyeRoll, 0, FaceShape(gazeUp: -0.3))
+        // Eyes narrowed under 0.8 of their rest (a squint, a frown) don't roll; open ones do.
+        let rest = FaceShape(leftEyeOpen: 0.25, rightEyeOpen: 0.25, gazeUp: 0.03)
+        XCTAssertEqual(FaceCues(shape: FaceShape(leftEyeOpen: 0.15, rightEyeOpen: 0.15, gazeUp: 0.2), rest: rest)[.eyeRoll], 0)
+        XCTAssertEqual(FaceCues(shape: FaceShape(leftEyeOpen: 0.25, rightEyeOpen: 0.22, gazeUp: 0.2), rest: rest)[.eyeRoll], 1)
     }
 
     func testEachCueNamesItsMood() {
@@ -111,7 +115,7 @@ final class FaceCuesTests: XCTestCase {
         XCTAssertEqual(tie.strongest?.cue, .tongueOut)
         XCTAssertEqual(tie.clearCue, .tongueOut)
         // The stronger of two: eye roll 0.8 over smirk 0.6.
-        let both = FaceCues(shape: FaceShape(cornerTilt: 0.13, gazeUp: 0.3), rest: nil)
+        let both = FaceCues(shape: FaceShape(cornerTilt: 0.13, gazeUp: 0.11), rest: nil)
         XCTAssertEqual(both.strongest?.cue, .eyeRoll)
         XCTAssertEqual(both.strongest?.value ?? 0, 0.8, accuracy: 1e-9)
         XCTAssertEqual(both.clearCue, .eyeRoll)

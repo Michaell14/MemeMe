@@ -175,12 +175,24 @@ final class FaceShapeMeasureTests: XCTestCase {
     }
 
     func testEyesLookingUp() {
-        // Pupils 0.015 over the middle of eyes 0.04 high: 0.375. The frame follows the pupils, so nothing else moves.
+        // Pupils 0.015 over the line through the corners of eyes 0.12 wide: 0.125. The frame follows the pupils, so
+        // nothing else moves.
         var expected = FaceShapeMeasureTests.levelShape
-        expected.gazeUp = 0.375
+        expected.gazeUp = 0.125
         let shape = FaceShapeMeasure.shape(of: FaceShapeMeasureTests.face(pupilY: 0.615), color: nil)
         assertShape(shape, equals: expected)
         XCTAssertEqual(shape.flatMap { FaceCues(shape: $0, rest: nil).clearCue }, .eyeRoll)
+    }
+
+    func testLoweredLidsDontLookUp() {
+        // Upper lids down to 0.005 over the corners, the pupils where they were: the corners don't move, so neither
+        // does the gaze.
+        var heavy = FaceShapeMeasureTests.face()
+        heavy.leftEye = heavy.leftEye.map { CGPoint(x: $0.x, y: $0.y > 0.6 ? 0.605 : $0.y) }
+        heavy.rightEye = heavy.rightEye.map { CGPoint(x: $0.x, y: $0.y > 0.6 ? 0.605 : $0.y) }
+        let shape = FaceShapeMeasure.shape(of: heavy, color: nil)
+        XCTAssertEqual(shape?.gazeUp ?? 1, 0, accuracy: 1e-9)
+        XCTAssertEqual(shape.map { FaceCues(shape: $0, rest: nil)[.eyeRoll] }, 0)
     }
 
     func testNoShapeWithoutBothEyes() {

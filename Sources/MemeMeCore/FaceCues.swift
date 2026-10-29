@@ -24,7 +24,8 @@ public struct FaceShape: Codable, Hashable, Sendable {
     /// The middle of the mouth to one side of the line down the face through the eyes' midpoint. Not read as a cue: a
     /// head turned with the camera above or below the eyes moves it as much as a mouth pulled aside.
     public var mouthShift: Double?
-    /// The pupils' mean height in their eyes, in eye heights from the eye's middle (+ up, about 0 looking ahead).
+    /// The pupils' mean height over the line through each eye's corners, in eye widths (+ up, about 0.03 looking
+    /// ahead, 0.1 or more looking up).
     public var gazeUp: Double?
     /// The share of tongue-colored samples in a band under the lower lip (0...1): redder than the cheeks by more than
     /// half of what the lips are, and not dark. nil when skin and lips can't be told apart (gray, odd light).
@@ -151,7 +152,8 @@ public struct FaceCues: Hashable, Sendable {
     /// - pucker (duck face, kissy lips; mouth closed, lipOpening ≤ 0.12): (1 − lipWidth / r.lipWidth − 0.1) / 0.15;
     ///   without a rest (0.7 − lipWidth) / 0.15 when lipHeight / lipWidth ≥ 0.4
     /// - smirk (one corner up): (|cornerTilt − r| − 0.05) / 0.1; without a rest (|cornerTilt| − 0.07) / 0.1
-    /// - eyeRoll: (gazeUp − r.gazeUp − 0.12) / 0.15; without a rest (gazeUp − 0.18) / 0.15
+    /// - eyeRoll: (gazeUp − r.gazeUp − 0.04) / 0.05, 0 when either eye is open less than 0.8 of its rest (a squint or
+    ///   a frown isn't one); without a rest (gazeUp − 0.07) / 0.05
     public init(shape: FaceShape, rest: FaceShape?) {
         func clamp(_ value: Double) -> Double { min(1, max(0, value)) }
         var values: [Double] = []
@@ -221,7 +223,13 @@ public struct FaceCues: Hashable, Sendable {
                     values.append(0)
                     continue
                 }
-                values.append(rest?.gazeUp.map { clamp((up - $0 - 0.12) / 0.15) } ?? clamp((up - 0.18) / 0.15))
+                if let left = shape.leftEyeOpen, let right = shape.rightEyeOpen,
+                   let restLeft = rest?.leftEyeOpen, let restRight = rest?.rightEyeOpen, restLeft > 0, restRight > 0,
+                   min(left / restLeft, right / restRight) < 0.8 {
+                    values.append(0)
+                    continue
+                }
+                values.append(rest?.gazeUp.map { clamp((up - $0 - 0.04) / 0.05) } ?? clamp((up - 0.07) / 0.05))
             }
         }
         self.init(values: values)

@@ -71,7 +71,9 @@ public enum FaceShapeMeasure {
     /// - lowerLip: inner-lip bottom minus outer-lip bottom (the lower lip's thickness)
     /// - cornerTilt: the height of the outer lips' left-most point minus the right-most one's
     /// - mouthShift: the middle of the outer lips' width (the face's midline is x = 0)
-    /// - gazeUp: over the eyes with a pupil, the mean of (pupil height − eye contour's mean height) / the eye's height
+    /// - gazeUp: over the eyes with a pupil, the mean of the pupil's height over the line through the eye's corners (its
+    ///   contour's left-most and right-most points) / the eye's width; the lids don't move the corners, so half-shut or
+    ///   frowning eyes don't read as looking up
     /// - tongue: see `tongueShare`
     public static func shape(of landmarks: Landmarks, color: ((CGPoint) -> FaceShapeMeasure.Sample?)?) -> FaceShape? {
         guard let frame = Frame(landmarks) else { return nil }
@@ -105,9 +107,13 @@ public enum FaceShapeMeasure {
 
         var gaze: [Double] = []
         for (pupil, eye) in [(landmarks.leftPupil, leftEye), (landmarks.rightPupil, rightEye)] {
-            guard let pupilY = mean(pupil.map { frame.level($0).y }), let eyeBox = Box(eye), eyeBox.height > 1e-9,
-                  let eyeY = mean(eye.map(\.y)) else { continue }
-            gaze.append((pupilY - eyeY) / eyeBox.height)
+            let leveledPupil = pupil.map(frame.level)
+            guard let pupilX = mean(leveledPupil.map(\.x)), let pupilY = mean(leveledPupil.map(\.y)),
+                  let inner = eye.min(by: { $0.x < $1.x }), let outer = eye.max(by: { $0.x < $1.x }),
+                  outer.x - inner.x > 1e-9 else { continue }
+            let width = outer.x - inner.x
+            let cornerLineY = inner.y + (outer.y - inner.y) * (pupilX - inner.x) / width
+            gaze.append((pupilY - cornerLineY) / width)
         }
         shape.gazeUp = mean(gaze)
 

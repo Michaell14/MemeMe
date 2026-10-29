@@ -670,7 +670,7 @@ struct IndexBatch: Identifiable, Equatable {
 
     /// Your memes and stickers whose face was read by an older analysis (`LibraryItem.currentFaceRevision`) that can be
     /// read again.
-    static func needsFaceRefresh(_ item: LibraryItem) -> Bool {
+    nonisolated static func needsFaceRefresh(_ item: LibraryItem) -> Bool {
         (item.kind == .mine || item.kind == .friend) && item.tier != .skipped
             && item.faceRevision < LibraryItem.currentFaceRevision
     }
@@ -678,7 +678,8 @@ struct IndexBatch: Identifiable, Equatable {
     /// `item` after the face pass read `face`, `shape` and `intensity` from its file, at the current revision. A sticker
     /// keeps the face it was measured with on its source photo (its file is a cut-out, often too small for landmarks),
     /// and no item trades a face it had for none: those take only the shape, when one was read.
-    static func applyingFaceReading(_ item: LibraryItem, face: FaceFeatures?, shape: FaceShape?, intensity: Double) -> LibraryItem {
+    nonisolated static func applyingFaceReading(_ item: LibraryItem, face: FaceFeatures?, shape: FaceShape?,
+                                                intensity: Double) -> LibraryItem {
         var updated = item
         if item.isSticker || (face == nil && item.face != nil) {
             if let shape {
