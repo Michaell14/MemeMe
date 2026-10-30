@@ -86,32 +86,67 @@ import SwiftUI
         dropView?.toolTip = button.toolTip
     }
 
-    /// `face.smiling` as a template image. Badged, a small dot sits in the top-right corner with a gap
-    /// cut around it; one template image, so the menu bar tints the face and the dot alike.
-    private static func statusImage(badged: Bool) -> NSImage? {
-        guard let symbol = NSImage(systemSymbolName: "face.smiling", accessibilityDescription: "MemeMe") else { return nil }
-        symbol.isTemplate = true
-        guard badged else { return symbol }
+    /// A viewfinder: four corner brackets around a winking face (the app icon's pill eye, wink and open grin),
+    /// on an 18 pt grid, y down. Badged, a small dot takes the top-right bracket's place; one template image,
+    /// so the menu bar tints the face and the dot alike.
+    private static func statusImage(badged: Bool) -> NSImage {
+        let side: CGFloat = 18
+        let line: CGFloat = 1.4
+        let image = NSImage(size: NSSize(width: side, height: side), flipped: true) { rect in
+            NSColor.black.set()
 
-        let size = symbol.size
-        let diameter = (min(size.width, size.height) * 0.34).rounded()
-        let gap: CGFloat = 1.5
-        let image = NSImage(size: size, flipped: false) { rect in
-            let dot = NSRect(x: rect.maxX - diameter, y: rect.maxY - diameter, width: diameter, height: diameter)
-            // Even-odd clip: the face is drawn everywhere except a ring around the dot.
-            NSGraphicsContext.saveGraphicsState()
-            let clip = NSBezierPath(rect: rect)
-            clip.appendOval(in: dot.insetBy(dx: -gap, dy: -gap))
-            clip.windingRule = .evenOdd
-            clip.addClip()
-            symbol.draw(in: rect)
-            NSGraphicsContext.restoreGraphicsState()
-            NSColor.black.setFill()
-            NSBezierPath(ovalIn: dot).fill()
+            // Brackets: 3.9 pt legs from each corner, rounded 2.5 pt.
+            let inset: CGFloat = 1.7, leg: CGFloat = 3.9, radius: CGFloat = 2.5
+            var corners: [(x: CGFloat, y: CGFloat, dx: CGFloat, dy: CGFloat)] = [
+                (inset, inset, 1, 1), (side - inset, side - inset, -1, -1), (inset, side - inset, 1, -1),
+            ]
+            if !badged { corners.append((side - inset, inset, -1, 1)) }
+            let brackets = NSBezierPath()
+            for corner in corners {
+                brackets.move(to: NSPoint(x: corner.x, y: corner.y + corner.dy * leg))
+                brackets.appendArc(from: NSPoint(x: corner.x, y: corner.y),
+                                   to: NSPoint(x: corner.x + corner.dx * leg, y: corner.y), radius: radius)
+                brackets.line(to: NSPoint(x: corner.x + corner.dx * leg, y: corner.y))
+            }
+            brackets.lineWidth = line
+            brackets.lineCapStyle = .round
+            brackets.stroke()
+
+            // The open eye.
+            NSBezierPath(roundedRect: NSRect(x: 5.76, y: 5.42, width: 1.52, height: 2.56), xRadius: 0.76, yRadius: 0.76).fill()
+
+            // The wink: an arch.
+            let wink = NSBezierPath()
+            wink.move(to: NSPoint(x: 9.72, y: 6.9))
+            wink.curve(to: NSPoint(x: 12.25, y: 6.9),
+                       controlPoint1: NSPoint(x: 10.56, y: 5.91), controlPoint2: NSPoint(x: 11.41, y: 5.91))
+            wink.lineWidth = line
+            wink.lineCapStyle = .round
+            wink.stroke()
+
+            // The grin: a slightly dipped top over a round bottom.
+            let grin = NSBezierPath()
+            grin.move(to: NSPoint(x: 5.4, y: 9.1))
+            grin.curve(to: NSPoint(x: 11.96, y: 9.1),
+                       controlPoint1: NSPoint(x: 7.59, y: 9.51), controlPoint2: NSPoint(x: 9.77, y: 9.51))
+            grin.curve(to: NSPoint(x: 8.68, y: 12.54),
+                       controlPoint1: NSPoint(x: 11.74, y: 11.89), controlPoint2: NSPoint(x: 10.21, y: 12.54))
+            grin.curve(to: NSPoint(x: 5.4, y: 9.1),
+                       controlPoint1: NSPoint(x: 7.15, y: 12.54), controlPoint2: NSPoint(x: 5.62, y: 11.89))
+            grin.close()
+            grin.lineWidth = 0.5
+            grin.lineJoinStyle = .round
+            grin.fill()
+            grin.stroke()
+
+            if badged {
+                let diameter = (side * 0.34).rounded()
+                NSBezierPath(ovalIn: NSRect(x: rect.maxX - diameter, y: rect.minY, width: diameter, height: diameter)).fill()
+            }
             return true
         }
         image.isTemplate = true
-        image.accessibilityDescription = "MemeMe. An update is ready."
+        image.accessibilityDescription = badged ? "MemeMe. An update is ready." : "MemeMe"
         return image
     }
 
