@@ -110,7 +110,7 @@ A winking smiley die-cut sticker, its corner peeling, on an orange tile (the web
 
 ## Menu-bar icon
 
-- Template icon (SF Symbol `face.smiling`). Clicking shows the menu.
+- Template icon, drawn in code on an 18 pt grid: a viewfinder (four rounded corner brackets, 1.4 pt lines) around a winking face (the app icon's pill eye, wink and open grin). Clicking shows the menu.
 - **Drop target:** dragging files or images onto the icon keeps them. Photos of people (not animated, little text, faces ≥ 6 % of the image height) become **stickers** (per the "Photos with people" setting, default automatic); everything else is kept as a meme. With "Ask Each Time", one alert per drop: title "Make stickers from “IMG_2207”?" (or "Make stickers from 3 photos?"), text "MemeMe cuts out each person. Everything stays on this Mac.", buttons [Make Stickers] [Keep as Photo] (plural "Keep as Photos").
 - After a drop, a popover under the icon:
   - Stickers: header "Made 3 stickers" + "Undo all"; the first time ever, an inline question "Group stickers by person?" / "MemeMe matches faces only against stickers you made. Face data stays on this Mac." [Yes, group them] [Not now]; a row of die-cut stickers (checkerboard background), each with a name label: "Maya ✓" (confident match), "Jordan?" + [Yes, that’s Jordan] (likely), or "New face"; a × on each to remove (+ to restore); footer "Keep as photo only".
@@ -164,7 +164,7 @@ MemeMe updates itself from GitHub Releases. Every change to the app on the defau
 - **Feed:** `latest.json`, a release asset next to `MemeMe.dmg`, read from `https://github.com/<owner>/<repo>/releases/latest/download/latest.json` (Info.plist `MemeMeUpdateFeedURL`, written by `build-app.sh`). Builds without a feed URL (local builds, tests) never check and show no update UI.
 - **When:** 20 s after launch, then every 6 hours while running, and after the Mac wakes if the last check is over an hour old. Silent: a failed check (offline, 404, bad JSON) changes nothing and shows nothing.
 - **Telling the user (no system notifications, no permission prompt):**
-  - The menu-bar icon gets a small dot (template image, so it follows the menu bar's color).
+  - The menu-bar icon gets a small dot in place of its top-right bracket (template image, so it follows the menu bar's color).
   - The panel footer shows one line when the panel opens, unless that build was dismissed: **“MemeMe 1.0 (58) is ready”** + muted **“ · <first release note>”** (when there is one), then **[Update]** (filled) and **[Not now]** (link). "Not now" hides the line for that build only; the dot and the menu item stay. Priority: indexing and the added-memes line win over it.
   - The menu starts with **Update to MemeMe 1.0 (58)…**.
 - **Check for Updates…** (menu) runs a check right away and answers in an alert:
