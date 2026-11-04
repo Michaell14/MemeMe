@@ -10,6 +10,11 @@ private final class KeyablePanel: NSPanel {
     var allowsKey = true
     override var canBecomeKey: Bool { allowsKey }
     override var canBecomeMain: Bool { false }
+
+    /// The drawer hangs from the top of the screen, over the menu bar: keep it where it is put.
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        frameRect
+    }
 }
 
 /// Signals from result tiles to the panel controller. SwiftUI's `onDrag` reports when a drag begins
@@ -36,6 +41,8 @@ final class PanelController: NSObject {
     private let model: AppModel
     private let panel: KeyablePanel
     private let hostingView: NSHostingView<PanelView>
+    /// The menu bar's height and the notch's width on the screen the panel opens on.
+    private let metrics: NotchMetrics
 
     private var keyMonitor: Any?
     private var mouseMonitor: Any?
@@ -50,11 +57,10 @@ final class PanelController: NSObject {
     /// Screen position of the panel's top edge and horizontal center while it is visible.
     private var anchorTop: CGFloat = 0
     private var anchorMidX: CGFloat = 0
-    /// visibleFrame of the screen the panel was opened on (the one with keyboard focus).
+    /// visibleFrame and frame of the screen the panel was opened on (the one with keyboard focus).
     private var anchorVisibleFrame: NSRect?
+    private var anchorScreenFrame: NSRect?
 
-    /// Gap between the menu bar and the panel.
-    private let menuBarGap: CGFloat = 8
     private let fallbackHeight: CGFloat = 330
     /// How long after answering a consent alert an app switch still counts as part of answering it.
     private let consentAlertGrace: TimeInterval = 1.5
@@ -74,7 +80,9 @@ final class PanelController: NSObject {
             backing: .buffered,
             defer: true
         )
-        hostingView = NSHostingView(rootView: PanelView(model: model))
+        let metrics = NotchMetrics()
+        self.metrics = metrics
+        hostingView = NSHostingView(rootView: PanelView(model: model, metrics: metrics))
         super.init()
         configurePanel(initialFrame: initialFrame)
 
@@ -115,16 +123,16 @@ final class PanelController: NSObject {
 
         model.panelWillShow(previousApp: previousApp)
 
-        let size = contentSize()
         let screen = NSScreen.main ?? NSScreen.screens.first
+        // The ears fit around this screen's notch, in its menu bar's height.
+        metrics.update(for: screen)
+        let size = contentSize()
         anchorVisibleFrame = screen?.visibleFrame
+        anchorScreenFrame = screen?.frame
         if let screen {
-            let full = screen.frame
-            let visible = screen.visibleFrame
-            anchorMidX = full.midX
-            // With the menu bar hidden (full screen, auto-hide), stay below the camera housing.
-            let usableTop = min(visible.maxY, full.maxY - screen.safeAreaInsets.top)
-            anchorTop = usableTop - menuBarGap
+            // Flush with the top of the screen, centered on the notch (where a notch is, it is in the middle).
+            anchorMidX = screen.frame.midX
+            anchorTop = screen.frame.maxY
         } else {
             anchorMidX = size.width / 2
             anchorTop = size.height
@@ -165,7 +173,8 @@ final class PanelController: NSObject {
 
     private func configurePanel(initialFrame: NSRect) {
         panel.isFloatingPanel = true
-        panel.level = .floating
+        // Over the menu bar: the drawer's top band covers it beside the notch while the panel is open.
+        panel.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 2)
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
         panel.hidesOnDeactivate = false
         panel.backgroundColor = .clear
@@ -206,11 +215,11 @@ final class PanelController: NSObject {
         )
         // Clamp to the screen the anchor was computed from: panel.screen still names the display the
         // ordered-out panel was last shown on.
-        if let visible = anchorVisibleFrame ?? (panel.screen ?? NSScreen.main)?.visibleFrame {
-            frame.origin.x = min(max(frame.origin.x, visible.minX), visible.maxX - frame.width)
-            if frame.minY < visible.minY {
-                frame.origin.y = visible.minY
-            }
+        if let full = anchorScreenFrame ?? (panel.screen ?? NSScreen.main)?.frame {
+            frame.origin.x = min(max(frame.origin.x, full.minX), full.maxX - frame.width)
+        }
+        if let visible = anchorVisibleFrame ?? (panel.screen ?? NSScreen.main)?.visibleFrame, frame.minY < visible.minY {
+            frame.origin.y = visible.minY
         }
         guard frame != panel.frame else { return }
         panel.setFrame(frame, display: panel.isVisible)
@@ -500,12 +509,9 @@ final class PanelController: NSObject {
             return nil
 
         case KeyCode.tab:
+            // Tab and Shift-Tab move along the tabs (For You · GIFs · Stickers · Memes).
             guard hasNoCommandLikeModifiers else { return event }
-            if hasShift {
-                model.backToFace()
-            } else {
-                model.moreLikeFocused()
-            }
+            model.cycleTab(by: hasShift ? -1 : 1)
             return nil
 
         case KeyCode.v where hasCommand && flags.intersection([.control, .option]).isEmpty:

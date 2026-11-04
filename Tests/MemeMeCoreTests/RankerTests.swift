@@ -108,6 +108,11 @@ final class RankerTests: XCTestCase {
         let all = ranker.rank(friends + mine, query: query)
         XCTAssertEqual(all.count, 5)
         XCTAssertEqual(all.filter { $0.item.kind == .friend }.count, 2)
+
+        // The Stickers tab shows only stickers: every friend sticker, best first.
+        let stickers = ranker.rank(friends, query: query, capsFriends: false)
+        XCTAssertEqual(stickers.count, 4)
+        XCTAssertTrue(stickers.allSatisfy { $0.item.kind == .friend })
     }
 
     func testFriendStickersWinExactTiesInFaceSearchOnly() {

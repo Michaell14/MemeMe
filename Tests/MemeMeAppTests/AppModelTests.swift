@@ -314,6 +314,54 @@ final class AppModelTests: XCTestCase {
     }
 
     @MainActor
+    func testTabsShowOneKindAndThePanelOpensOnForYou() throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.remove() }
+        let items = fixtures(in: sandbox)
+        let sticker = LibraryItem(
+            fileURL: sandbox.file("maya.png"),
+            displayName: "Maya — happy",
+            kind: .friend,
+            tier: .meme,
+            source: "Friend sticker",
+            addedAt: AppModelTests.march15,
+            contentHash: "hash-maya",
+            isSticker: true
+        )
+        let model = try makeModel(in: sandbox, items: [items.march, items.unrelated, sticker])
+
+        model.panelWillShow(previousApp: nil)
+        defer {
+            model.panelDidHide()
+            model.saveNow()
+        }
+        XCTAssertEqual(model.tab, .forYou, "the panel opens on For You")
+        XCTAssertEqual(Set(model.results.map { $0.item.id }), [items.march.id, items.unrelated.id, sticker.id],
+                       "For You mixes every kind of your things")
+
+        model.cycleTab(by: 2)
+        XCTAssertEqual(model.tab, .stickers)
+        XCTAssertEqual(model.results.map { $0.item.id }, [sticker.id])
+        XCTAssertEqual(model.focusedPick, .meme(sticker), "the focus goes to the tab's first tile")
+        XCTAssertEqual(model.layout.pick(at: 0), .meme(sticker))
+        XCTAssertNil(model.layout.pick(at: 1))
+
+        model.selectTab(.memes)
+        XCTAssertEqual(Set(model.results.map { $0.item.id }), [items.march.id, items.unrelated.id],
+                       "Memes shows still images, not stickers")
+
+        model.cycleTab(by: 1)
+        XCTAssertEqual(model.tab, .forYou, "Tab wraps around")
+
+        model.selectTab(.gifs)
+        XCTAssertTrue(model.results.isEmpty, "no GIFs of your own")
+        XCTAssertNil(model.focusedPick)
+        model.panelDidHide()
+        model.panelWillShow(previousApp: nil)
+        XCTAssertEqual(model.tab, .forYou, "and the panel opens on For You again")
+    }
+
+    @MainActor
     func testEscapeClearsPinsBeforeClosing() throws {
         let sandbox = try TestSandbox()
         defer { sandbox.remove() }

@@ -3,41 +3,39 @@ import MemeMeCore
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The compact strip: the mirror on the left, with the word it read (else the hint) under it; on the right the search
-/// field and three rows of 6: your memes, the classic memes and the GIFs; a footer below only while there
-/// is something to act on.
+/// The drawer: it hangs from the notch, flush with the top of the screen. Its top band, the height of the menu bar,
+/// has an ear on each side of the notch: the query on the left (the word your face read, or what you type), the tabs
+/// on the right. Under it: your face in a circle on the left, and two rows of 5 tiles for the tab showing; GIPHY's
+/// credit under them while GIPHY's GIFs show; a footer only while there is something to act on.
 struct PanelView: View {
     @ObservedObject var model: AppModel
+    @ObservedObject var metrics: NotchMetrics
 
     @FocusState private var searchFocused: Bool
     @State private var isDropTargeted = false
 
-    private let cornerRadius: CGFloat = 14
-
-    init(model: AppModel) {
+    init(model: AppModel, metrics: NotchMetrics) {
         _model = ObservedObject(wrappedValue: model)
+        _metrics = ObservedObject(wrappedValue: metrics)
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 0) {
+            ears
             if model.isCaptureOpen {
                 CaptureView(model: model)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 12)
+                    .padding(.bottom, 18)
             } else {
-                strip
+                drawerBody
             }
         }
-        .padding(16)
+        .padding(.horizontal, Theme.shoulder)
         .frame(width: Theme.panelWidth, alignment: .topLeading)
         .fixedSize(horizontal: false, vertical: true)
-        .background(
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(Theme.background)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .strokeBorder(showsDrop ? Theme.accent : Theme.border, lineWidth: showsDrop ? 2 : 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .background(DrawerShape().fill(Theme.background))
+        .clipShape(DrawerShape())
         .onDrop(of: [.fileURL, .image], isTargeted: $isDropTargeted) { providers in
             handleDrop(providers)
         }
@@ -74,85 +72,37 @@ struct PanelView: View {
         }
     }
 
-    // MARK: Search field
+    // MARK: Ears
 
-    /// Mirror + readout or hint, the three rows, footer.
-    @ViewBuilder
-    private var strip: some View {
-        if model.showSetupCard {
-            SetupCardView(model: model)
-        }
-        HStack(alignment: .top, spacing: 16) {
-            if !model.showSetupCard {
-                MirrorColumn(model: model)
+    /// The band beside the notch: the query in the left ear, the tabs in the right one. Neither reaches under the
+    /// notch (`metrics.notchWidth`; 0 on a screen without one, where the ears meet).
+    private var ears: some View {
+        let inner = Theme.panelWidth - 2 * Theme.shoulder
+        let earWidth = max(0, (inner - metrics.notchWidth) / 2)
+        return HStack(spacing: 0) {
+            if !model.isCaptureOpen {
+                queryField
+                    .frame(width: max(120, min(earWidth - 36, 300)), alignment: .leading)
             }
-            VStack(alignment: .leading, spacing: 10) {
-                if !model.showSetupCard {
-                    searchField
-                    if let naming = model.naming, !naming.candidates.isEmpty {
-                        NamingRow(prompt: naming) { personID in
-                            model.nameUnknownFace(personID: personID)
-                        }
-                    }
-                }
-                results
-                    .opacity(model.showSetupCard ? 0.55 : 1)
+            Spacer(minLength: 0)
+            if !model.isCaptureOpen && !model.showSetupCard {
+                TabBar(model: model)
             }
-            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        if model.footer != .hidden {
-            FooterView(model: model)
-        }
+        .padding(.leading, 20)
+        .padding(.trailing, 16)
+        .frame(height: metrics.bandHeight)
     }
 
-    /// Three rows, top to bottom: your memes (an empty well until you have some), the classic memes, the GIFs (each
-    /// web row only while its source is on); a dashed "Drop to search" card over them while an image is dragged over
-    /// the panel (the whole panel takes the drop).
-    private var results: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            if model.ownRows > 0 {
-                ResultGrid(model: model)
-            } else {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Theme.surface.opacity(0.45))
-                    .frame(height: 88)
-                    .overlay {
-                        Text("Your memes will show here")
-                            .font(.system(size: 12))
-                            .foregroundColor(Theme.mutedText)
-                    }
-            }
-            if model.showsTemplateRow {
-                TemplateRow(model: model)
-            }
-            if model.showsGiphyRow {
-                GiphyRow(model: model)
-            }
-        }
-        .overlay {
-            if showsDrop {
-                DropCard()
-            }
-        }
-    }
-
-    /// An image dragged over the panel, not one of its own tiles on its way out.
-    private var showsDrop: Bool {
-        isDropTargeted && !model.isDraggingTile
-    }
-
-    private var searchField: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(Theme.placeholderText)
-                .accessibilityHidden(true)
+    /// The query: the word the camera's search went by (dimmed while a new face is held toward replacing it), or what
+    /// you type. Its glyph says where the search comes from: your face or pose, or words (with your face kept: click
+    /// it to drop the face).
+    private var queryField: some View {
+        HStack(spacing: 6) {
+            queryGlyph
             ZStack(alignment: .leading) {
                 if model.queryText.isEmpty {
-                    Text("Type, or drop / ⌘V an image")
-                        .font(.system(size: 13))
-                        .foregroundColor(Theme.placeholderText)
-                        .lineLimit(1)
+                    queryPlaceholder
                         .allowsHitTesting(false)
                         .accessibilityHidden(true)
                 }
@@ -164,25 +114,113 @@ struct PanelView: View {
                     .accessibilityLabel("Search by typing, or drop or paste an image")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            if model.showsFaceToken {
-                Button(model.faceTokenIsPose ? "+ your pose ×" : "+ your face ×") {
-                    model.removeFaceToken()
-                }
-                .buttonStyle(PanelCapsuleButtonStyle(fontSize: 11, foreground: Theme.softText))
-                .accessibilityLabel(model.faceTokenIsPose ? "Stop using your pose in this search" : "Stop using your face in this search")
-            }
-            KeycapRow(color: model.hotKeyAvailable ? Theme.mutedText : Theme.warning)
         }
-        .padding(.horizontal, 10)
-        .frame(height: 36)
-        .background(
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(Theme.surface)
-        )
+        .padding(.leading, 2)
+        .padding(.trailing, 10)
+        .frame(height: 26)
+        .background(Capsule().fill(Theme.raised2))
         .overlay(
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .strokeBorder(model.queryText.isEmpty ? Theme.separator : Theme.accent, lineWidth: 1)
+            Capsule().strokeBorder(model.queryText.isEmpty ? Color.clear : Theme.line, lineWidth: 1)
         )
+    }
+
+    @ViewBuilder
+    private var queryPlaceholder: some View {
+        if let readout = model.readout {
+            Text(verbatim: readout.word)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(Theme.text)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .opacity(model.holdProgress >= 0.05 ? 0.45 : 1)
+                .animation(.easeOut(duration: 0.15), value: readout)
+        } else {
+            Text("Type to search")
+                .font(.system(size: 13))
+                .foregroundColor(Theme.placeholderText)
+                .lineLimit(1)
+        }
+    }
+
+    @ViewBuilder
+    private var queryGlyph: some View {
+        if model.showsFaceToken {
+            Button {
+                model.removeFaceToken()
+            } label: {
+                glyphCircle("face.smiling", filled: true)
+            }
+            .buttonStyle(.plain)
+            .help(model.faceTokenIsPose ? "Stop using your pose in this search" : "Stop using your face in this search")
+            .accessibilityLabel(model.faceTokenIsPose ? "Stop using your pose in this search" : "Stop using your face in this search")
+        } else if model.queryText.isEmpty, let readout = model.readout {
+            glyphCircle(readout.named ? "sparkles" : (readout.source == .face ? "face.smiling" : "figure.arms.open"),
+                        filled: false)
+                .accessibilityHidden(true)
+        } else {
+            glyphCircle("magnifyingglass", filled: false)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private func glyphCircle(_ symbol: String, filled: Bool) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundColor(filled ? Theme.onAccent : Theme.text)
+            .frame(width: 22, height: 22)
+            .background(Circle().fill(filled ? Theme.text : Theme.line))
+    }
+
+    // MARK: Body
+
+    private var drawerBody: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if model.showSetupCard {
+                SetupCardView(model: model)
+            }
+            if !model.showSetupCard, let naming = model.naming, !naming.candidates.isEmpty {
+                NamingRow(prompt: naming) { personID in
+                    model.nameUnknownFace(personID: personID)
+                }
+            }
+            HStack(alignment: .top, spacing: 16) {
+                MirrorColumn(model: model)
+                VStack(alignment: .trailing, spacing: 8) {
+                    DrawerGrid(model: model)
+                        .overlay {
+                            if showsDrop {
+                                DropCard()
+                            }
+                        }
+                    giphyCredit
+                }
+                .opacity(model.showSetupCard ? 0.55 : 1)
+            }
+            if model.footer != .hidden {
+                FooterView(model: model)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 12)
+        .padding(.bottom, 14)
+    }
+
+    /// GIPHY's credit, right under the tiles while GIPHY's GIFs show; the line keeps its height when they don't, so
+    /// switching tabs never resizes the drawer.
+    private var giphyCredit: some View {
+        ZStack(alignment: .trailing) {
+            Color.clear
+                .frame(height: 14)
+            if model.layout.showsGiphy {
+                PoweredByGiphyMark()
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+
+    /// An image dragged over the panel, not one of its own tiles on its way out.
+    private var showsDrop: Bool {
+        isDropTargeted && !model.isDraggingTile
     }
 
     // MARK: Drop
@@ -242,13 +280,13 @@ private struct DropCard: View {
             .fill(Theme.background.opacity(0.92))
             .overlay(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(Theme.accent, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+                    .strokeBorder(Theme.text, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
             )
             .overlay {
                 VStack(spacing: 4) {
                     Image(systemName: "tray.and.arrow.down")
                         .font(.system(size: 20))
-                        .foregroundColor(Theme.accent)
+                        .foregroundColor(Theme.text)
                     Text("Drop to search with it")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(Theme.text)
@@ -361,5 +399,44 @@ private struct NamingFace: View {
                 image = loaded
             }
         }
+    }
+}
+
+// MARK: - Tabs
+
+/// The right ear: For You · GIFs · Stickers · Memes. Tab and Shift-Tab move along them; the panel opens on For You.
+private struct TabBar: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(ResultTab.allCases, id: \.self) { tab in
+                tabButton(tab)
+            }
+        }
+        .help("Tab: the next type")
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Type")
+    }
+
+    private func tabButton(_ tab: ResultTab) -> some View {
+        let isSelected = model.tab == tab
+        return Button {
+            model.selectTab(tab)
+        } label: {
+            Text(verbatim: tab.title)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(isSelected ? Theme.text : Theme.mutedText)
+                .lineLimit(1)
+                .padding(.horizontal, 8)
+                .frame(height: 22)
+                .background(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(isSelected ? Theme.raised2 : Color.clear)
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }

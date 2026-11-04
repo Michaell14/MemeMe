@@ -7,7 +7,8 @@ struct HUDAction {
     let perform: @MainActor () -> Void
 }
 
-/// A short-lived pill at the top center of the main screen ("Copied … · ⌘V — not sent", "Copying…").
+/// A short-lived notice hanging from the notch, in the drawer's shape: "✓ Copied · ⌘V to paste" in the ears beside
+/// the notch, or a longer line just under it ("Copying…", "Saved “You — happy” as a sticker" with Undo).
 @MainActor
 final class HUDController {
     static let shared = HUDController()
@@ -18,10 +19,8 @@ final class HUDController {
     private let actionDisplayDuration: TimeInterval = 5
     private let afterHoverDuration: TimeInterval = 1.2
     private let fadeDuration: TimeInterval = 0.25
-    /// Transparent margin around the pill so its SwiftUI shadow isn't clipped by the window.
+    /// Transparent margin beside and under the notice so its SwiftUI shadow isn't clipped by the window.
     private let shadowMargin: CGFloat = 14
-    /// Distance between the pill and the menu bar.
-    private let topGap: CGFloat = 8
 
     private var panel: NSPanel?
     private var hostingView: HUDHostingView?
@@ -32,15 +31,28 @@ final class HUDController {
 
     private init() {}
 
-    /// Pill at the top center of the main screen for 1.6 s (or until replaced). Optional 28 px thumbnail.
+    /// A line hanging from the notch for 1.6 s (or until replaced). Optional 28 px thumbnail.
     /// With an `action` it shows a button, takes clicks (without taking focus from the frontmost app), stays 5 s
     /// and while the pointer is over it.
     func show(_ message: String, thumbnail: URL? = nil, action: HUDAction? = nil) {
+        present(.message(message), thumbnail: thumbnail, action: action)
+    }
+
+    /// "✓ Copied" and "⌘V to paste" in the ears beside the notch, for 1.6 s: the drawer folded back into the notch,
+    /// which says so.
+    func showCopied(thumbnail: URL? = nil) {
+        present(.copied, thumbnail: thumbnail, action: nil)
+    }
+
+    private func present(_ content: HUDPill.Content, thumbnail: URL?, action: HUDAction?) {
         generation += 1
         let current = generation
         isHovered = false
 
-        var pill = HUDPill(message: message, thumbnail: thumbnail, margin: shadowMargin, actionTitle: action?.title)
+        let screen = NSScreen.main ?? NSScreen.screens.first
+        let measured = NotchMetrics.measure(screen)
+        var pill = HUDPill(content: content, thumbnail: thumbnail, margin: shadowMargin, bandHeight: measured.band,
+                           notchWidth: measured.notch, actionTitle: action?.title)
         pill.onAction = { [weak self] in
             self?.dismiss()
             action?.perform()
@@ -55,7 +67,7 @@ final class HUDController {
 
         let fitting = host.fittingSize
         let size = NSSize(width: max(fitting.width, 120), height: max(fitting.height, 40))
-        window.setFrame(frame(for: size), display: true)
+        window.setFrame(frame(for: size, on: screen), display: true)
         // A zero-length animation replaces a fade-out that may still be running.
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0
@@ -103,7 +115,8 @@ final class HUDController {
             defer: true
         )
         newPanel.isFloatingPanel = true
-        newPanel.level = .statusBar
+        // Over the menu bar, like the drawer it stands in for.
+        newPanel.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 2)
         newPanel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient, .ignoresCycle]
         newPanel.ignoresMouseEvents = true
         newPanel.hidesOnDeactivate = false
@@ -124,18 +137,13 @@ final class HUDController {
         return (newPanel, newHost)
     }
 
-    /// Top center of the main screen, just under the menu bar.
-    private func frame(for size: NSSize) -> NSRect {
-        guard let screen = NSScreen.main ?? NSScreen.screens.first else {
+    /// Flush with the top of the screen, centered on the notch.
+    private func frame(for size: NSSize, on screen: NSScreen?) -> NSRect {
+        guard let screen else {
             return NSRect(origin: .zero, size: size)
         }
-        let visible = screen.visibleFrame
         let x = (screen.frame.midX - size.width / 2).rounded()
-        // The margin is transparent, so the visible pill sits `topGap` below the menu bar.
-        // With the menu bar hidden, stay below the camera housing (safe area is 0 without a notch).
-        let usableTop = min(visible.maxY, screen.frame.maxY - screen.safeAreaInsets.top)
-        let top = usableTop - topGap + shadowMargin
-        return NSRect(x: x, y: (top - size.height).rounded(), width: size.width, height: size.height)
+        return NSRect(x: x, y: (screen.frame.maxY - size.height).rounded(), width: size.width, height: size.height)
     }
 
     private func fadeOut(generation expected: Int) {
@@ -166,21 +174,120 @@ private final class HUDHostingView: NSHostingView<HUDPill> {
     }
 }
 
-/// The HUD's content: optional thumbnail, one line of text and an optional button on a dark pill.
+/// The HUD's content, in the drawer's shape, flush with the top of the screen. `.copied`: the band beside the notch
+/// only, "✓ Copied" in the left ear and "⌘V to paste" in the right one. `.message`: the band, then a line under the
+/// notch (optional thumbnail, the message, an optional button).
 private struct HUDPill: View {
-    let message: String
+    enum Content {
+        case copied
+        case message(String)
+    }
+
+    let content: Content
     let thumbnail: URL?
     let margin: CGFloat
+    let bandHeight: CGFloat
+    let notchWidth: CGFloat
     var actionTitle: String? = nil
     var onAction: () -> Void = {}
     var onHover: (Bool) -> Void = { _ in }
 
     @State var image: NSImage? = nil
 
+    /// Each ear of the copied notice.
+    let earWidth: CGFloat = 112
+
     var body: some View {
+        shape
+            .onHover { hovering in
+                onHover(hovering)
+            }
+            .shadow(color: Color.black.opacity(0.35), radius: 10, x: 0, y: 4)
+            .padding(.horizontal, margin)
+            .padding(.bottom, margin)
+            .fixedSize()
+            .environment(\.colorScheme, .dark)
+            .accessibilityElement(children: actionTitle == nil ? .ignore : .contain)
+            .accessibilityLabel(accessibilityText)
+            .task(id: thumbnail) { @MainActor in
+                guard let url = thumbnail else {
+                    image = nil
+                    return
+                }
+                if let cached = ThumbnailCache.shared.cached(url, minPixel: 96) {
+                    image = cached
+                    return
+                }
+                let loaded = await ThumbnailCache.shared.thumbnail(for: url, maxPixel: 96)
+                if !Task.isCancelled {
+                    image = loaded
+                }
+            }
+    }
+
+    @ViewBuilder
+    private var shape: some View {
+        switch content {
+        case .copied:
+            copiedEars
+                .padding(.horizontal, Theme.shoulder)
+                .background(DrawerShape(cornerRadius: 12).fill(Theme.hudBackground))
+        case let .message(message):
+            VStack(spacing: 0) {
+                Color.clear
+                    .frame(width: notchWidth + 2 * earWidth, height: bandHeight)
+                messageLine(message)
+                    .padding(.top, 6)
+                    .padding(.bottom, 12)
+                    .padding(.horizontal, 16)
+            }
+            .padding(.horizontal, Theme.shoulder)
+            .background(DrawerShape(cornerRadius: 18).fill(Theme.hudBackground))
+        }
+    }
+
+    /// The left ear says it is copied (with what, as a thumbnail), the right one how to paste it.
+    private var copiedEars: some View {
+        HStack(spacing: 0) {
+            HStack(spacing: 6) {
+                if thumbnail != nil {
+                    thumbnailView(size: 20, radius: 5)
+                }
+                Image(systemName: "checkmark")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(Theme.accent)
+                Text("Copied")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(Theme.text)
+                    .lineLimit(1)
+            }
+            .frame(width: earWidth)
+            Color.clear
+                .frame(width: notchWidth)
+            HStack(spacing: 6) {
+                Text("⌘V")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(Theme.text)
+                    .padding(.horizontal, 4)
+                    .frame(minWidth: 18, minHeight: 18)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 5, style: .continuous)
+                            .strokeBorder(Theme.keycapBorder, lineWidth: 1)
+                    )
+                Text("to paste")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(Theme.mutedText)
+                    .lineLimit(1)
+            }
+            .frame(width: earWidth)
+        }
+        .frame(height: bandHeight)
+    }
+
+    private func messageLine(_ message: String) -> some View {
         HStack(spacing: 10) {
             if thumbnail != nil {
-                thumbnailView
+                thumbnailView(size: 28, radius: 6)
             }
             Text(message)
                 .font(.system(size: 13, weight: .medium))
@@ -193,43 +300,16 @@ private struct HUDPill: View {
                     .buttonStyle(PanelFilledButtonStyle(fontSize: 12, cornerRadius: 7))
             }
         }
-        .onHover { hovering in
-            onHover(hovering)
-        }
-        .padding(.vertical, thumbnail == nil ? 9 : 7)
-        .padding(.leading, thumbnail == nil ? 14 : 8)
-        .padding(.trailing, 14)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Theme.hudBackground)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Theme.border, lineWidth: 1)
-        )
-        .shadow(color: Color.black.opacity(0.35), radius: 10, x: 0, y: 4)
-        .padding(margin)
-        .fixedSize()
-        .environment(\.colorScheme, .dark)
-        .accessibilityElement(children: actionTitle == nil ? .ignore : .contain)
-        .accessibilityLabel(message)
-        .task(id: thumbnail) { @MainActor in
-            guard let url = thumbnail else {
-                image = nil
-                return
-            }
-            if let cached = ThumbnailCache.shared.cached(url, minPixel: 96) {
-                image = cached
-                return
-            }
-            let loaded = await ThumbnailCache.shared.thumbnail(for: url, maxPixel: 96)
-            if !Task.isCancelled {
-                image = loaded
-            }
+    }
+
+    private var accessibilityText: String {
+        switch content {
+        case .copied: return "Copied. Press Command V to paste."
+        case let .message(message): return message
         }
     }
 
-    private var thumbnailView: some View {
+    private func thumbnailView(size: CGFloat, radius: CGFloat) -> some View {
         ZStack {
             Theme.surface
             if let image {
@@ -238,7 +318,7 @@ private struct HUDPill: View {
                     .aspectRatio(contentMode: .fill)
             }
         }
-        .frame(width: 28, height: 28)
-        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
     }
 }

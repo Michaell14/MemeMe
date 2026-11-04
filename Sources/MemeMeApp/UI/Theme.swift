@@ -1,39 +1,65 @@
 import SwiftUI
 
-/// Colors and metrics of the dark panel (DESIGN.md › The panel).
+/// Notch Black (docs/DESIGN.md › Design system): the drawer's colors and metrics. One black surface that matches the
+/// notch, one signal color for "this one" and "done", the Mac's own type.
 enum Theme {
-    /// 16 + the 120 pt mirror + 16 + 6 tiles of 88 pt 8 pt apart + 16.
+    /// 12 pt shoulders on each side of the drawer's 712 pt: 20 + mirror 104 + 16 + 5 tiles of 104 8 pt apart + 20.
     static let panelWidth: CGFloat = 736
+    /// The inverted corners where the drawer meets the top of the screen.
+    static let shoulder: CGFloat = 12
+    static let panelCornerRadius: CGFloat = 24
+    static let tileSize: CGFloat = 104
+    static let mirrorSize: CGFloat = 104
 
-    static let background: Color = rgb(0x1E1F24)
-    static let surface: Color = rgb(0x26282E)
-    static let border: Color = rgb(0x3A3C44)
-    static let text: Color = rgb(0xECECEF)
-    static let mutedText: Color = rgb(0xA9ACB5)
-    static let accent: Color = rgb(0x7AA2FF)
-    static let amber: Color = rgb(0xF5C451)
-    static let green: Color = rgb(0x5FD38D)
+    // MARK: Notch Black
 
-    /// Every row of tiles is 6 wide: your memes (one row), the classic memes and the GIFs.
-    static let columns: Int = 6
-    static let rows: Int = 1
-    static var resultLimit: Int { columns * rows }
+    /// Every panel: the same black as the notch.
+    static let ground: Color = rgb(0x000000)
+    /// Fields and empty tiles.
+    static let raised: Color = rgb(0x1C1C1E)
+    /// Tokens, the active tab, hairlines.
+    static let raised2: Color = rgb(0x2C2C2E)
+    /// Keycaps, outlines, dashed wells.
+    static let line: Color = rgb(0x3A3A3C)
+    static let text: Color = rgb(0xF5F5F7)
+    /// Everything else: 6.4:1 on black.
+    static let text2: Color = rgb(0x8E8E93)
+    /// This one, or done (the focus ring, the ↩ chip, the Copied check). Nothing else.
+    static let signal: Color = rgb(0xFF9A5C)
+
+    // MARK: The names the views use, on Notch Black
+
+    static let background: Color = ground
+    static let surface: Color = raised
+    static let border: Color = line
+    static let mutedText: Color = text2
+    static let accent: Color = signal
+    /// Was a second highlight; Notch Black keeps one, so it is plain text white.
+    static let amber: Color = text
+    /// "Done" is the signal color too.
+    static let green: Color = signal
+
+    /// Two rows of 5 tiles.
+    static let columns: Int = 5
+    static let rows: Int = 2
+    static let slotCount: Int = columns * rows
+    static var resultLimit: Int { slotCount }
 
     // Secondary tones used by the panel, popover and HUD.
-    static let separator: Color = rgb(0x2E3037)
-    static let chipBorder: Color = rgb(0x45474F)
-    static let keycapBorder: Color = rgb(0x5A5D66)
-    static let softText: Color = rgb(0xC9CCD4)
-    static let placeholderText: Color = rgb(0x9A9DA6)
-    static let link: Color = rgb(0x9DB8FF)
-    static let onAccent: Color = rgb(0x0E1324)
-    static let onGreen: Color = rgb(0x10241A)
-    static let mirrorBackground: Color = rgb(0x0E0F12)
+    static let separator: Color = raised2
+    static let chipBorder: Color = line
+    static let keycapBorder: Color = line
+    static let softText: Color = text2
+    static let placeholderText: Color = text2
+    static let link: Color = text
+    static let onAccent: Color = ground
+    static let onGreen: Color = ground
+    static let mirrorBackground: Color = raised
     static let warning: Color = rgb(0xFF8A80)
-    static let badgeBackground: Color = rgb(0x0E0F12, opacity: 0.72)
-    static let hudBackground: Color = rgb(0x1E1F24, opacity: 0.96)
-    static let checkerLight: Color = rgb(0x2C2E34)
-    static let checkerDark: Color = rgb(0x222328)
+    static let badgeBackground: Color = rgb(0x000000, opacity: 0.62)
+    static let hudBackground: Color = ground
+    static let checkerLight: Color = raised2
+    static let checkerDark: Color = raised
 
     private static func rgb(_ hex: UInt32, opacity: Double = 1) -> Color {
         let redComponent = Double((hex >> 16) & 0xFF) / 255
