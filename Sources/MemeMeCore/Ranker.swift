@@ -98,13 +98,17 @@ public struct Ranker: Sendable {
         self.baseline = baseline
     }
 
-    public func rank(_ items: [LibraryItem], query: SearchQuery, people: [Person] = [], recents: [UUID] = [], limit: Int = 10) -> [RankedResult] {
+    /// `capsFriends`: a face search keeps at most two friend stickers among the results (the Stickers tab, which shows
+    /// only stickers, turns it off).
+    public func rank(_ items: [LibraryItem], query: SearchQuery, people: [Person] = [], recents: [UUID] = [], limit: Int = 10,
+                     capsFriends: Bool = true) -> [RankedResult] {
         guard limit > 0 else { return [] }
         switch query {
         case .recent:
             return rankRecent(items, recents: recents, limit: limit)
         case let .expression(sample, weights, words):
-            return rankExpression(items, sample: sample, weights: weights, words: words, limit: limit)
+            return rankExpression(items, sample: sample, weights: weights, words: words, limit: limit,
+                                  capsFriends: capsFriends)
         case let .text(raw, sample, weights):
             return rankText(items, raw: raw, sample: sample, weights: weights, people: people, limit: limit)
         case let .image(featurePrint, face, _):
@@ -165,7 +169,7 @@ public struct Ranker: Sendable {
     // MARK: Modes
 
     private func rankExpression(_ items: [LibraryItem], sample: ExpressionSample, weights: FeatureWeights,
-                                words: [String], limit: Int) -> [RankedResult] {
+                                words: [String], limit: Int, capsFriends: Bool) -> [RankedResult] {
         var scored: [RankedResult] = []
         for item in items where item.tier == .meme {
             let score = expressionScore(item: item, sample: sample, weights: weights, words: words)
@@ -175,7 +179,7 @@ public struct Ranker: Sendable {
         var friendCount = 0
         for result in Ranker.sortedByScore(scored, friendsWinTies: true) {
             if results.count >= limit { break }
-            if result.item.kind == .friend {
+            if capsFriends && result.item.kind == .friend {
                 if friendCount >= Ranker.maximumFriendsInFaceResults { continue }
                 friendCount += 1
             }

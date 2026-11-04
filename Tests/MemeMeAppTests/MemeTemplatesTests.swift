@@ -124,12 +124,14 @@ final class MemeTemplatesTests: XCTestCase {
         // What the words name, then the face's mood's (shocked), then the most popular; each once.
         let flexing = WebQuery.described("flexing")
         let first = AppModel.pickTemplates(for: flexing, from: list, fallback: .shocked).map(\.name)
-        XCTAssertEqual(first, ["Buff Doge vs. Cheems", "Surprised Pikachu"] + (1...4).map { "Plain Template \($0)" })
+        XCTAssertEqual(first, ["Buff Doge vs. Cheems", "Surprised Pikachu"] + (1...8).map { "Plain Template \($0)" })
         XCTAssertEqual(AppModel.pickTemplates(for: flexing, from: list, page: 0, fallback: .shocked).map(\.name), first)
         let second = AppModel.pickTemplates(for: flexing, from: list, page: 1, fallback: .shocked).map(\.name)
-        XCTAssertEqual(second, (5...10).map { "Plain Template \($0)" }, "the same words caught again turn the page")
+        XCTAssertEqual(second, (9...11).map { "Plain Template \($0)" } + ["Buff Doge vs. Cheems", "Surprised Pikachu"]
+                       + (1...5).map { "Plain Template \($0)" },
+                       "the same words caught again turn the page, wrapping around to the start")
         let third = AppModel.pickTemplates(for: flexing, from: list, page: 2, fallback: .shocked).map(\.name)
-        XCTAssertEqual(third.count, Theme.columns, "wrapping around, the row stays full")
+        XCTAssertEqual(third.count, AppModel.templatePickSize, "wrapping around, both rows stay full")
         XCTAssertEqual(Set(first + second + third), Set(list.map(\.name)), "every template turns up within three pages")
 
         // Words that name nothing are never an empty row: the face's mood's templates, paged the same way.
@@ -167,12 +169,13 @@ final class MemeTemplatesTests: XCTestCase {
         list.append(MemeTemplate(id: "155067746", name: "Surprised Pikachu", url: pikachuURL, width: 1893, height: 1893))
 
         let first = AppModel.pickTemplates(for: .mood(.shocked), from: list).map(\.name)
-        XCTAssertEqual(first, ["Surprised Pikachu"] + (1...5).map { "Plain Template \($0)" })
+        XCTAssertEqual(first, ["Surprised Pikachu"] + (1...9).map { "Plain Template \($0)" })
         XCTAssertEqual(AppModel.pickTemplates(for: .mood(.shocked), from: list, page: 0).map(\.name), first)
         XCTAssertEqual(AppModel.pickTemplates(for: .mood(.shocked), from: list, page: 1).map(\.name),
-                       (6...11).map { "Plain Template \($0)" })
-        XCTAssertEqual(AppModel.pickTemplates(for: .mood(.shocked), from: list, page: 2).map(\.name), first,
-                       "back to the start once all twelve were shown")
+                       ["Plain Template 10", "Plain Template 11", "Surprised Pikachu"] + (1...7).map { "Plain Template \($0)" },
+                       "the next ones, wrapping around to the start")
+        XCTAssertEqual(AppModel.pickTemplates(for: .mood(.shocked), from: list, page: 6).map(\.name), first,
+                       "ten at a time through twelve, the sixth page starts over")
         // Typed words have no pages.
         XCTAssertEqual(AppModel.pickTemplates(for: .words("pikachu"), from: list, page: 1).map(\.name), ["Surprised Pikachu"])
     }

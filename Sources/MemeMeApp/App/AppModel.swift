@@ -116,6 +116,50 @@ enum Pick: Equatable {
     }
 }
 
+/// What the panel's two rows of tiles hold for the tab showing.
+struct TileLayout: Equatable {
+    /// Row by row, `columns` slots each; nil for an empty slot. Each row fills from the left.
+    let tiles: [Pick?]
+    /// The rows' tiles for keyboard focus.
+    let rows: TileRows
+    /// A row's empty slots wait for something on its way (GIPHY's search, Imgflip's list).
+    let loading: [Bool]
+    /// What a row with nothing in it says ("GIPHY isn’t answering right now.").
+    let messages: [String?]
+    /// The rows holding GIPHY's GIFs: their credit shows under the tiles.
+    let giphyRows: Set<Int>
+    /// Kinds mix (For You): GIFs of yours carry a "GIF" tag.
+    let marksTypes: Bool
+
+    init(top: [Pick], bottom: [Pick], columns: Int, loading: [Bool], messages: [String?], giphyRows: Set<Int>,
+         marksTypes: Bool) {
+        let top = Array(top.prefix(columns))
+        let bottom = Array(bottom.prefix(columns))
+        var tiles: [Pick?] = top.map { Optional($0) }
+        tiles += [Pick?](repeating: nil, count: columns - top.count)
+        tiles += bottom.map { Optional($0) }
+        tiles += [Pick?](repeating: nil, count: columns - bottom.count)
+        self.tiles = tiles
+        self.rows = TileRows(columns: columns, counts: [top.count, bottom.count])
+        self.loading = loading
+        self.messages = messages
+        self.giphyRows = giphyRows
+        self.marksTypes = marksTypes
+    }
+
+    var showsGiphy: Bool { !giphyRows.isEmpty }
+
+    func pick(at slot: Int) -> Pick? {
+        guard slot >= 0, slot < tiles.count else { return nil }
+        return tiles[slot]
+    }
+
+    /// The first `columns` of `picks` on top, the next `columns` under them.
+    static func split(_ picks: [Pick], columns: Int) -> (top: [Pick], bottom: [Pick]) {
+        (Array(picks.prefix(columns)), Array(picks.dropFirst(columns).prefix(columns)))
+    }
+}
+
 /// The word under the mirror: what the camera read and searched for, and what it read it from.
 struct MoodReadout: Equatable {
     enum Source: Equatable {
@@ -149,24 +193,28 @@ private struct DescribedPhrase {
         }
     }
     @Published private(set) var mode: PanelMode = .prompt
-    @Published private(set) var results: [RankedResult] = []         // ≤ Theme.resultLimit
-    /// Rows of the grid of your memes: 1, or 0 (nothing drawn) when you have none.
-    @Published private(set) var ownRows: Int = Theme.rows
-    @Published private(set) var newResultIDs: Set<UUID> = []          // amber ring for 600 ms
-    /// A slot of the tile grid (`TileGrid`): your memes (`ownRows` × 6), then the classic memes row, then the GIPHY
-    /// row.
+    /// Your things for the tab showing, best first (≤ Theme.resultLimit): all of them in For You, else the tab's kind.
+    @Published private(set) var results: [RankedResult] = []
+    /// The tab showing: For You (your things mixed on top, GIPHY's GIFs under them) each time the panel opens.
+    @Published private(set) var tab: ResultTab = .forYou
+    /// You have memes of your own (meme or maybe tier): until then the mirror's column offers "Find my memes".
+    @Published private(set) var hasMemes: Bool = false
+    @Published private(set) var newResultIDs: Set<UUID> = []          // just arrived, for 600 ms
+    /// A slot of the two rows of tiles (`layout`), row by row from 0; -1 for none (a typed, image or more-like search
+    /// that found nothing of yours).
     @Published var focusedIndex: Int = 0
-    /// The GIPHY row: GIPHY's results for `giphyQuery` (the face's mood, or typed words) in GIPHY's order, never
-    /// ranked or mixed with your memes.
-    @Published private(set) var giphyResults: [WebGIF] = []          // ≤ Theme.columns
+    /// GIPHY's results for `giphyQuery` (the face's mood, or typed words) in GIPHY's order, never ranked or mixed with
+    /// your memes: the page the tab shows (`giphySlots` of them).
+    @Published private(set) var giphyResults: [WebGIF] = []
     @Published private(set) var giphyQuery: WebQuery?
     @Published private(set) var isGiphyLoading: Bool = false
     /// The row's search failed or GIPHY refused it.
     @Published private(set) var giphyUnavailable: Bool = false
     /// Web Discover is on and has a key (checked each time the panel opens).
     @Published private(set) var showsGiphyRow: Bool = false
-    /// The classic memes row: Imgflip templates picked on the Mac for `templateQuery` (popular ones before a face).
-    @Published private(set) var templateResults: [MemeTemplate] = []  // ≤ Theme.columns
+    /// The classic memes: Imgflip templates picked on the Mac for `templateQuery` (popular ones before a face), up to
+    /// `templatePickSize`.
+    @Published private(set) var templateResults: [MemeTemplate] = []
     @Published private(set) var templateQuery: WebQuery?
     @Published private(set) var isTemplatesLoading: Bool = false
     /// There is no list of templates: Imgflip didn't answer and none was kept.
@@ -281,7 +329,7 @@ private struct DescribedPhrase {
     private var giphyTask: Task<Void, Never>?
     private var giphyGeneration = 0
     private var giphyWordsTask: Task<Void, Never>?
-    /// Every GIF GIPHY gave for `giphyQuery`, in its order; the row shows `giphyPage`'s `Theme.columns` of them.
+    /// Every GIF GIPHY gave for `giphyQuery`, in its order; the tab shows `giphyPage`'s `giphySlots` of them.
     private var giphyFound: [WebGIF] = []
     /// Which of `giphyFound` the row shows (`WebDiscover.page`): a new face caught with the same mood turns to the
     /// next ones. 0 for each new query and each time the panel opens.
@@ -310,6 +358,9 @@ private struct DescribedPhrase {
     private var updatesObservation: AnyCancellable?
 
     private var limit: Int { Theme.resultLimit }
+
+    /// Classic memes picked at a time: enough for both rows of the Memes tab.
+    static let templatePickSize = Theme.slotCount
 
     convenience init(store: LibraryStore) {
         self.init(store: store, webCacheRoot: nil)
@@ -469,14 +520,24 @@ private struct DescribedPhrase {
         return false
     }
 
-    /// The slot of the GIPHY row's `offset`-th tile.
-    func giphySlot(_ offset: Int) -> Int {
-        tileGrid.giphyStart + offset
+    /// What the two rows of tiles hold for the tab showing.
+    var layout: TileLayout {
+        makeLayout()
     }
 
-    /// The slot of the classic memes row's `offset`-th tile.
-    func templateSlot(_ offset: Int) -> Int {
-        tileGrid.templateStart + offset
+    /// Shows `newTab`: your things for it, ranked again for the search showing, and GIPHY's page sized for it; the
+    /// focus goes to its first tile.
+    func selectTab(_ newTab: ResultTab) {
+        guard tab != newTab else { return }
+        tab = newTab
+        userInteracted = false
+        refreshCurrentResults()
+        showGiphyPage()
+    }
+
+    /// Tab and Shift-Tab: the next or the previous tab, wrapping around.
+    func cycleTab(by offset: Int) {
+        selectTab(tab.cycled(by: offset))
     }
 
     func commit(index: Int) {
@@ -497,21 +558,21 @@ private struct DescribedPhrase {
         commit(index: focusedIndex)
     }
 
-    /// Number keys pick your memes, 1–6.
+    /// Number keys pick any tile, 1–9 in order, row by row.
     func commitNumbered(index: Int) {
-        guard index < tileGrid.webStart else { return }
+        guard index >= 0, index < Theme.slotCount else { return }
         commit(index: index)
     }
 
     func moveFocus(dx: Int, dy: Int) {
         userInteracted = true
-        guard let target = tileGrid.move(from: focusedIndex, dx: dx, dy: dy) else { return }
+        guard let target = makeLayout().rows.move(from: focusedIndex, dx: dx, dy: dy) else { return }
         focusedIndex = target
         prefetchFocused()
     }
 
     func hover(index: Int) {
-        guard tileGrid.isFilled(index) else { return }
+        guard makeLayout().rows.isFilled(index) else { return }
         userInteracted = true
         if focusedIndex != index {
             focusedIndex = index
@@ -1134,7 +1195,7 @@ private struct DescribedPhrase {
         let ranker = Ranker(baseline: tracker.baseline)
         let recentIDs = store.recents.recent(appBundleID: previousBundleID)
         let ranked = ranker.rank(
-            ownItems,
+            tabItems,
             query: .recent(appBundleID: previousBundleID),
             people: store.people,
             recents: recentIDs,
@@ -1144,7 +1205,8 @@ private struct DescribedPhrase {
         // GIPHY's "reaction" GIFs when you have no memes yet, or when no face can be read (no camera, denied, in use,
         // not yet allowed) to ask GIPHY about.
         let readsFaces = mode != .cameraOff && mode != .cameraBusy && mode != .prompt
-        if (ranked.isEmpty || !readsFaces) && giphyQuery == nil {
+        let noMemes = !store.items.contains { $0.kind != .web && $0.tier == .meme }
+        if (noMemes || !readsFaces) && giphyQuery == nil {
             showGiphy(for: .mood(.reaction))
         }
         if templateQuery == nil {
@@ -1199,8 +1261,8 @@ private struct DescribedPhrase {
 
         let ranker = Ranker(baseline: tracker.baseline)
         let phraseWords = poseWords.map { [$0.phrase] } ?? []
-        let ranked = ranker.rank(ownItems, query: .expression(sample, weights: weights, words: phraseWords),
-                                 people: store.people, limit: limit)
+        let ranked = ranker.rank(tabItems, query: .expression(sample, weights: weights, words: phraseWords),
+                                 people: store.people, limit: limit, capsFriends: tab != .stickers)
         setResults(ranked, animateNew: animate, resetFocus: true)
         guard let description = describedPose, let described = poseWords else {
             showGiphy(for: .mood(mood), turningPage: newQuery)
@@ -1282,8 +1344,9 @@ private struct DescribedPhrase {
                 // Your memes were ranked by the rule's phrase; the model's words may name others.
                 self.searchGeneration += 1
                 let ranker = Ranker(baseline: self.tracker.baseline)
-                let ranked = ranker.rank(self.ownItems, query: .expression(sample, weights: self.currentWeights, words: [phrase]),
-                                         people: self.store.people, limit: self.limit)
+                let ranked = ranker.rank(self.tabItems, query: .expression(sample, weights: self.currentWeights, words: [phrase]),
+                                         people: self.store.people, limit: self.limit,
+                                         capsFriends: self.tab != .stickers)
                 self.setResults(ranked, animateNew: animate, resetFocus: false)
             }
             let query = WebQuery.described(from: phrase) ?? .mood(mood)
@@ -1305,7 +1368,7 @@ private struct DescribedPhrase {
 
     /// Shows GIPHY's results for `query` in the GIPHY row: at once when searched in the last 10 minutes, else when
     /// the search answers. The same query already showing (or loading) is left alone, unless `turningPage` (a new face
-    /// caught with the same mood): then the row shows the next `Theme.columns` of GIPHY's results, wrapping around.
+    /// caught with the same mood): then the tab shows the next `giphySlots` of GIPHY's results, wrapping around.
     /// After waiting for a pose's name (`awaitGiphyName`), words that came out the same as the row's show its GIFs
     /// again, turned the same way.
     private func showGiphy(for query: WebQuery, turningPage: Bool = false) {
@@ -1314,14 +1377,14 @@ private struct DescribedPhrase {
             giphyAwaitsName = false
             if query == giphyQuery && !giphyFound.isEmpty {
                 if isGiphyLoading { isGiphyLoading = false }
-                if turningPage && giphyFound.count > Theme.columns {
+                if turningPage && giphyFound.count > giphySlots {
                     giphyPage += 1
                 }
                 showGiphyPage()
                 return
             }
         } else if query == giphyQuery && (isGiphyLoading || !giphyResults.isEmpty) {
-            if turningPage && !isGiphyLoading && giphyFound.count > Theme.columns {
+            if turningPage && !isGiphyLoading && giphyFound.count > giphySlots {
                 giphyPage += 1
                 showGiphyPage()
             }
@@ -1364,7 +1427,7 @@ private struct DescribedPhrase {
 
     /// Shows `giphyPage`'s GIFs of `giphyFound` in the row.
     private func showGiphyPage() {
-        let row = WebDiscover.page(giphyPage, of: giphyFound, size: Theme.columns)
+        let row = WebDiscover.page(giphyPage, of: giphyFound, size: giphySlots)
         if giphyResults != row {
             giphyResults = row
         }
@@ -1491,7 +1554,7 @@ private struct DescribedPhrase {
         }
     }
 
-    /// The classic memes row for `query`: for a mood, its `page`th group of `Theme.columns` templates (page 0 the ones
+    /// The classic memes for `query`: for a mood, its `page`th group of `templatePickSize` templates (page 0 the ones
     /// made for it, then the most popular; later pages the next ones, wrapping around); for words, the best matches;
     /// for a described pose, the templates its words name, then `fallback`'s (the face's mood: those made for it, then
     /// the most popular), paged like a mood's, so the row is never empty.
@@ -1501,18 +1564,18 @@ private struct DescribedPhrase {
         let indexes: [Int]
         switch query {
         case let .mood(mood):
-            indexes = MemeTemplateCatalog.pick(for: mood, from: refs, limit: Theme.columns, page: page)
+            indexes = MemeTemplateCatalog.pick(for: mood, from: refs, limit: templatePickSize, page: page)
         case let .words(text):
-            indexes = MemeTemplateCatalog.pick(forTerms: [text], from: refs, limit: Theme.columns)
+            indexes = MemeTemplateCatalog.pick(forTerms: [text], from: refs, limit: templatePickSize)
         case let .described(phrase):
-            indexes = MemeTemplateCatalog.pick(forDescription: phrase, mood: fallback, from: refs, limit: Theme.columns,
+            indexes = MemeTemplateCatalog.pick(forDescription: phrase, mood: fallback, from: refs, limit: templatePickSize,
                                                page: page)
         }
         return indexes.map { list[$0] }
     }
 
     private func setTemplateResults(_ picked: [MemeTemplate]) {
-        let row = Array(picked.prefix(Theme.columns))
+        let row = Array(picked.prefix(AppModel.templatePickSize))
         if templateResults != row {
             templateResults = row
         }
@@ -1540,56 +1603,135 @@ private struct DescribedPhrase {
         if case .words? = templateQuery { showTemplates(for: .mood(.reaction)) }
     }
 
-    private var tileGrid: TileGrid {
-        TileGrid(columns: Theme.columns, ownRows: ownRows, ownCount: results.count, giphyCount: giphyResults.count,
-                 templateCount: templateResults.count)
+    // MARK: - Tiles
+
+    /// How many of GIPHY's GIFs the tab shows: a row in For You (and in GIFs, under GIFs of yours), both rows in GIFs
+    /// when it has none of yours. Stickers and Memes show none, but GIPHY's search goes on under them, so the GIFs are
+    /// there when you switch back.
+    private var giphySlots: Int {
+        tab == .gifs && results.isEmpty ? Theme.slotCount : Theme.columns
     }
 
-    /// Follows how many memes you have, not what a search found, so the panel keeps its height as you search; but
-    /// always enough rows for what is shown (a typed search can find personal photos when you have no memes).
-    private func refreshOwnRows(showing shown: Int) {
-        let memes = ownItems.lazy.filter { $0.tier != .skipped }.count
-        let libraryRows = memes == 0 ? 0 : (memes <= Theme.columns ? 1 : Theme.rows)
-        let neededRows = (shown + Theme.columns - 1) / Theme.columns
-        let rows = min(Theme.rows, max(libraryRows, neededRows))
-        if ownRows != rows {
-            ownRows = rows
+    /// What each slot holds for the tab showing, row by row. For You: your things mixed with the classic memes on top
+    /// (`ForYouMix`), GIPHY's GIFs under them (without GIPHY, more of yours and of the classic memes). GIFs: GIFs of
+    /// yours on top when there are some, GIPHY's in their own row or both. Stickers: yours. Memes: yours, then the
+    /// classic memes. GIPHY's GIFs never share a row with yours.
+    private func makeLayout() -> TileLayout {
+        let columns = Theme.columns
+        let ownPicks = results.map { Pick.meme($0.item) }
+        let templatePicks = templateResults.map { Pick.template($0) }
+        let gifPicks = giphyResults.map { Pick.gif($0) }
+        var top: [Pick] = []
+        var bottom: [Pick] = []
+        var loading = [false, false]
+        var messages: [String?] = [nil, nil]
+        var giphyRows: Set<Int> = []
+        switch tab {
+        case .forYou:
+            let mix = ForYouMix.row(own: results.map { TileKind($0.item) }, templates: templateResults.count,
+                                    slots: columns)
+            var usedOwn = Set<Int>()
+            var usedTemplates = Set<Int>()
+            for pick in mix {
+                switch pick {
+                case let .own(index):
+                    usedOwn.insert(index)
+                    top.append(ownPicks[index])
+                case let .template(index):
+                    usedTemplates.insert(index)
+                    top.append(templatePicks[index])
+                }
+            }
+            loading[0] = top.count < columns && isTemplatesLoading
+            messages[0] = top.isEmpty ? ownEmptyMessage : nil
+            if showsGiphyRow {
+                bottom = Array(gifPicks.prefix(columns))
+                giphyRows = [1]
+                loading[1] = isGiphyLoading
+                messages[1] = gifPicks.isEmpty ? giphyEmptyMessage : nil
+            } else {
+                let moreOwn = ownPicks.indices.filter { !usedOwn.contains($0) }.map { ownPicks[$0] }
+                let moreTemplates = templatePicks.indices.filter { !usedTemplates.contains($0) }.map { templatePicks[$0] }
+                bottom = Array((moreOwn + moreTemplates).prefix(columns))
+            }
+        case .gifs:
+            if !showsGiphyRow {
+                (top, bottom) = TileLayout.split(ownPicks, columns: columns)
+                messages[0] = ownPicks.isEmpty ? "Turn on Web Discover in the menu for GIFs from GIPHY." : nil
+            } else if ownPicks.isEmpty {
+                (top, bottom) = TileLayout.split(gifPicks, columns: columns)
+                giphyRows = [0, 1]
+                loading = [isGiphyLoading, isGiphyLoading]
+                messages[0] = gifPicks.isEmpty ? giphyEmptyMessage : nil
+            } else {
+                top = Array(ownPicks.prefix(columns))
+                bottom = Array(gifPicks.prefix(columns))
+                giphyRows = [1]
+                loading[1] = isGiphyLoading
+                messages[1] = gifPicks.isEmpty ? giphyEmptyMessage : nil
+            }
+        case .stickers:
+            (top, bottom) = TileLayout.split(ownPicks, columns: columns)
+            messages[0] = ownPicks.isEmpty ? stickersEmptyMessage : nil
+        case .memes:
+            (top, bottom) = TileLayout.split(ownPicks + templatePicks, columns: columns)
+            loading = [top.count < columns && isTemplatesLoading, bottom.count < columns && isTemplatesLoading]
+            messages[0] = top.isEmpty ? ownEmptyMessage : nil
+        }
+        return TileLayout(top: top, bottom: bottom, columns: columns, loading: loading, messages: messages,
+                          giphyRows: giphyRows, marksTypes: tab == .forYou)
+    }
+
+    /// What a row of yours that shows nothing says.
+    private var ownEmptyMessage: String {
+        let words = queryText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if mode == .text && !words.isEmpty {
+            return "No memes match “\(words)”."
+        }
+        return hasMemes ? "No memes match." : "Your memes will show here."
+    }
+
+    /// What GIPHY's row says while it has no GIFs; nil while they load.
+    private var giphyEmptyMessage: String? {
+        if isGiphyLoading { return nil }
+        if giphyUnavailable { return "GIPHY isn’t answering right now." }
+        return giphyQuery == nil ? "Make a face or a pose for GIFs from GIPHY." : "Nothing on GIPHY for this one."
+    }
+
+    private var stickersEmptyMessage: String {
+        let hasStickers = store.items.contains { $0.isSticker && $0.kind != .web }
+        return hasStickers ? "No stickers match." : "Drop a photo of a friend on the MemeMe icon to make a sticker."
+    }
+
+    private func refreshHasMemes() {
+        let has = store.items.contains { $0.kind != .web && $0.tier != .skipped }
+        if hasMemes != has {
+            hasMemes = has
         }
     }
 
-    /// Where the focus starts: the first tile top to bottom (`TileGrid.firstSlot`: the first meme, else the first
-    /// classic meme, else the first GIF), or the classic memes row's first slot while nothing has come yet. A typed,
-    /// image or more-like search starts on nothing when it finds no meme, so ↵ copies nothing; with no row of memes
-    /// drawn, on the first tile below.
+    /// Where the focus starts: the first tile, top to bottom. A typed, image or more-like search that found nothing
+    /// of yours starts on none when you have memes, so ↵ copies nothing; GIPHY's and the classic memes' tiles are an
+    /// arrow away.
     private var startSlot: Int {
-        let grid = tileGrid
+        let rows = makeLayout().rows
         switch resultSource {
         case .recent, .expression:
-            return grid.firstSlot ?? grid.templateStart
+            return rows.firstSlot ?? 0
         case .text, .image, .moreLike:
-            return ownRows > 0 ? 0 : (grid.firstSlot ?? grid.templateStart)
+            if results.isEmpty && hasMemes { return -1 }
+            return rows.firstSlot ?? 0
         }
     }
 
     private func pick(atSlot slot: Int) -> Pick? {
-        let grid = tileGrid
-        guard grid.isFilled(slot) else { return nil }
-        switch grid.section(of: slot) {
-        case .own:
-            return .meme(results[slot].item)
-        case .template:
-            return .template(templateResults[slot - grid.templateStart])
-        case .giphy:
-            return .gif(giphyResults[slot - grid.giphyStart])
-        }
+        makeLayout().pick(at: slot)
     }
 
-    /// Keeps the focus on a tile: before the user moves it, on the start slot (`startSlot`); after, on the nearest one
-    /// in the same row.
+    /// Keeps the focus on a tile: before the user moves it, on the start slot (`startSlot`); after, on the last tile of
+    /// its row when its own went (the first tile when the row has none).
     private func normalizeFocus() {
-        let grid = tileGrid
-        // Until the user points somewhere, the focus follows the start slot as rows fill in: with no memes, the first
-        // classic meme, or the first GIF when the classic memes have nothing.
+        // Until the user points somewhere, the focus follows the start slot as the rows fill in.
         if !userInteracted {
             let target = startSlot
             if focusedIndex != target {
@@ -1597,18 +1739,9 @@ private struct DescribedPhrase {
             }
             return
         }
-        guard !grid.isFilled(focusedIndex) else { return }
-        let target: Int
-        switch grid.section(of: focusedIndex) {
-        case .own:
-            // Your memes went: the last one left, else the first tile below (nothing while there is none).
-            target = grid.ownCount > 0 ? grid.ownCount - 1 : (grid.firstSlot ?? focusedIndex)
-        case .template:
-            // The row's last tile; its start while it loads (or found nothing): it shows what is coming.
-            target = showsTemplateRow ? grid.templateStart + max(0, grid.templateCount - 1) : (grid.firstSlot ?? focusedIndex)
-        case .giphy:
-            target = showsGiphyRow ? grid.giphyStart + max(0, grid.giphyCount - 1) : (grid.firstSlot ?? focusedIndex)
-        }
+        let rows = makeLayout().rows
+        guard !rows.isFilled(focusedIndex) else { return }
+        let target = rows.lastSlot(inRow: rows.row(of: focusedIndex)) ?? rows.firstSlot ?? focusedIndex
         if focusedIndex != target {
             focusedIndex = target
         }
@@ -1622,7 +1755,7 @@ private struct DescribedPhrase {
         let ranker = Ranker(baseline: tracker.baseline)
         let face = showsFaceToken ? faceTokenSample : nil
         let weights = showsFaceToken ? faceTokenWeights : FeatureWeights.uniform
-        let ranked = ranker.rank(ownItems, query: .text(raw, face: face, weights: weights), people: store.people, limit: limit)
+        let ranked = ranker.rank(tabItems, query: .text(raw, face: face, weights: weights), people: store.people, limit: limit)
         setResults(ranked, animateNew: false, resetFocus: true)
         updateNamingPrompt(raw: raw, hasResults: !ranked.isEmpty)
         // GIPHY and the classic memes follow the words too (without filter words or your people's names). A name
@@ -1645,7 +1778,7 @@ private struct DescribedPhrase {
         // The query image itself (once kept) is not a result.
         let excludedIDs = Set(keptImageBatch?.addedIDs ?? [])
         let queryURL = queryImageURL?.standardizedFileURL
-        let pool = ownItems.filter { item in
+        let pool = tabItems.filter { item in
             !excludedIDs.contains(item.id) && item.fileURL.standardizedFileURL != queryURL
         }
         let ranker = Ranker(baseline: tracker.baseline)
@@ -1663,7 +1796,7 @@ private struct DescribedPhrase {
         resultSource = .moreLike
         searchGeneration += 1
         let ranker = Ranker(baseline: tracker.baseline)
-        let ranked = ranker.rank(ownItems, query: .moreLike(item), people: store.people, limit: limit)
+        let ranked = ranker.rank(tabItems, query: .moreLike(item), people: store.people, limit: limit)
         setResults(ranked, animateNew: false, resetFocus: true)
     }
 
@@ -1682,25 +1815,14 @@ private struct DescribedPhrase {
         }
     }
 
-    /// Your memes: the library without GIPHY's GIFs (they have their own row and are never kept in it).
-    private var ownItems: [LibraryItem] {
-        store.items.filter { $0.kind != .web }
+    /// Your things the tab shows: the library without GIPHY's GIFs (they are never kept in it), of the tab's kind.
+    private var tabItems: [LibraryItem] {
+        store.items.filter { $0.kind != .web && tab.shows(TileKind($0)) }
     }
 
     private func setResults(_ newResults: [RankedResult], animateNew: Bool, resetFocus: Bool) {
         let limited = Array(newResults.prefix(limit))
-        // The web rows' slots move with the number of meme rows; a focused classic meme or GIF keeps its place.
-        let oldWebStart = tileGrid.webStart
-        refreshOwnRows(showing: limited.count)
-        let newWebStart = tileGrid.webStart
-        if !resetFocus && newWebStart != oldWebStart {
-            if focusedIndex >= oldWebStart {
-                focusedIndex = newWebStart + (focusedIndex - oldWebStart)
-            } else if focusedIndex >= newWebStart {
-                // A meme of yours whose row went: the last meme left, else the first web tile.
-                focusedIndex = newWebStart > 0 ? newWebStart - 1 : (tileGrid.firstSlot ?? newWebStart)
-            }
-        }
+        refreshHasMemes()
         if animateNew && !results.isEmpty {
             let previous = Set(results.map { $0.id })
             let arrived = Set(limited.map { $0.id }).subtracting(previous)
@@ -1715,6 +1837,10 @@ private struct DescribedPhrase {
         if !newResultIDs.isSubset(of: visible) {
             newResultIDs = newResultIDs.intersection(visible)
         }
+        if tab == .gifs {
+            // GIFs of yours decide whether GIPHY's fill one row or both.
+            showGiphyPage()
+        }
         if resetFocus {
             userInteracted = false
             let first = startSlot
@@ -1724,7 +1850,7 @@ private struct DescribedPhrase {
         }
     }
 
-    /// Amber ring on tiles that just arrived, for 600 ms.
+    /// Tiles that just arrived, for 600 ms.
     private func markArrived(_ ids: Set<UUID>) {
         newResultIDs.formUnion(ids)
         Task { [weak self] in
@@ -1968,7 +2094,8 @@ private struct DescribedPhrase {
         if isSameOpen {
             onRequestClose?()
         }
-        HUDController.shared.show("Copied “\(pick.title)” · ⌘V — not sent", thumbnail: fileURL)
+        // The drawer folds back into the notch, which says so: "✓ Copied" and "⌘V to paste" beside it.
+        HUDController.shared.showCopied(thumbnail: fileURL)
     }
 
     /// The local file to put on the pasteboard; GIPHY GIFs and classic memes are downloaded first ("Copying…" if that
@@ -2203,6 +2330,8 @@ private struct DescribedPhrase {
         if holdProgress != 0 { holdProgress = 0 }
         if !newResultIDs.isEmpty { newResultIDs = [] }
         if showSetupCard { showSetupCard = false }
+        // Always open on For You, so ⌃⌘M then ↩ takes the best match of everything.
+        if tab != .forYou { tab = .forYou }
         lastTextEditAt = 0
         liveSince = nil
         faceMissing = false

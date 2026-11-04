@@ -2,8 +2,8 @@
 
 A tiny macOS menu-bar app for reaction images. In any chat, press **⌃⌘M**, make a face, and pick a reaction. It is copied to the clipboard and you are back in the chat. Paste it with ⌘V. MemeMe never pastes or sends anything for you.
 
-- **Your face is the search box.** Hold an expression for a moment and results follow it: memes you already have on your Mac and friend stickers you made, plus (optionally) a row of GIPHY reactions for the mood your face shows.
-- **One commit.** ↵, a number key 1–6, or a click copies the result and closes the panel.
+- **Your face is the search box.** Hold an expression for a moment and results follow it: memes you already have on your Mac and friend stickers you made, plus (optionally) GIPHY reactions for the mood your face shows. The panel hangs from the notch: **For You** mixes them, **GIFs**, **Stickers** and **Memes** show one kind each.
+- **One commit.** ↵, a number key 1–9, or a click copies the result and closes the panel.
 - **Small.** Swift and Apple frameworks only, no third-party packages, no bundled ML models. The camera runs only while the panel is open.
 
 Requires macOS 14 (Sonoma) or later, on Apple silicon or Intel.
@@ -83,14 +83,15 @@ Every change to the app on the default branch is released automatically. When `S
 |---|---|
 | ⌃⌘M | Open or close the panel (in any app, no permission needed) |
 | Make a face | Hold it for about 0.3 s; a different face needs about 0.6 s (the ring fills), or 0.3 s if you relax your face in between. Small changes count: stick your tongue out, wink, raise one eyebrow, purse your lips, smirk or roll your eyes, and the search goes by "tongue out", "wink", "raised eyebrow", "duck face", "smirk" or "eye roll". The same word caught again shows the next GIFs and classic memes |
-| Strike a pose | Arms up, a T-pose, a flex, a dab, hands on hips, arms crossed, one arm up, a wave (palm open to the camera), a bow, hands on your head, a facepalm, a shrug, clapping, a thumbs up, peace, pointing: memes with that pose come first, GIPHY and the classic memes are searched for it, and the word under the mirror names the pose. Any other finger pattern (horns, hang loose, finger guns) counts as a hand sign too, except while a hand rests in front of you holding a phone or a mug. A pose with no word of its own (one arm flexed, horns, a hand on your chin) is named in a few words on your Mac ("flexing", "rock on", "thinking") and searched by them: by Apple's on-device model on macOS 26 with Apple Intelligence on (sparkles under the mirror), else by MemeMe's own rules. Step back so your arms (and hips) are in view, and hold each pose for a second |
+| Strike a pose | Arms up, a T-pose, a flex, a dab, hands on hips, arms crossed, one arm up, a wave (palm open to the camera), a bow, hands on your head, a facepalm, a shrug, clapping, a thumbs up, peace, pointing: memes with that pose come first, GIPHY and the classic memes are searched for it, and the word beside the notch names the pose. Any other finger pattern (horns, hang loose, finger guns) counts as a hand sign too, except while a hand rests in front of you holding a phone or a mug. A pose with no word of its own (one arm flexed, horns, a hand on your chin) is named in a few words on your Mac ("flexing", "rock on", "thinking") and searched by them: by Apple's on-device model on macOS 26 with Apple Intelligence on (sparkles beside the word), else by MemeMe's own rules. Step back so your arms (and hips) are in view, and hold each pose for a second |
 | Space | Use the current face now, even a neutral one (only while the search field is empty) |
 | ⇧Space or the camera button on the mirror | Send yourself: tap the shutter (or Space) for a photo, hold it for a GIF of up to 3 s; ← → pick a filter (looks: Noir, Comic, 8-bit, Deep fried; on your face: Dog, Cat, Bunny, Rainbow, Flowers, Heart eyes, Deal with it, Devil, Angel, Crown, Bug eyes, Clown, Mustache, Pig). It's copied, ready to paste; **Save as sticker** on the notice keeps your face as a sticker |
-| ↵, 1–6, click | Copy the focused, numbered or clicked result and close (1–6 are your memes) |
-| Arrow keys | Move the focus; ↓ from your memes goes to the classic memes, ↓ again to the GIFs |
-| Typing | Search by words: text in images, labels, file names, sources, friends' names. Filter words: `mine`, `gif`, `sticker`, a friend's name. The GIPHY row and the classic memes follow the words too ("sad", "guy looking back") |
+| ↵, 1–9, click | Copy the focused, numbered or clicked result and close (1–9: the tiles in order, row by row) |
+| Arrow keys | Move the focus across the two rows of tiles |
+| Typing | Search by words: text in images, labels, file names, sources, friends' names. Filter words: `mine`, `gif`, `sticker`, a friend's name. GIPHY's GIFs and the classic memes follow the words too ("sad", "guy looking back") |
 | ⌘V or drop an image on the panel | Search with that image. It is not saved unless you click **Keep it** |
-| Tab / Shift-Tab | More like the focused result / back to your face |
+| Tab / Shift-Tab | The next / previous tab: For You · GIFs · Stickers · Memes (the panel opens on For You) |
+| Right-click one of your memes | More like this; Esc goes back to your face |
 | Click your eyes or mouth in the mirror | Focus the search on that part of the face |
 | Esc | First clears text, focus, image or more-like; a second Esc closes |
 | Drag a tile into a chat | Drops it into the message box and closes the panel; the clipboard is left alone |
@@ -114,7 +115,7 @@ Every change to the app on the default branch is released automatically. When `S
 
 ## GIPHY API key
 
-Web Discover adds two rows under the memes you already have: a row of classic memes (Distracted Boyfriend, Drake, Surprised Pikachu…) from Imgflip's list of popular templates, and under it a row of GIPHY reaction GIFs for the face you make (or the words you type), marked "Powered by" with GIPHY's logo. It is on by default. The classic memes need no key; the GIPHY row does nothing without an API key, and the menu item then reads **Web Discover (GIPHY): No API Key** (it still turns Web Discover, classic memes included, on and off).
+Web Discover adds classic memes (Distracted Boyfriend, Drake, Surprised Pikachu…) from Imgflip's list of popular templates to For You and the Memes tab, and GIPHY reaction GIFs for the face you make (or the words you type) to For You's bottom row and the GIFs tab, credited "Powered by" with GIPHY's logo. It is on by default. The classic memes need no key; GIPHY's GIFs need an API key, and the menu item then reads **Web Discover (GIPHY): No API Key** (it still turns Web Discover, classic memes included, on and off).
 
 1. Create an app at [developers.giphy.com](https://developers.giphy.com) (choose **API**) and copy its API key. A new key is a beta key: 100 calls per hour. MemeMe stays under 90 per rolling hour on each Mac and reuses a mood's results for 10 minutes, but GIPHY counts calls per key, so every copy of a release shares the built-in key's limit. That's fine for you and a few friends; before sharing MemeMe widely, use **Upgrade to Production** on the key in GIPHY's dashboard.
 2. Choose one way to provide it:
@@ -122,7 +123,7 @@ Web Discover adds two rows under the memes you already have: a row of classic me
    - **CI:** add a repository secret named `GIPHY_API_KEY` (Settings → Secrets and variables → Actions). The workflow passes it to the build script. Release runs fail without it; other builds without the secret, such as pull requests from forks, get an empty key.
    - **At run time:** menu-bar icon → **Set GIPHY API Key…**. This overrides the built-in key; leave it empty to go back to the built-in one.
 
-GIPHY's attribution is built in: the row's header reads "Powered by" with GIPHY's logo (`Resources/GIPHY/GIPHYLogo.png`, white lettering on transparent; `scripts/build-app.sh` copies it into the app).
+GIPHY's attribution is built in: "Powered by" with GIPHY's logo shows under the tiles while GIPHY's GIFs do (`Resources/GIPHY/GIPHYLogo.png`, white lettering on transparent; `scripts/build-app.sh` copies it into the app).
 
 MemeMe follows GIPHY's integration rules: results in their own row, in GIPHY's order, unfiltered, never mixed with your memes and never stored.
 
@@ -137,7 +138,8 @@ Sources/MemeMeCore/           Foundation-only logic, also builds on Linux
   FaceCues, FaceShapeMeasure    the face's details (tongue out, wink, one eyebrow, duck face, smirk, eye roll) from its landmarks
   PeakHoldTracker               turns camera frames into a stable query ("no shutter")
   FeatureWeights, Ranker        scoring for face, text, image, more-like and recent searches
-  EarlyMoodTrigger, TileGrid     when a held face's mood is clear (early GIPHY search); keyboard focus across rows
+  EarlyMoodTrigger, TileRows     when a held face's mood is clear (early GIPHY search); keyboard focus across the rows
+  ResultTab                     the tabs (For You, GIFs, Stickers, Memes), what kind a thing is, For You's mix
   Mood, MemeTemplateCatalog     face → mood word for GIPHY; the classic memes for a mood, words or a described pose
   PoseDescription               a pose with no word of its own in words: facts for the on-device model, a phrase by rule
   Classifier, LibraryItem,      library model, meme/maybe/skipped sorting, JSON store
@@ -150,10 +152,10 @@ Sources/MemeMeApp/            the macOS app (AppKit + SwiftUI)
   Camera/                       AVFoundation capture and the mirrored preview
   Vision/                       face landmarks → features, image analysis, thumbnails, naming poses with Apple's on-device model (PoseNamer)
   Library/                      folder watching and indexing
-  Web/                          GIPHY search and media for the GIPHY row
+  Web/                          GIPHY search and media for GIPHY's GIFs
   Stickers/                     subject lifting into die-cut stickers, friend grouping
   System/                       clipboard, Low Power / network conditions
-  UI/                           panel, mirror, result grid, classic memes and GIPHY rows, footer, setup card, HUD, sticker popover
+  UI/                           the drawer (ears, tabs, mirror, two rows of tiles), footer, setup card, HUD, sticker popover
   Update/                       update checks, download and verification, one-click install
 Tests/MemeMeCoreTests/        XCTest suite for the core
 VERSION                       the marketing version; the build number is the commit count
