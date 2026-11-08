@@ -176,6 +176,12 @@ struct MoodReadout: Equatable {
     var named: Bool = false
 }
 
+/// What the last pen stroke did in the face editor; `undoable` when it changed something, so Undo sits beside it.
+struct EditorNotice: Equatable {
+    let text: String
+    let undoable: Bool
+}
+
 /// The words a pose with no word of its own was searched by, kept for the query they were found for so re-showing it
 /// (Esc, a library change, back from typing or from the face editor) searches the same words and never asks the model
 /// again.
@@ -242,7 +248,7 @@ private struct DescribedPhrase {
     /// The word an edit just replaced: beside the notch, struck out before the new one for a moment.
     @Published private(set) var replacedWord: String?
     /// What the last pen stroke did ("Tears drawn. Now searching “crying”."), with Undo beside it.
-    @Published private(set) var editorNotice: String?
+    @Published private(set) var editorNotice: EditorNotice?
     @Published private(set) var hint = PanelHint(title: HintCopy.promptTitle, subtitle: HintCopy.promptSubtitle, actionTitle: nil, action: nil)
     @Published private(set) var footer: FooterState = .hidden
     @Published private(set) var showSetupCard: Bool = false
@@ -761,12 +767,13 @@ private struct DescribedPhrase {
     func drawOnFace(_ stroke: [SketchPoint]) -> StrokeGesture? {
         guard var edit = faceEdit else { return nil }
         guard let gesture = StrokeGesture.read(stroke, on: edit.sketch, weights: edit.weightValues) else {
-            editorNotice = HintCopy.strokeNotRead
+            editorNotice = EditorNotice(text: HintCopy.strokeNotRead, undoable: false)
             return nil
         }
         edit.apply(gesture, stroke: stroke)
         faceEdit = edit
-        editorNotice = AppModel.notice(for: gesture, mood: edit.mood(baseline: tracker.baseline))
+        editorNotice = EditorNotice(text: AppModel.notice(for: gesture, mood: edit.mood(baseline: tracker.baseline)),
+                                    undoable: true)
         runExpressionSearch(animate: false)
         refreshHint()
         return gesture

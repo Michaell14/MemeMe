@@ -64,9 +64,10 @@ private struct FaceCanvas: View {
         let showsHandles = tool == .adjust
         let tears = edit.tears
         let drawing = stroke
+        let ghost = FaceCanvas.ghost(of: edit)
         Canvas { context, size in
             FaceCanvas.draw(sketch: sketch, weights: weights, tears: tears, stroke: drawing, handles: showsHandles,
-                            highlighted: highlighted, in: &context, size: size)
+                            highlighted: highlighted, ghost: ghost, in: &context, size: size)
         }
         .overlay {
             SketchStroke(points: fading, tiltDegrees: sketch.tiltDegrees)
@@ -185,6 +186,18 @@ private struct FaceCanvas: View {
         }
     }
 
+    /// The part being dragged as it was when the drag began; nil unless a feature is held (not a ring or the tilt).
+    static func ghost(of edit: FaceEditSession) -> (sketch: FaceSketch, region: FaceRegion)? {
+        guard let handle = edit.draggedHandle, let start = edit.dragStartSketch else { return nil }
+        switch handle {
+        case .ring, .tilt:
+            return nil
+        default:
+            guard let region = handle.region else { return nil }
+            return (sketch: start, region: region)
+        }
+    }
+
     static func cursor(for handle: FaceHandle?) -> NSCursor {
         switch handle {
         case .none: return .arrow
@@ -195,9 +208,11 @@ private struct FaceCanvas: View {
 
     // MARK: Drawing
 
-    /// The well, the head, the rings, the features, tears and the pen's stroke, then the handles (Adjust only).
+    /// The well, the head, the rings, the dragged part's starting shape, the features, tears and the pen's stroke, then
+    /// the handles (Adjust only).
     static func draw(sketch: FaceSketch, weights: [FaceRegion: Double], tears: [[SketchPoint]], stroke: [SketchPoint],
-                     handles: Bool, highlighted: FaceHandle?, in context: inout GraphicsContext, size: CGSize) {
+                     handles: Bool, highlighted: FaceHandle?, ghost: (sketch: FaceSketch, region: FaceRegion)?,
+                     in context: inout GraphicsContext, size: CGSize) {
         let scale = size.width / CGFloat(FaceSketch.size)
         context.scaleBy(x: scale, y: scale)
         context.fill(Path(ellipseIn: CGRect(x: 0, y: 0, width: FaceSketch.size, height: FaceSketch.size)),
@@ -232,32 +247,40 @@ private struct FaceCanvas: View {
             }
         }
 
+        // The dragged part where it started, dashed, so you see how far you pushed it.
+        if let ghost {
+            let dashed = StrokeStyle(lineWidth: 1.2, lineCap: .round, dash: [3, 3])
+            let shading = GraphicsContext.Shading.color(Theme.mutedText)
+            switch ghost.region {
+            case .brows:
+                for side in FaceSide.allCases {
+                    face.stroke(browPath(ghost.sketch, side), with: shading, style: dashed)
+                }
+            case .eyes:
+                for side in FaceSide.allCases {
+                    face.stroke(eyePath(ghost.sketch, side), with: shading, style: dashed)
+                }
+            case .mouth:
+                face.stroke(mouthPath(ghost.sketch), with: shading, style: dashed)
+            }
+        }
+
         // The features; an ignored part's are dimmed.
         func ink(_ region: FaceRegion) -> Color {
             Theme.text.opacity((weights[region] ?? 1) <= 0.05 ? 0.35 : 1)
         }
         for side in FaceSide.allCases {
-            let curve = sketch.brow(side)
-            var brow = Path()
-            brow.move(to: point(curve.start))
-            brow.addQuadCurve(to: point(curve.end), control: point(curve.control))
-            face.stroke(brow, with: .color(ink(.brows)), style: StrokeStyle(lineWidth: 4.5, lineCap: .round))
+            face.stroke(browPath(sketch, side), with: .color(ink(.brows)), style: StrokeStyle(lineWidth: 4.5, lineCap: .round))
         }
         for side in FaceSide.allCases {
-            let eyeCenter = sketch.eyeCenter(side)
-            let eye = Path(ellipseIn: CGRect(x: eyeCenter.x - FaceSketch.eyeRadiusX, y: eyeCenter.y - sketch.eyeRadiusY,
-                                             width: 2 * FaceSketch.eyeRadiusX, height: 2 * sketch.eyeRadiusY))
+            let eye = eyePath(sketch, side)
             face.fill(eye, with: .color(Theme.ground))
             face.stroke(eye, with: .color(ink(.eyes)), lineWidth: 2.2)
             if sketch.pupilRadius > 0 {
                 face.fill(circle(point(sketch.pupilCenter(side)), CGFloat(sketch.pupilRadius)), with: .color(ink(.eyes)))
             }
         }
-        var mouth = Path()
-        mouth.move(to: point(sketch.mouthLeft))
-        mouth.addQuadCurve(to: point(sketch.mouthRight), control: point(sketch.upperLipControl))
-        mouth.addQuadCurve(to: point(sketch.mouthLeft), control: point(sketch.lowerLipControl))
-        mouth.closeSubpath()
+        let mouth = mouthPath(sketch)
         face.fill(mouth, with: .color(Theme.ground))
         face.stroke(mouth, with: .color(ink(.mouth)), style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
 
@@ -295,6 +318,29 @@ private struct FaceCanvas: View {
 
     static func point(_ point: SketchPoint) -> CGPoint {
         CGPoint(x: point.x, y: point.y)
+    }
+
+    static func browPath(_ sketch: FaceSketch, _ side: FaceSide) -> Path {
+        let curve = sketch.brow(side)
+        var path = Path()
+        path.move(to: point(curve.start))
+        path.addQuadCurve(to: point(curve.end), control: point(curve.control))
+        return path
+    }
+
+    static func eyePath(_ sketch: FaceSketch, _ side: FaceSide) -> Path {
+        let center = sketch.eyeCenter(side)
+        return Path(ellipseIn: CGRect(x: center.x - FaceSketch.eyeRadiusX, y: center.y - sketch.eyeRadiusY,
+                                      width: 2 * FaceSketch.eyeRadiusX, height: 2 * sketch.eyeRadiusY))
+    }
+
+    static func mouthPath(_ sketch: FaceSketch) -> Path {
+        var path = Path()
+        path.move(to: point(sketch.mouthLeft))
+        path.addQuadCurve(to: point(sketch.mouthRight), control: point(sketch.upperLipControl))
+        path.addQuadCurve(to: point(sketch.mouthLeft), control: point(sketch.lowerLipControl))
+        path.closeSubpath()
+        return path
     }
 
     static func circle(_ center: CGPoint, _ radius: CGFloat) -> Path {
@@ -457,15 +503,25 @@ private struct EditorTools: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 12)
             if let notice = model.editorNotice {
-                Text(verbatim: notice)
-                    .font(.system(size: 12))
-                    .foregroundColor(Theme.text)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.raised))
-                    .padding(.top, 12)
+                // What the pen just did, with its own Undo when it changed something.
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(verbatim: notice.text)
+                        .font(.system(size: 12))
+                        .foregroundColor(Theme.text)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if showsNoticeUndo {
+                        Button("Undo") {
+                            model.undoFaceEdit()
+                        }
+                        .buttonStyle(PanelLinkButtonStyle(fontSize: 12))
+                        .help("Undo what the pen just did (⌘Z)")
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.raised))
+                .padding(.top, 12)
             }
             HStack(spacing: 12) {
                 Button {
@@ -479,13 +535,15 @@ private struct EditorTools: View {
                 .opacity(edit.isEdited ? 1 : 0.4)
                 .help("Back to the face the camera caught")
 
-                Button("Undo") {
-                    model.undoFaceEdit()
+                if !showsNoticeUndo {
+                    Button("Undo") {
+                        model.undoFaceEdit()
+                    }
+                    .buttonStyle(PanelLinkButtonStyle())
+                    .disabled(!edit.canUndo)
+                    .opacity(edit.canUndo ? 1 : 0.4)
+                    .help("Undo the last change (⌘Z)")
                 }
-                .buttonStyle(PanelLinkButtonStyle())
-                .disabled(!edit.canUndo)
-                .opacity(edit.canUndo ? 1 : 0.4)
-                .help("Undo the last change (⌘Z)")
             }
             .padding(.top, 12)
             Spacer(minLength: 10)
@@ -494,6 +552,11 @@ private struct EditorTools: View {
                 KeyHint(key: "⌘Z", text: "undo")
             }
         }
+    }
+
+    /// The pen's notice carries Undo (and the row below leaves it out) while it describes a change Undo takes back.
+    private var showsNoticeUndo: Bool {
+        (model.editorNotice?.undoable ?? false) && edit.canUndo
     }
 }
 

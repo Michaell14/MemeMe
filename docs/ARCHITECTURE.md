@@ -309,6 +309,7 @@ public struct FaceEditSession: Equatable, Sendable {
     public init?(query: ExpressionSample, baseline: RestingBaseline)   // nil without a face
     public var sketch: FaceSketch; var weightValues: [FaceRegion: Double]; func weight(_:) -> Int
     public var draggedHandle: FaceHandle?; var canUndo: Bool; var isEdited: Bool   // isEdited: differs from the caught face
+    public var dragStartSketch: FaceSketch?                // the face the drag in progress began with (the editor's dashed starting shape)
     public var sample: ExpressionSample                    // the edited face, the caught pose and timestamp; the shape (face cues) only while !featuresEdited
     public func featureWeights(baseline:) -> FeatureWeights   // automatic(original's deviation, pose strength).overriding(weightValues)
     public func mood(baseline:) -> Mood                    // tears → .crying, else MoodClassifier on `sample`
@@ -1549,6 +1550,7 @@ enum FooterState: Equatable { case hidden, indexing(count: Int), added(IndexBatc
 struct NamingCandidate: Identifiable, Equatable { let personID: UUID; let stickerCount: Int; let sample: LibraryItem?; var id: UUID { personID } }
 struct NamingPrompt: Equatable { var name: String; var candidates: [NamingCandidate] }
 struct MoodReadout: Equatable { enum Source: Equatable { case face, pose, faceAndPose }; let word: String; let source: Source; var named: Bool = false }   // named: the on-device model named the pose (sparkles)
+struct EditorNotice: Equatable { let text: String; let undoable: Bool }
 enum DropOutcome { case kept(IndexBatch), stickers(StickerBatch), nothing }
 enum Pick: Equatable { case meme(LibraryItem), gif(WebGIF), template(MemeTemplate); var title: String { get } }
 struct TileLayout: Equatable {
@@ -1585,7 +1587,7 @@ struct TileLayout: Equatable {
     @Published private(set) var faceEdit: FaceEditSession?   // the face editor, while open (mode .live only: leaving .live closes it)
     @Published private(set) var shownWeights: [FaceRegion: Double]   // the face search's weights (the editor's, else automatic) for the mirror's glow; empty without a face
     @Published private(set) var replacedWord: String?    // the word an edit replaced, for 2 s
-    @Published private(set) var editorNotice: String?    // what the last pen stroke did
+    @Published private(set) var editorNotice: EditorNotice?   // what the last pen stroke did; undoable: it changed something (Undo shows in the notice)
     @Published private(set) var hint: PanelHint
     @Published private(set) var footer: FooterState
     @Published private(set) var showSetupCard: Bool

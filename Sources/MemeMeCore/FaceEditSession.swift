@@ -83,6 +83,12 @@ public struct FaceEditSession: Equatable, Sendable {
     /// The handle a drag in progress holds.
     public var draggedHandle: FaceHandle? { activeDrag?.handle }
 
+    /// The face as it was when the drag in progress began (nil between drags): the editor draws the dragged part's
+    /// starting shape dashed under it, so you see how far you pushed it.
+    public var dragStartSketch: FaceSketch? {
+        activeDrag.map { FaceSketch(face: $0.start.face, tiltDirection: $0.start.tiltDirection) }
+    }
+
     public var canUndo: Bool { !undoStack.isEmpty }
 
     /// Something differs from the face as it was caught.

@@ -51,6 +51,18 @@ final class FaceEditSessionTests: XCTestCase {
         XCTAssertFalse(session.undo(), "nothing more to undo")
     }
 
+    func testADragKeepsTheFaceItBeganWith() throws {
+        var session = try makeSession(makeFace(brow: 0.8, eye: 0.8, mouth: 0.55, width: 0.38))
+        XCTAssertNil(session.dragStartSketch)
+        session.beginDrag(.lowerLip)
+        session.drag(by: SketchPoint(x: 0, y: 8), pointer: .zero)
+        XCTAssertEqual(session.dragStartSketch?.face.mouthOpenness ?? -1, 0.55, accuracy: 1e-9,
+                       "the editor draws the mouth where it started, dashed")
+        XCTAssertGreaterThan(session.face.mouthOpenness, 0.6)
+        session.endDrag()
+        XCTAssertNil(session.dragStartSketch)
+    }
+
     func testEachFeatureFollowsTheDrag() throws {
         var session = try makeSession(TestFaces.neutral)
 
