@@ -6,7 +6,8 @@ import UniformTypeIdentifiers
 /// The drawer: it hangs from the notch, flush with the top of the screen. Its top band, the height of the menu bar,
 /// has an ear on each side of the notch: the query on the left (the word your face read, or what you type), the tabs
 /// on the right. Under it: your face in a circle on the left, and two rows of 5 tiles for the tab showing; GIPHY's
-/// credit under them while GIPHY's GIFs show; a footer only while there is something to act on.
+/// credit under them while GIPHY's GIFs show; the face editor while you edit your face (the drawer grows down, so the
+/// tiles stay put); a footer only while there is something to act on.
 struct PanelView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var metrics: NotchMetrics
@@ -127,13 +128,28 @@ struct PanelView: View {
     @ViewBuilder
     private var queryPlaceholder: some View {
         if let readout = model.readout {
-            Text(verbatim: readout.word)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(Theme.text)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .opacity(model.holdProgress >= 0.05 ? 0.45 : 1)
-                .animation(.easeOut(duration: 0.15), value: readout)
+            HStack(spacing: 5) {
+                // An edit just changed the word: the old one, struck out, then the new one.
+                if let replaced = model.replacedWord {
+                    Text(verbatim: replaced)
+                        .font(.system(size: 13, weight: .medium))
+                        .strikethrough(true, color: Theme.mutedText)
+                        .foregroundColor(Theme.mutedText)
+                        .lineLimit(1)
+                    Image(systemName: "arrow.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(Theme.mutedText)
+                        .accessibilityHidden(true)
+                }
+                Text(verbatim: readout.word)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(Theme.text)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .opacity(model.holdProgress >= 0.05 ? 0.45 : 1)
+                    .animation(.easeOut(duration: 0.15), value: readout)
+            }
+            .animation(.easeOut(duration: 0.2), value: model.replacedWord)
         } else {
             Text("Type to search")
                 .font(.system(size: 13))
@@ -195,6 +211,12 @@ struct PanelView: View {
                     giphyCredit
                 }
                 .opacity(model.showSetupCard ? 0.55 : 1)
+            }
+            if model.faceEdit != nil {
+                Rectangle()
+                    .fill(Theme.raised2)
+                    .frame(height: 1)
+                FaceEditorView(model: model)
             }
             if model.footer != .hidden {
                 FooterView(model: model)

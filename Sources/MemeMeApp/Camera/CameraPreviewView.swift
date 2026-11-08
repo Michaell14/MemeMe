@@ -16,24 +16,27 @@ private func observePreviewSessionRunning(
     }
 }
 
-/// The live, mirrored camera preview with clickable eyes / mouth overlays.
+/// The live, mirrored camera preview. Each part of the face (brows, eyes, mouth) glows by how much it counts in the
+/// search showing, white like the rest of Notch Black (dashed when it is ignored); a click opens the face editor.
 struct CameraPreviewView: NSViewRepresentable {
     let session: AVCaptureSession
     var regionRects: [FaceRegion: CGRect]   // Vision-normalized image coordinates
-    var pins: Set<FaceRegion>
-    var onToggle: (FaceRegion) -> Void      // only .eyes and .mouth are clickable
+    /// How much each part counts (0 ignored … 5); empty: no glow.
+    var weights: [FaceRegion: Double]
+    /// A click anywhere on the mirror; nil: clicks do nothing.
+    var onClick: (() -> Void)?
 
     func makeNSView(context: Context) -> PreviewHostView {
         let view = PreviewHostView(session: session)
-        view.onToggle = onToggle
-        view.update(regionRects: regionRects, pins: pins)
+        view.onClick = onClick
+        view.update(regionRects: regionRects, weights: weights)
         return view
     }
 
     func updateNSView(_ nsView: PreviewHostView, context: Context) {
         nsView.attach(session)
-        nsView.onToggle = onToggle
-        nsView.update(regionRects: regionRects, pins: pins)
+        nsView.onClick = onClick
+        nsView.update(regionRects: regionRects, weights: weights)
     }
 }
 
@@ -42,22 +45,31 @@ extension CameraPreviewView {
     /// use a bottom-left origin, so overlay drawing and click hit-testing share one mapping.
     final class PreviewHostView: NSView {
         let previewLayer: AVCaptureVideoPreviewLayer
-        var onToggle: ((FaceRegion) -> Void)?
+        var onClick: (() -> Void)? {
+            didSet {
+                guard (onClick == nil) != (oldValue == nil) else { return }
+                window?.invalidateCursorRects(for: self)
+                updateOverlays()
+            }
+        }
 
         private var regionRects: [FaceRegion: CGRect] = [:]
-        private var pins: Set<FaceRegion> = []
+        private var weights: [FaceRegion: Double] = [:]
         private var isPointerInside = false
         private var overlays: [FaceRegion: CAShapeLayer] = [:]
         private var runningObservation: NSKeyValueObservation?
 
-        private static let clickableRegions: [FaceRegion] = [.eyes, .mouth]
-        /// Smallest on-screen size of a region, so thin eye rects stay easy to click.
-        private static let minimumTargetSize = CGSize(width: 24, height: 16)
+        private static let regions: [FaceRegion] = [.brows, .eyes, .mouth]
+        /// Smallest on-screen size of a region's glow, so thin eye rects stay visible.
+        private static let minimumTargetSize = CGSize(width: 24, height: 14)
         /// Used until the camera reports its format (the session preset is 640×480).
         private static let fallbackVideoSize = CGSize(width: 640, height: 480)
-        private static let pinnedFill = CGColor(red: 245.0 / 255.0, green: 196.0 / 255.0, blue: 81.0 / 255.0, alpha: 0.45)
-        private static let pinnedStroke = CGColor(red: 245.0 / 255.0, green: 196.0 / 255.0, blue: 81.0 / 255.0, alpha: 0.9)
-        private static let hoverStroke = CGColor(red: 1, green: 1, blue: 1, alpha: 0.9)
+        /// Notch Black's text white at `alpha`: the glow. The signal color stays for "this one" and "done".
+        private static func glow(alpha: CGFloat) -> CGColor {
+            CGColor(red: 245.0 / 255.0, green: 245.0 / 255.0, blue: 247.0 / 255.0, alpha: alpha)
+        }
+        /// An ignored part: Text 2, dashed.
+        private static let ignoredStroke = CGColor(red: 142.0 / 255.0, green: 142.0 / 255.0, blue: 147.0 / 255.0, alpha: 0.9)
         private static let backdrop = CGColor(red: 38.0 / 255.0, green: 40.0 / 255.0, blue: 46.0 / 255.0, alpha: 1)
 
         init(session: AVCaptureSession) {
@@ -66,7 +78,7 @@ extension CameraPreviewView {
             wantsLayer = true
             previewLayer.videoGravity = .resizeAspectFill
 
-            for region in PreviewHostView.clickableRegions {
+            for region in PreviewHostView.regions {
                 let shape = CAShapeLayer()
                 shape.fillColor = nil
                 shape.strokeColor = nil
@@ -101,10 +113,10 @@ extension CameraPreviewView {
             watchRunningState(of: session)
         }
 
-        func update(regionRects: [FaceRegion: CGRect], pins: Set<FaceRegion>) {
-            guard regionRects != self.regionRects || pins != self.pins else { return }
+        func update(regionRects: [FaceRegion: CGRect], weights: [FaceRegion: Double]) {
+            guard regionRects != self.regionRects || weights != self.weights else { return }
             self.regionRects = regionRects
-            self.pins = pins
+            self.weights = weights
             updateOverlays()
         }
 
@@ -145,12 +157,18 @@ extension CameraPreviewView {
         }
 
         override func mouseDown(with event: NSEvent) {
-            let point = convert(event.locationInWindow, from: nil)
-            guard let clicked = hitRegion(at: point) else {
+            guard let onClick else {
                 super.mouseDown(with: event)
                 return
             }
-            onToggle?(clicked)
+            onClick()
+        }
+
+        override func resetCursorRects() {
+            super.resetCursorRects()
+            if onClick != nil {
+                addCursorRect(bounds, cursor: .pointingHand)
+            }
         }
 
         // MARK: Private
@@ -161,7 +179,7 @@ extension CameraPreviewView {
             root.masksToBounds = true
             previewLayer.frame = bounds
             root.addSublayer(previewLayer)
-            for region in PreviewHostView.clickableRegions {
+            for region in PreviewHostView.regions {
                 if let shape = overlays[region] {
                     shape.frame = bounds
                     root.addSublayer(shape)
@@ -215,29 +233,29 @@ extension CameraPreviewView {
             CATransaction.setDisableActions(true)
             defer { CATransaction.commit() }
 
-            for region in PreviewHostView.clickableRegions {
+            // Pointing at a mirror that opens the editor lifts the glows a little.
+            let lift: CGFloat = isPointerInside && onClick != nil ? 0.12 : 0
+            for region in PreviewHostView.regions {
                 guard let shape = overlays[region] else { continue }
-                guard let rect = displayRect(for: region) else {
+                guard let weight = weights[region], let rect = displayRect(for: region) else {
                     shape.isHidden = true
                     shape.path = nil
                     continue
                 }
-                if pins.contains(region) {
-                    shape.fillColor = PreviewHostView.pinnedFill
-                    shape.strokeColor = PreviewHostView.pinnedStroke
+                if weight <= 0.05 {
+                    shape.fillColor = nil
+                    shape.strokeColor = PreviewHostView.ignoredStroke
+                    shape.lineWidth = 1
+                    shape.lineDashPattern = [NSNumber(value: 3), NSNumber(value: 3)]
+                } else {
+                    let strength = CGFloat(min(5, weight))
+                    shape.fillColor = PreviewHostView.glow(alpha: 0.04 + 0.025 * strength)
+                    shape.strokeColor = PreviewHostView.glow(alpha: min(1, 0.25 + 0.15 * strength + lift))
                     shape.lineWidth = 1
                     shape.lineDashPattern = nil
-                    shape.isHidden = false
-                } else if isPointerInside {
-                    shape.fillColor = nil
-                    shape.strokeColor = PreviewHostView.hoverStroke
-                    shape.lineWidth = 1.5
-                    shape.lineDashPattern = [NSNumber(value: 4), NSNumber(value: 3)]
-                    shape.isHidden = false
-                } else {
-                    shape.isHidden = true
                 }
-                let radius = min(6, rect.width / 2, rect.height / 2)
+                shape.isHidden = false
+                let radius = max(0, min(rect.width, rect.height) / 2 - 0.5)
                 shape.path = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
             }
         }
@@ -298,20 +316,6 @@ extension CameraPreviewView {
             let pixels = CMVideoFormatDescriptionGetDimensions(description)
             guard pixels.width > 0, pixels.height > 0 else { return nil }
             return CGSize(width: CGFloat(pixels.width), height: CGFloat(pixels.height))
-        }
-
-        /// The clickable region under the point; the nearest center wins where enlarged targets overlap.
-        private func hitRegion(at point: CGPoint) -> FaceRegion? {
-            var best: (region: FaceRegion, distance: CGFloat)?
-            for region in PreviewHostView.clickableRegions {
-                guard let rect = displayRect(for: region), rect.contains(point) else { continue }
-                let dx = point.x - rect.midX
-                let dy = point.y - rect.midY
-                let distance = (dx * dx + dy * dy).squareRoot()
-                if let current = best, current.distance <= distance { continue }
-                best = (region: region, distance: distance)
-            }
-            return best?.region
         }
     }
 }

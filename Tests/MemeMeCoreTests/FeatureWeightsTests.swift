@@ -64,19 +64,37 @@ final class FeatureWeightsTests: XCTestCase {
         XCTAssertEqual(weights.eyes, 1, accuracy: 1e-9)
     }
 
-    func testPinningSetsSixAndKeepsTheRest() {
+    func testOverridingSetsTheEditorsWeightsAndKeepsTheRest() {
         let base = FeatureWeights(brows: 1.5, eyes: 2, mouth: 3, pose: 0.3)
-        let mouth = base.pinning([.mouth])
-        XCTAssertEqual(mouth.mouth, 6)
-        XCTAssertEqual(mouth.brows, 1.5)
-        XCTAssertEqual(mouth.eyes, 2)
-        XCTAssertEqual(mouth.pose, 0.3)
+        let edited = base.overriding([.mouth: 5, .brows: 0])
+        XCTAssertEqual(edited.mouth, 5)
+        XCTAssertEqual(edited.brows, 0)
+        XCTAssertEqual(edited.eyes, 2)
+        XCTAssertEqual(edited.pose, 0.3, "the pose's share stays")
 
-        let both = base.pinning([.eyes, .mouth])
-        XCTAssertEqual(both.eyes, 6)
-        XCTAssertEqual(both.mouth, 6)
-        XCTAssertEqual(both.brows, 1.5)
+        XCTAssertEqual(base.overriding([.eyes: -1]).eyes, 0, "never below 0")
+        XCTAssertEqual(base.overriding([.eyes: .nan]).eyes, 0)
+        XCTAssertEqual(base.overriding([:]), base)
+    }
 
-        XCTAssertEqual(base.pinning([]), base)
+    func testAnIgnoredRegionLeavesTheRanking() {
+        let query = makeFace(brow: 0.9, mouth: 0.05).vector
+        let item = makeFace(brow: 0.1, mouth: 0.05).vector
+        let all = Ranker.featureSimilarity(query, item, weights: .uniform)
+        let browsIgnored = Ranker.featureSimilarity(query, item, weights: FeatureWeights.uniform.overriding([.brows: 0]))
+        XCTAssertLessThan(all, 1)
+        XCTAssertEqual(browsIgnored, 1, accuracy: 1e-9, "only the brows differ, and they don't count")
+    }
+
+    func testSummaryNamesWhatCounts() {
+        XCTAssertEqual(FeatureWeights.summary(of: [.brows: 3, .eyes: 1.2, .mouth: 1.3]), "mostly your brows")
+        XCTAssertEqual(FeatureWeights.summary(of: [.brows: 1, .eyes: 1, .mouth: 1.2]), "your whole face")
+        XCTAssertEqual(FeatureWeights.summary(of: [.brows: 0, .eyes: 1, .mouth: 1]), "your eyes and mouth")
+        XCTAssertEqual(FeatureWeights.summary(of: [.brows: 0, .eyes: 0, .mouth: 2]), "only your mouth")
+        XCTAssertEqual(FeatureWeights.summary(of: [.brows: 0, .eyes: 1, .mouth: 4]),
+                       "mostly your mouth · ignoring your brows")
+        XCTAssertEqual(FeatureWeights.summary(of: [.brows: 5, .eyes: 0, .mouth: 0]), "only your brows")
+        XCTAssertEqual(FeatureWeights.summary(of: [.brows: 0, .eyes: 0, .mouth: 0]), "every part ignored")
+        XCTAssertEqual(FeatureWeights.summary(of: [:]), "every part ignored")
     }
 }

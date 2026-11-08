@@ -246,8 +246,81 @@ public struct FeatureWeights: Codable, Hashable, Sendable {
     public subscript(region: FaceRegion) -> Double { get set }
     /// m = max deviation; if m < 0.05 → all 1, else 1 + 2 * d / m per region. pose = min(0.6, 0.05 + 0.55 * poseStrength)
     public static func automatic(deviation: [FaceRegion: Double], poseStrength: Double) -> FeatureWeights
-    /// Pinned regions get weight 6.
-    public func pinning(_ pins: Set<FaceRegion>) -> FeatureWeights
+    /// The face editor's weights for the regions given (negative and NaN → 0; 0 = the ranker leaves the region out). The pose's share stays.
+    public func overriding(_ regions: [FaceRegion: Double]) -> FeatureWeights
+    /// The mirror's caption: "mostly your brows" (spread ≥ 0.5), "your whole face" (alike), "your eyes and mouth" (some ignored, the rest alike),
+    /// "only your mouth", "mostly your mouth · ignoring your brows", "every part ignored". ≤ 0.05 is ignored.
+    public static func summary(of weights: [FaceRegion: Double]) -> String
+}
+```
+
+### FaceSketch.swift
+
+```swift
+public struct SketchPoint: Hashable, Codable, Sendable { public var x, y: Double }   // 200 × 200, origin top-left, y down
+public struct SketchRect: Hashable, Sendable { minX, minY, maxX, maxY; width, height, midX, midY, center, area; outset(by:), contains(_:) }
+public enum FaceSide: String, CaseIterable { case left, right }
+public enum FaceHandle: Hashable, Sendable {
+    case brow(FaceSide), eyelid(FaceSide), pupil(FaceSide), mouthCorner(FaceSide), lowerLip, tilt, ring(FaceRegion)
+    public var region: FaceRegion? { get }       // the tilt has none
+    public static let all: [FaceHandle]          // every handle the editor shows
+}
+public struct FaceSketch: Equatable, Sendable {
+    public init(face: FaceFeatures, tiltDirection: Double = 1)   // the face clamped; direction ±1
+    // Travels (points per unit): brow 28, lid 14 (half-height 2 + 14 × eyeOpenness), gaze 9 (≤ 8), smile 28 (corner height), width 30
+    // (half-width 12 + 30 × mouthWidth), open 27 (the lower lip: 0.75 × 36 × mouthOpenness below the line at y 142; the upper lip a quarter above).
+    // Head: center (100, 106), radius 74; eyes at x 72 / 128, y 98, rx 13; tilt handle (100, 20); maxTilt 45°.
+    // Brows: quadratic curves from x 52 / 148 to 88 / 112 at y 78 − 28 × (browRaise − 0.45); lowered ones pull their inner ends down, raised ones arch, never into the eyes.
+    public var tiltDegrees: Double { get }       // headTilt × 45 × tiltDirection, clockwise
+    public func bounds(of region: FaceRegion) -> SketchRect
+    public func ring(_ region: FaceRegion, weight: Double) -> SketchRect   // bounds grown by 2 + 2 × weight (0…5), at least 20 tall
+    public func region(at point: SketchPoint, weights: [FaceRegion: Double]) -> FaceRegion?   // the smallest ring holding it
+    public func position(of handle: FaceHandle, weights: [FaceRegion: Double]) -> SketchPoint   // a ring's handle: its right edge's middle
+    public func handle(at point: SketchPoint, weights: [FaceRegion: Double]) -> FaceHandle?     // nearest within reach (rings, tilt 10; lip, corners 9; lids, brows 8, anywhere along a brow; pupils 6)
+    public func toFace(_ point: SketchPoint) -> SketchPoint; func fromFace(_:); func toFace(movement:)   // around the head's center by ∓ tiltDegrees
+    public static func tilt(towards point: SketchPoint) -> (headTilt: Double, direction: Double)       // the angle from straight up, / 45, clamped
+}
+```
+
+### StrokeGesture.swift
+
+```swift
+public enum StrokeGesture: Equatable, Sendable {
+    case circle(FaceRegion), scribble(FaceRegion), tear
+    /// nil under 2 points or 14 long. Turns: direction changes along x or y (wobbles under 4 ignored), the larger count.
+    /// circle: gap < 0.4 × diagonal, length > 1.6 × diagonal, turns < 4; scribble: turns ≥ 3, or 2.5 × wider than tall within 34 of a part;
+    /// tear: 1.3 × taller than wide, drawn down, starting between 4 above an eye's top and 36 below its center, within 28 of its column.
+    /// The part: the ring center nearest the stroke's box center (vertical × 1.6).
+    public static func read(_ points: [SketchPoint], on sketch: FaceSketch, weights: [FaceRegion: Double]) -> StrokeGesture?
+}
+```
+
+### FaceEditSession.swift
+
+```swift
+public struct FaceEditSession: Equatable, Sendable {
+    public static let maxWeight = 5, ringStepDistance = 10.0, pinchSteps = 5.0   // undo keeps 50
+    public let original: ExpressionSample
+    public private(set) var face: FaceFeatures
+    public private(set) var weights: [FaceRegion: Int]     // 0 (ignored) … 5, starting at automatic(deviation:poseStrength: 0) rounded
+    public private(set) var tears: [[SketchPoint]]
+    public private(set) var tiltDirection: Double
+    public private(set) var featuresEdited: Bool           // a feature was dragged
+    public init?(query: ExpressionSample, baseline: RestingBaseline)   // nil without a face
+    public var sketch: FaceSketch; var weightValues: [FaceRegion: Double]; func weight(_:) -> Int
+    public var draggedHandle: FaceHandle?; var canUndo: Bool; var isEdited: Bool   // isEdited: differs from the caught face
+    public var dragStartSketch: FaceSketch?                // the face the drag in progress began with (the editor's dashed starting shape)
+    public var sample: ExpressionSample                    // the edited face, the caught pose and timestamp; the shape (face cues) only while !featuresEdited
+    public func featureWeights(baseline:) -> FeatureWeights   // automatic(original's deviation, pose strength).overriding(weightValues)
+    public func mood(baseline:) -> Mood                    // tears → .crying, else MoodClassifier on `sample`
+    public mutating func beginDrag(_ handle: FaceHandle)
+    public mutating func drag(by movement: SketchPoint, pointer: SketchPoint)   // movement since the drag began, turned into face space by the tilt it began with; each number = its start ± movement / travel, clamped; tilt from `pointer`; a ring steps by round(Δx / 10)
+    public mutating func pinch(by magnification: Double)   // a held ring: start + round(log2(magnification) × 5)
+    public mutating func endDrag()                          // remembers the start for undo when something changed
+    public mutating func step(_ region: FaceRegion, by delta: Int)
+    public mutating func apply(_ gesture: StrokeGesture, stroke: [SketchPoint])   // circle → 5, scribble → 0, tear → kept
+    public mutating func undo() -> Bool
+    public mutating func reset()                            // to the caught face; undoable
 }
 ```
 
@@ -965,11 +1038,11 @@ Rendering: `CIImage(cvPixelBuffer:)` → centered square → mirrored → filter
 struct CameraPreviewView: NSViewRepresentable {
     let session: AVCaptureSession
     var regionRects: [FaceRegion: CGRect]   // Vision-normalized image coordinates
-    var pins: Set<FaceRegion>
-    var onToggle: (FaceRegion) -> Void      // only .eyes and .mouth are clickable
+    var weights: [FaceRegion: Double]       // how much each part counts; empty: no glow
+    var onClick: (() -> Void)?              // a click anywhere on the mirror (opens the face editor)
 }
 ```
-`AVCaptureVideoPreviewLayer` (aspect fill, mirrored via `connection.automaticallyAdjustsVideoMirroring = false; isVideoMirrored = true`). Overlays for .eyes and .mouth converted with `layerRectConverted(fromMetadataOutputRect:)` from the metadata rect `(x, 1 − y − h, w, h)`. Pinned regions: amber `#F5C451` fill at 45 % opacity. While the pointer is inside (NSTrackingArea), unpinned regions show a dashed white outline. Clicks inside a region call `onToggle`.
+`AVCaptureVideoPreviewLayer` (aspect fill, mirrored via `connection.automaticallyAdjustsVideoMirroring = false; isVideoMirrored = true`). Overlays for .brows, .eyes and .mouth, mapped from Vision's normalized rects (aspect fill, mirrored), at least 24 × 14 pt, rounded fully: a weight > 0.05 glows Text white (fill 4 % + 2.5 % per weight, stroke 25 % + 15 % per weight, + 12 % while the pointer is inside a clickable mirror); ≤ 0.05 is a dashed Text 2 outline. With `onClick` the mirror shows the pointing-hand cursor and any click calls it.
 
 ### Library/FolderWatcher.swift
 
@@ -1471,12 +1544,13 @@ A press held 0.35 s starts a clip (`camera.beginClip`); the release (or 3 s) end
 
 ```swift
 enum PanelMode: Equatable { case prompt, warming, live, text, image, moreLike, cameraOff, cameraBusy }
-enum HintAction: Equatable { case clearPins, backToFace, keepImage, turnOnCamera, useCamera }
+enum HintAction: Equatable { case backToFace, keepImage, turnOnCamera, useCamera }
 struct PanelHint: Equatable { var title: String; var subtitle: String?; var actionTitle: String?; var action: HintAction? }
 enum FooterState: Equatable { case hidden, indexing(count: Int), added(IndexBatch), update(UpdateManifest) }
 struct NamingCandidate: Identifiable, Equatable { let personID: UUID; let stickerCount: Int; let sample: LibraryItem?; var id: UUID { personID } }
 struct NamingPrompt: Equatable { var name: String; var candidates: [NamingCandidate] }
 struct MoodReadout: Equatable { enum Source: Equatable { case face, pose, faceAndPose }; let word: String; let source: Source; var named: Bool = false }   // named: the on-device model named the pose (sparkles)
+struct EditorNotice: Equatable { let text: String; let undoable: Bool }
 enum DropOutcome { case kept(IndexBatch), stickers(StickerBatch), nothing }
 enum Pick: Equatable { case meme(LibraryItem), gif(WebGIF), template(MemeTemplate); var title: String { get } }
 struct TileLayout: Equatable {
@@ -1510,7 +1584,10 @@ struct TileLayout: Equatable {
     @Published private(set) var isTemplatesLoading: Bool
     @Published private(set) var templatesUnavailable: Bool       // no list at all
     @Published private(set) var showsTemplateRow: Bool           // Web Discover on (set when the panel opens)
-    @Published private(set) var pins: Set<FaceRegion>
+    @Published private(set) var faceEdit: FaceEditSession?   // the face editor, while open (mode .live only: leaving .live closes it)
+    @Published private(set) var shownWeights: [FaceRegion: Double]   // the face search's weights (the editor's, else automatic) for the mirror's glow; empty without a face
+    @Published private(set) var replacedWord: String?    // the word an edit replaced, for 2 s
+    @Published private(set) var editorNotice: EditorNotice?   // what the last pen stroke did; undoable: it changed something (Undo shows in the notice)
     @Published private(set) var hint: PanelHint
     @Published private(set) var footer: FooterState
     @Published private(set) var showSetupCard: Bool
@@ -1521,7 +1598,7 @@ struct TileLayout: Equatable {
     @Published private(set) var naming: NamingPrompt?
     @Published private(set) var holdProgress: Double
     @Published private(set) var heldPose: PoseBadge?     // PoseBadge.of(tracker.query) for a face search, nil otherwise
-    @Published private(set) var readout: MoodReadout?     // the face search's word (mood label, or a described pose's words) and source (.face / .pose / .faceAndPose) while live; nil with pins, or for a word from the face (.face or .faceAndPose) while the face is missing
+    @Published private(set) var readout: MoodReadout?     // the face search's word (mood label, or a described pose's words) and source (.face / .pose / .faceAndPose) while live; nil for a word from the face (.face or .faceAndPose) while the face is missing (not while the editor is open: then it is the edited face's word)
     @Published private(set) var poseCatches: Int         // +1 when a new query (or Space) brings a heldPose other than the one before: the mirror's green flash
     @Published private(set) var hotKeyAvailable: Bool
     @Published private(set) var isPanelVisible: Bool
@@ -1564,8 +1641,18 @@ struct TileLayout: Equatable {
     func commitNumbered(index: Int)                  // 1–9: any tile, row by row
     func moveFocus(dx: Int, dy: Int)
     func hover(index: Int)
-    func togglePin(_ region: FaceRegion)
-    func handleEscape() -> Bool                      // in the capture view: cancels a capture in progress, else closes the view
+    func handleEscape() -> Bool                      // in the capture view: cancels a capture in progress, else closes the view; then the face editor, then text / image / more-like
+    // The face editor (FaceEditSession); each change re-ranks your memes at once, the web rows follow once settled (not during a drag)
+    var canEditFace: Bool { get }                    // .live, no capture view or setup card, not editing, shownWeights not empty
+    var weightSummary: String? { get }               // FeatureWeights.summary(of: shownWeights); nil when empty
+    func openFaceEditor()                            // FaceEditSession(query: tracker.query): the camera stops searching (handleSample returns early), tracker.clearHold()
+    func toggleFaceEditor()                          // ⌘E
+    func closeFaceEditor()                           // "Back to your face", Esc: the caught query searched again
+    func beginFaceDrag(_ handle: FaceHandle); func dragFace(by movement: SketchPoint, pointer: SketchPoint); func pinchFace(by magnification: Double); func endFaceDrag()
+    func stepFaceWeight(_ region: FaceRegion, by delta: Int)
+    func drawOnFace(_ stroke: [SketchPoint]) -> StrokeGesture?   // StrokeGesture.read; sets editorNotice
+    func undoFaceEdit(); func resetFaceEdit()        // ⌘Z, Reset
+    nonisolated static func notice(for gesture: StrokeGesture, mood: Mood) -> String
     func snap()
     // Send yourself
     var canOpenCapture: Bool { get }                 // mode == .live, no setup card, camera running
@@ -1604,8 +1691,8 @@ Other internal helpers that exist outside the contract: `StickerBatchSources` (A
 Behavior summary (details in DESIGN.md):
 - **Tabs and the layout.** `results` holds your things for the tab showing (`tabItems`: the library without `.web` items, of `tab.shows(TileKind(item))`), ranked by every search with `limit` 10 (`capsFriends: tab != .stickers` for the face). `makeLayout()` (binding): For You: top = `ForYouMix.row(own: results' kinds, templates: templateResults.count, slots: 5)` as picks; bottom = `giphyResults` (5) while `showsGiphyRow`, else your things and the classic memes the top row didn't use, in order; `marksTypes`. GIFs: without `showsGiphyRow`, your GIFs in both rows; with no GIFs of yours, `giphyResults` (10) in both; else yours on top, GIPHY's 5 below. Stickers: yours in both. Memes: yours, then `templateResults`, in both. `loading`: a GIPHY row while `isGiphyLoading`; a row that takes classic memes and isn't full while `isTemplatesLoading`. `messages`: a row of yours with nothing: "No memes match “<words>”." (text mode), "No memes match." or "Your memes will show here." (no memes); GIPHY's: "GIPHY isn’t answering right now.", "Make a face or a pose for GIFs from GIPHY." (no query) or "Nothing on GIPHY for this one."; Stickers: "No stickers match." or "Drop a photo of a friend on the MemeMe icon to make a sticker."; GIFs without GIPHY: "Turn on Web Discover in the menu for GIFs from GIPHY.". `selectTab` sets `tab`, clears `userInteracted`, `refreshCurrentResults()`, `showGiphyPage()`; `resetForNewSession` puts `tab` back to `.forYou`. With the GIFs tab showing, `setResults` pages GIPHY again (GIFs of yours decide between 5 and 10).
 - `panelWillShow`: remember previous app + bundle id; reset query state; mode = `.cameraBusy` if `camera.isInUseByAnotherApplication`, `.prompt` if authorization is `.notDetermined`, `.cameraOff` if denied/restricted, else `.warming` (start camera); results = recent for that app (or the newest own memes); with no meme-tier things of yours at all, or when no face can be read (`.cameraOff`, `.cameraBusy`, `.prompt`), GIPHY shows `.mood(.reaction)`; the classic memes the most popular templates; footer per rules; on first run (`!settings.hasCompletedFirstRun`) request camera access 0.6 s after show (activate the app just for the prompt).
-- `camera.onSample` → `tracker.ingest`; the mood of `tracker.candidate` (the expression being held; `MoodClassifier.mood(for:pose:shape:baseline:)` with the sample's shape, as for the query; nil for a clear gesture with no word of its own) goes through `EarlyMoodTrigger` (same mood for 0.2 s) → `web.warm(mood)`; publish `holdProgress`; on query change: mood → weights (`automatic(...).pinning(pins)`) → your memes ranked at once (`store.items` without `.web`); the GIPHY row shows `web.cachedGIFs(for: .mood(mood))` at once, else placeholders until `await web.gifs(for:)` (its own task and generation), and the classic memes row `pickTemplates(for: .mood(mood), …)` from `templates.cachedList` at once, else after `await templates.templates()` (its own task and generation). Paging: the tracker catching a new query (or Space snapping one) runs the search with `newQuery`; when the mood is the one already showing, the rows turn instead of staying put: `giphyPage += 1` (when GIPHY's results are in and more than `giphySlots`; `giphyFound` keeps everything GIPHY gave for `giphyQuery`) and `templatePage += 1` (moods and described poses, not typed words; from the kept list). A new mood, or the rows being cleared when the panel opens, starts both at page 0; re-showing the same face (pins, Esc, library changes, back to the face) leaves them as they are. Image and more-like searches leave both rows alone. `normalizeFocus` keeps the focus on a tile: until the user moves it, `startSlot` (`layout.rows.firstSlot`, else 0) for Recent and the face, and -1 (none) for a typed, image or more-like search that finds nothing of yours while you have memes. After the user moves it, a focus whose tile went moves to the last tile of its row, else the first tile. The search's word goes to the readout (`MoodReadout`: `.pose` for a pose word or a pose without one and no face, `.faceAndPose` for a pose without one over a face, else `.face`; none for "reaction" without a pose; a pose without a word reads as the words naming it). `newResultIDs` for ids not shown before (cleared after 600 ms). The row's first GIF and a focused GIF prefetch their full GIF. No face for 1.5 s → hint "Can’t see your face". `camera.bodyWidth` feeds a `StandingBackDetector`; while it says standing back, that hint is "Reading your pose" instead.
-- A clear gesture with no word of its own (`PoseDescription.of(query, baseline:)` not nil) is searched by words instead of the face's mood. `describedWords(for:namer:)` gives the model's kept name (`named`), else the rule's phrase, and `waits` when `poseNamer.isAvailable` and the description was never asked. Your memes are ranked at once with `.expression(sample, weights:, words: [phrase])`. Settled words are kept for the query (`describedPhrase`, by its timestamp) and go to both rows at once as `WebQuery.described(from: phrase)` (`.mood(mood)` when that is nil), the classic memes with the face's mood as `fallback` (the same words with another fallback are a new templates query, from page 0); re-showing the same query (pins, Esc, library changes, back to the face) searches the same words and never asks again. Words that wait: the GIPHY row clears to placeholders (`awaitGiphyName`; `giphyFound` keeps what it had, so a name in the same words turns their page), the classic memes keep what they show (the face's mood's when nothing), and `describeTask` awaits `poseNamer.name(_:)` (at most `PoseNamer.timeout`). Its answer, else the rule's phrase, is used only for the same session with the panel visible, live, no capture view, an expression search and the same query (`tracker.query?.timestamp`): kept in `describedPhrase`, the readout (`named` when the model named it), your memes ranked again when the words aren't the rule's phrase, both rows `.described(phrase)` with `turningPage: newQuery`; otherwise the GIPHY row shows what it had (`stopAwaitingGiphyName`), and going back from the capture view searches the held query again (`closeCapture`), so the answer the namer kept shows. A new query, `cancelSessionTasks` and `resetForNewSession` cancel the wait (the namer still keeps its answer). The namer prewarms when the camera goes live (when `isAvailable`). A `.described` query isn't typed (`isTyped`): leaving typed words leaves it alone, and the classic memes row turns its pages like a mood's.
+- `camera.onSample` → `tracker.ingest`; the mood of `tracker.candidate` (the expression being held; `MoodClassifier.mood(for:pose:shape:baseline:)` with the sample's shape, as for the query; nil for a clear gesture with no word of its own) goes through `EarlyMoodTrigger` (same mood for 0.2 s) → `web.warm(mood)`; publish `holdProgress`; on query change: mood → weights (`automatic(...)`; with the face editor open, `FaceEditSession.featureWeights` and the edited `sample`, and its `mood`) → `shownWeights` → your memes ranked at once (`store.items` without `.web`); the GIPHY row shows `web.cachedGIFs(for: .mood(mood))` at once, else placeholders until `await web.gifs(for:)` (its own task and generation), and the classic memes row `pickTemplates(for: .mood(mood), …)` from `templates.cachedList` at once, else after `await templates.templates()` (its own task and generation). Paging: the tracker catching a new query (or Space snapping one) runs the search with `newQuery`; when the mood is the one already showing, the rows turn instead of staying put: `giphyPage += 1` (when GIPHY's results are in and more than `giphySlots`; `giphyFound` keeps everything GIPHY gave for `giphyQuery`) and `templatePage += 1` (moods and described poses, not typed words; from the kept list). A new mood, or the rows being cleared when the panel opens, starts both at page 0; re-showing the same face (Esc, library changes, back to the face, the face editor) leaves them as they are. Image and more-like searches leave both rows alone. `normalizeFocus` keeps the focus on a tile: until the user moves it, `startSlot` (`layout.rows.firstSlot`, else 0) for Recent and the face, and -1 (none) for a typed, image or more-like search that finds nothing of yours while you have memes. After the user moves it, a focus whose tile went moves to the last tile of its row, else the first tile. The search's word goes to the readout (`MoodReadout`: `.pose` for a pose word or a pose without one and no face, `.faceAndPose` for a pose without one over a face, else `.face`; none for "reaction" without a pose; a pose without a word reads as the words naming it). `newResultIDs` for ids not shown before (cleared after 600 ms). The row's first GIF and a focused GIF prefetch their full GIF. No face for 1.5 s → hint "Can’t see your face". `camera.bodyWidth` feeds a `StandingBackDetector`; while it says standing back, that hint is "Reading your pose" instead.
+- A clear gesture with no word of its own (`PoseDescription.of(query, baseline:)` not nil) is searched by words instead of the face's mood. `describedWords(for:namer:)` gives the model's kept name (`named`), else the rule's phrase, and `waits` when `poseNamer.isAvailable` and the description was never asked. Your memes are ranked at once with `.expression(sample, weights:, words: [phrase])`. Settled words are kept for the query (`describedPhrase`, by its timestamp) and go to both rows at once as `WebQuery.described(from: phrase)` (`.mood(mood)` when that is nil), the classic memes with the face's mood as `fallback` (the same words with another fallback are a new templates query, from page 0); re-showing the same query (Esc, library changes, back to the face, the face editor) searches the same words and never asks again. Words that wait: the GIPHY row clears to placeholders (`awaitGiphyName`; `giphyFound` keeps what it had, so a name in the same words turns their page), the classic memes keep what they show (the face's mood's when nothing), and `describeTask` awaits `poseNamer.name(_:)` (at most `PoseNamer.timeout`). Its answer, else the rule's phrase, is used only for the same session with the panel visible, live, no capture view, an expression search and the same query (`tracker.query?.timestamp`): kept in `describedPhrase`, the readout (`named` when the model named it), your memes ranked again when the words aren't the rule's phrase, both rows `.described(phrase)` with `turningPage: newQuery`; otherwise the GIPHY row shows what it had (`stopAwaitingGiphyName`), and going back from the capture view searches the held query again (`closeCapture`), so the answer the namer kept shows. A new query, `cancelSessionTasks` and `resetForNewSession` cancel the wait (the namer still keeps its answer). The namer prewarms when the camera goes live (when `isAvailable`). A `.described` query isn't typed (`isTyped`): leaving typed words leaves it alone, and the classic memes row turns its pages like a mood's.
 - Text changes (debounced 80 ms) → text mode; camera stops if typing began within 1 s of show, otherwise `showsFaceToken = true`; naming prompt when `TextQuery.possibleName` is set, no results, and `friends.unnamedPeople` is non-empty. The typed terms (`TextQuery.parse(…).terms`: no filter words or people's names) → `WebQuery.words(from:)`: the classic memes row shows its templates at once; the GIPHY row shows GIPHY's results once typing has paused 0.6 s (any edit restarts the wait; at once when cached; while the naming prompt shows, nothing when `possibleName` isn't `MemeTemplateCatalog.isMemeWord` (mood words, mood labels, the table's search words, minus names such as "jordan" or "kermit"); a nil query leaves both rows alone). Until the user moves the focus, `normalizeFocus` keeps it on `startSlot` as the rows fill in. Empty text → back to live (restart camera if it was stopped); leaving typed words clears a GIPHY row showing them and puts the classic memes back to the popular ones (a described pose's words aren't typed and stay).
 - `commit`: resolve file (a GIPHY GIF → `await web.prepareForCopy`, a classic meme → `await templates.prepareForCopy`, HUD "Copying…" if it takes > 150 ms); `Clipboard.copy` (a GIPHY GIF as "reaction.gif", a classic meme as "reaction.png": kind `.web`, source "Imgflip", hash "imgflip:<id>"); for your memes only: increment `timesSent`, set `lastSentAt`, `recents.record` (GIPHY GIFs are never kept or listed as recent); first run → `showSetupCard = true` and `hasCompletedFirstRun = true` (panel stays open); otherwise close and `HUDController.shared.showCopied(thumbnail:)` with the copied file. ↵ is ignored within 300 ms of the last text edit.
 - A capture (`capture.onCaptured`): `commitToken += 1`; `Clipboard.copy(data:fileName:)` as "reaction.gif" / "reaction.png"; the sticker source is that PNG (photo) or the clip's best frame written as `capture.png` in a fresh clipboard folder; close the capture view and the panel; HUD "Copied your photo · ⌘V — not sent" (or GIF) with the copy as thumbnail and the action "Save as sticker" → HUD "Making your sticker…", `friends.makeOwnSticker(fromCapture:)`, then "Saved “<name>” as a sticker" with the action "Undo" (`friends.removeOwnSticker`, then "Sticker removed"), "Already one of your stickers" when it was kept before (both skipped when the panel was reopened meanwhile: they would cover it), or "Couldn’t find you in that one." (shown regardless). Captures are not recorded as sent and don't count as the first pick.

@@ -13,7 +13,7 @@ private let modelLog = Logger(subsystem: "com.mememe.app", category: "app")
 
 enum PanelMode: Equatable { case prompt, warming, live, text, image, moreLike, cameraOff, cameraBusy }
 
-enum HintAction: Equatable { case clearPins, backToFace, keepImage, turnOnCamera, useCamera }
+enum HintAction: Equatable { case backToFace, keepImage, turnOnCamera, useCamera }
 
 struct PanelHint: Equatable {
     var title: String
@@ -50,7 +50,6 @@ private enum HintCopy {
     static let standingBackSubtitle = "Hold each pose for a second. Come closer for faces."
     static let noFaceTitle = "Can’t see your face"
     static let noFaceSubtitle = "Try more light, or just type."
-    static let clearAction = "Clear"
     static let textTitle = "Searching by words"
     /// Also shown when a face token is kept (DESIGN.md): the camera then only feeds the dimmed mirror.
     static let textSubtitle = "The camera is off while you type."
@@ -59,6 +58,10 @@ private enum HintCopy {
     static let keepAction = "Keep it"
     static let keptAction = "Kept · Undo"
     static let backToFaceAction = "Back to your face"
+    /// Under the mirror while the face editor is open: the tiles follow your edit, not the camera.
+    static let editingTitle = "Searching your edit"
+    /// A pen stroke that is none of the three.
+    static let strokeNotRead = "Circle a part, scribble one out, or draw a tear."
     static let cameraOffTitle = "No camera"
     static let cameraOffSubtitle = "Drop, paste or type instead."
     static let cameraOffAction = "Turn on camera"
@@ -173,8 +176,15 @@ struct MoodReadout: Equatable {
     var named: Bool = false
 }
 
+/// What the last pen stroke did in the face editor; `undoable` when it changed something, so Undo sits beside it.
+struct EditorNotice: Equatable {
+    let text: String
+    let undoable: Bool
+}
+
 /// The words a pose with no word of its own was searched by, kept for the query they were found for so re-showing it
-/// (pins, Esc, a library change, back from typing) searches the same words and never asks the model again.
+/// (Esc, a library change, back from typing or from the face editor) searches the same words and never asks the model
+/// again.
 private struct DescribedPhrase {
     /// The held query's `ExpressionSample.timestamp`.
     let timestamp: TimeInterval
@@ -192,7 +202,12 @@ private struct DescribedPhrase {
             queryTextWasEdited(previous: oldValue)
         }
     }
-    @Published private(set) var mode: PanelMode = .prompt
+    @Published private(set) var mode: PanelMode = .prompt {
+        didSet {
+            // The editor refines the face the camera caught: leaving the camera's search closes it.
+            if mode != .live, faceEdit != nil { endFaceEdit() }
+        }
+    }
     /// Your things for the tab showing, best first (≤ Theme.resultLimit): all of them in For You, else the tab's kind.
     @Published private(set) var results: [RankedResult] = []
     /// The tab showing: For You (your things mixed on top, GIPHY's GIFs under them) each time the panel opens.
@@ -221,10 +236,19 @@ private struct DescribedPhrase {
     @Published private(set) var templatesUnavailable: Bool = false
     /// Web Discover is on (checked each time the panel opens); no key needed.
     @Published private(set) var showsTemplateRow: Bool = false
-    /// The word the camera's search went by, under the mirror instead of the hint while live; nil when the hint
-    /// should show (nothing read yet, pins set, or the face a word came from lost).
+    /// The word the camera's search went by (or the edited face's, while the face editor is open), beside the notch
+    /// and under the mirror instead of the hint while live; nil when the hint should show (nothing read yet, or the
+    /// face a word came from lost).
     @Published private(set) var readout: MoodReadout?
-    @Published private(set) var pins: Set<FaceRegion> = []
+    /// The face editor, open while you edit the face the camera caught; nil otherwise.
+    @Published private(set) var faceEdit: FaceEditSession?
+    /// How much each part of the face counts in the search showing (the editor's weights, else the automatic ones):
+    /// the mirror's glow and its caption. Empty without a face search.
+    @Published private(set) var shownWeights: [FaceRegion: Double] = [:]
+    /// The word an edit just replaced: beside the notch, struck out before the new one for a moment.
+    @Published private(set) var replacedWord: String?
+    /// What the last pen stroke did ("Tears drawn. Now searching “crying”."), with Undo beside it.
+    @Published private(set) var editorNotice: EditorNotice?
     @Published private(set) var hint = PanelHint(title: HintCopy.promptTitle, subtitle: HintCopy.promptSubtitle, actionTitle: nil, action: nil)
     @Published private(set) var footer: FooterState = .hidden
     @Published private(set) var showSetupCard: Bool = false
@@ -275,6 +299,8 @@ private struct DescribedPhrase {
     /// Typed words go to GIPHY once typing pauses this long (each search counts against GIPHY's hourly limit).
     private static let giphyTypingPauseNanoseconds: UInt64 = 600_000_000
     private static let newRingNanoseconds: UInt64 = 600_000_000
+    /// How long the word an edit replaced stays struck out beside the new one.
+    private static let replacedWordNanoseconds: UInt64 = 2_000_000_000
     private static let saveDelayNanoseconds: UInt64 = 2_000_000_000
     private static let cameraPromptDelay: TimeInterval = 0.6
     private static let faceMissingDelay: TimeInterval = 1.5
@@ -326,6 +352,8 @@ private struct DescribedPhrase {
     private var shownSummaryID: UUID?
 
     private var textDebounceTask: Task<Void, Never>?
+    /// Clears `replacedWord` a moment after an edit changed the word.
+    private var replacedWordTask: Task<Void, Never>?
     private var giphyTask: Task<Void, Never>?
     private var giphyGeneration = 0
     private var giphyWordsTask: Task<Void, Never>?
@@ -580,19 +608,8 @@ private struct DescribedPhrase {
         }
     }
 
-    func togglePin(_ region: FaceRegion) {
-        if pins.contains(region) {
-            pins.remove(region)
-        } else {
-            pins.insert(region)
-        }
-        if mode == .live, tracker.query != nil {
-            runExpressionSearch(animate: true)
-        }
-        refreshHint()
-    }
-
-    /// Esc: the first press clears refinements (text, pins, more-like-this, image query); returns false when there were none.
+    /// Esc: the first press clears refinements (the face editor, text, more-like-this, image query); returns false when
+    /// there were none.
     /// In the capture view it drops a capture in progress, else goes back to the memes.
     func handleEscape() -> Bool {
         if isCaptureOpen {
@@ -605,27 +622,22 @@ private struct DescribedPhrase {
         }
         // The You're-set card closes with the panel.
         if showSetupCard { return false }
+        if faceEdit != nil {
+            closeFaceEditor()
+            return true
+        }
         let hadText = !queryText.isEmpty || mode == .text || naming != nil
         let hadQueryImage = mode == .image || mode == .moreLike
-        let hadPins = !pins.isEmpty
-        guard hadText || hadQueryImage || hadPins else { return false }
-
-        if hadPins { pins = [] }
-        if hadText || hadQueryImage {
-            clearTextState()
-            returnToFace()
-        } else {
-            if mode == .live, tracker.query != nil {
-                runExpressionSearch(animate: false)
-            }
-            refreshHint()
-        }
+        guard hadText || hadQueryImage else { return false }
+        clearTextState()
+        returnToFace()
         return true
     }
 
     /// Space with an empty search field: the current face (or a gesture hiding it) becomes the query, even a neutral one.
     func snap() {
-        guard mode == .live, !showSetupCard, tracker.snap() else { return }
+        // While you edit, the camera's face waits: Space does nothing until you go back to it.
+        guard mode == .live, !showSetupCard, faceEdit == nil, tracker.snap() else { return }
         if holdProgress != 0 { holdProgress = 0 }
         let previousPose = heldPose
         runExpressionSearch(animate: true, newQuery: true)
@@ -645,9 +657,182 @@ private struct DescribedPhrase {
     }
 
     func backToFace() {
+        if faceEdit != nil {
+            closeFaceEditor()
+            return
+        }
         guard mode == .moreLike || mode == .image || mode == .text else { return }
         clearTextState()
         returnToFace()
+    }
+
+    // MARK: - Face editor
+
+    /// The face editor can open: the camera's search shows a face (not a pose alone) and nothing covers it.
+    var canEditFace: Bool {
+        mode == .live && !isCaptureOpen && !showSetupCard && faceEdit == nil && !shownWeights.isEmpty
+    }
+
+    /// "mostly your brows", "your whole face"…: what counts in the face search showing; nil without one.
+    var weightSummary: String? {
+        shownWeights.isEmpty ? nil : FeatureWeights.summary(of: shownWeights)
+    }
+
+    /// Opens the face editor on the face the camera caught (the button on the mirror, a click on it, ⌘E). The camera
+    /// keeps showing you but stops searching until you go back to your face.
+    func openFaceEditor() {
+        guard canEditFace, let query = tracker.query,
+              let session = FaceEditSession(query: query, baseline: tracker.baseline) else { return }
+        faceEdit = session
+        editorNotice = nil
+        clearReplacedWord()
+        tracker.clearHold()
+        if holdProgress != 0 { holdProgress = 0 }
+        earlyMood.reset()
+        runExpressionSearch(animate: false)
+        refreshHint()
+    }
+
+    /// ⌘E: opens the editor, or goes back to your face when it is open.
+    func toggleFaceEditor() {
+        if faceEdit != nil {
+            closeFaceEditor()
+        } else {
+            openFaceEditor()
+        }
+    }
+
+    /// "Back to your face" (or Esc): the edits go, the face the camera caught is searched again, and the camera's next
+    /// face replaces it as before.
+    func closeFaceEditor() {
+        guard faceEdit != nil else { return }
+        endFaceEdit()
+        if mode == .live, tracker.query != nil {
+            runExpressionSearch(animate: false)
+        }
+        refreshHint()
+    }
+
+    /// Takes hold of a handle on the editor's face.
+    func beginFaceDrag(_ handle: FaceHandle) {
+        guard var edit = faceEdit else { return }
+        edit.beginDrag(handle)
+        faceEdit = edit
+        editorNotice = nil
+    }
+
+    /// The pointer moved `movement` since the drag began and is at `pointer` (the drawing's space, 200 × 200). Your
+    /// memes re-rank at once; the web rows wait until you let go (`endFaceDrag`), so GIPHY's hourly limit lasts.
+    func dragFace(by movement: SketchPoint, pointer: SketchPoint) {
+        guard var edit = faceEdit, edit.draggedHandle != nil else { return }
+        edit.drag(by: movement, pointer: pointer)
+        guard edit != faceEdit else { return }
+        faceEdit = edit
+        runExpressionSearch(animate: false, settled: false)
+        refreshHint()
+    }
+
+    /// A pinch on a part whose ring is held (`beginFaceDrag(.ring(_:))`).
+    func pinchFace(by magnification: Double) {
+        guard var edit = faceEdit, edit.draggedHandle != nil else { return }
+        edit.pinch(by: magnification)
+        guard edit != faceEdit else { return }
+        faceEdit = edit
+        runExpressionSearch(animate: false, settled: false)
+        refreshHint()
+    }
+
+    /// Lets go: the web rows follow the word the face settled on.
+    func endFaceDrag() {
+        guard var edit = faceEdit, edit.draggedHandle != nil else { return }
+        edit.endDrag()
+        faceEdit = edit
+        runExpressionSearch(animate: false)
+        refreshHint()
+    }
+
+    /// − and + beside a part.
+    func stepFaceWeight(_ region: FaceRegion, by delta: Int) {
+        guard var edit = faceEdit else { return }
+        edit.step(region, by: delta)
+        guard edit != faceEdit else { return }
+        faceEdit = edit
+        editorNotice = nil
+        runExpressionSearch(animate: false)
+        refreshHint()
+    }
+
+    /// A pen stroke drawn on the editor's face (face space): what it meant, or nil when it was none of the three.
+    @discardableResult
+    func drawOnFace(_ stroke: [SketchPoint]) -> StrokeGesture? {
+        guard var edit = faceEdit else { return nil }
+        guard let gesture = StrokeGesture.read(stroke, on: edit.sketch, weights: edit.weightValues) else {
+            editorNotice = EditorNotice(text: HintCopy.strokeNotRead, undoable: false)
+            return nil
+        }
+        edit.apply(gesture, stroke: stroke)
+        faceEdit = edit
+        editorNotice = EditorNotice(text: AppModel.notice(for: gesture, mood: edit.mood(baseline: tracker.baseline)),
+                                    undoable: true)
+        runExpressionSearch(animate: false)
+        refreshHint()
+        return gesture
+    }
+
+    /// ⌘Z, or Undo in the editor.
+    func undoFaceEdit() {
+        guard var edit = faceEdit, edit.undo() else { return }
+        faceEdit = edit
+        editorNotice = nil
+        runExpressionSearch(animate: false)
+        refreshHint()
+    }
+
+    /// Reset: back to the face as it was caught (Undo brings the edits back).
+    func resetFaceEdit() {
+        guard var edit = faceEdit else { return }
+        edit.reset()
+        guard edit != faceEdit else { return }
+        faceEdit = edit
+        editorNotice = nil
+        runExpressionSearch(animate: false)
+        refreshHint()
+    }
+
+    /// What a pen stroke did, in the editor.
+    nonisolated static func notice(for gesture: StrokeGesture, mood: Mood) -> String {
+        switch gesture {
+        case let .circle(region):
+            return "Circled your \(region.rawValue): " + (region == .mouth ? "it counts most now." : "they count most now.")
+        case let .scribble(region):
+            return "Scribbled out your \(region.rawValue): " + (region == .mouth ? "it’s ignored now." : "they’re ignored now.")
+        case .tear:
+            return "Tears drawn. Now searching “\(mood.label)”."
+        }
+    }
+
+    /// Closes the editor without searching again (the panel closes, the mode changes, the capture view opens).
+    private func endFaceEdit() {
+        if faceEdit != nil { faceEdit = nil }
+        if editorNotice != nil { editorNotice = nil }
+        clearReplacedWord()
+    }
+
+    /// An edit changed the word: the old one shows struck out beside the new one for a moment.
+    private func noteReplacedWord(_ word: String) {
+        replacedWord = word
+        replacedWordTask?.cancel()
+        replacedWordTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: AppModel.replacedWordNanoseconds)
+            guard !Task.isCancelled, let self else { return }
+            self.replacedWord = nil
+        }
+    }
+
+    private func clearReplacedWord() {
+        replacedWordTask?.cancel()
+        replacedWordTask = nil
+        if replacedWord != nil { replacedWord = nil }
     }
 
     /// Searches with a dropped or pasted image. The image is never saved unless the user keeps it.
@@ -686,12 +871,6 @@ private struct DescribedPhrase {
     func performHintAction() {
         guard let action = hint.action else { return }
         switch action {
-        case .clearPins:
-            pins = []
-            if mode == .live, tracker.query != nil {
-                runExpressionSearch(animate: false)
-            }
-            refreshHint()
         case .backToFace:
             backToFace()
         case .keepImage:
@@ -920,6 +1099,7 @@ private struct DescribedPhrase {
 
     func openCapture() {
         guard canOpenCapture, !isCaptureOpen else { return }
+        endFaceEdit()
         // A GIPHY pick still downloading must not copy, show the You're-set card or close the panel under the capture view;
         // it no longer holds the one-pick-at-a-time lock either.
         commitToken += 1
@@ -1038,8 +1218,8 @@ private struct DescribedPhrase {
             warmPoseNamer()
         }
         // In text, image and more-like modes the camera only feeds the (dimmed) mirror; in the capture view it
-        // only feeds the capture picture.
-        guard mode == .live, !isCaptureOpen else {
+        // only feeds the capture picture; while the face editor is open, only the dimmed mirror.
+        guard mode == .live, !isCaptureOpen, faceEdit == nil else {
             earlyMood.reset()
             standingBack.reset()
             return
@@ -1191,6 +1371,7 @@ private struct DescribedPhrase {
         resultSource = .recent
         if heldPose != nil { heldPose = nil }
         searchReadout = nil
+        if !shownWeights.isEmpty { shownWeights = [:] }
         searchGeneration += 1
         let ranker = Ranker(baseline: tracker.baseline)
         let recentIDs = store.recents.recent(appBundleID: previousBundleID)
@@ -1217,7 +1398,11 @@ private struct DescribedPhrase {
     /// Face query: mood → weights → your memes ranked at once; the GIPHY row shows GIPHY's results for the mood
     /// (often already searched while the face was being held), the classic memes row the templates for it.
     /// `newQuery`: the tracker just caught a new face (or Space snapped one), so web rows already showing its mood turn
-    /// to their next GIFs and templates; re-showing the same face (pins, Esc, library changes) leaves them as they are.
+    /// to their next GIFs and templates; re-showing the same face (Esc, library changes) leaves them as they are.
+    ///
+    /// While the face editor is open the search is the edited face (`FaceEditSession.sample`) with the editor's
+    /// weights, and its word the edited face's (tears drawn: "crying"). `settled` false (a drag in progress): your
+    /// memes and the readout follow at once, the web rows wait for the drag to end.
     ///
     /// A clear gesture with no word of its own (`PoseDescription.of`) is searched by the words describing it instead of
     /// the face's mood: the on-device model's name for it, else the rule's phrase ("flexing", "rock on"). Your memes are
@@ -1225,13 +1410,16 @@ private struct DescribedPhrase {
     /// about it, the web rows wait for its answer (`describe`, at most `PoseNamer.timeout`): the GIPHY row shows it is
     /// loading, the classic memes keep what they show. Re-showing the same query searches the words found for it
     /// (`describedPhrase`) and never asks again.
-    private func runExpressionSearch(animate: Bool, newQuery: Bool = false) {
-        guard let sample = tracker.query else {
+    private func runExpressionSearch(animate: Bool, newQuery: Bool = false, settled: Bool = true) {
+        let edit = faceEdit
+        guard let sample = edit?.sample ?? tracker.query else {
             showRecentResults()
             return
         }
         resultSource = .expression
-        let mood = MoodClassifier.mood(for: sample.face, pose: sample.pose, shape: sample.shape, baseline: tracker.baseline)
+        let previousWord = searchReadout?.word
+        let mood = edit?.mood(baseline: tracker.baseline)
+            ?? MoodClassifier.mood(for: sample.face, pose: sample.pose, shape: sample.shape, baseline: tracker.baseline)
         let badge = PoseBadge.of(sample, baseline: tracker.baseline)
         if heldPose != badge { heldPose = badge }
         let describedPose = PoseDescription.of(sample, baseline: tracker.baseline)
@@ -1254,9 +1442,21 @@ private struct DescribedPhrase {
             // No face and no pose word reads "reaction": nothing worth showing.
             searchReadout = mood == .reaction ? nil : MoodReadout(word: mood.label, source: .face)
         }
-        let deviation = sample.face.map { tracker.baseline.deviation(of: $0) } ?? [:]
-        let weights = FeatureWeights.automatic(deviation: deviation, poseStrength: sample.pose?.gestureStrength ?? 0).pinning(pins)
+        if edit != nil, let previousWord, let word = searchReadout?.word, word != previousWord {
+            noteReplacedWord(previousWord)
+        }
+        let weights: FeatureWeights
+        if let edit {
+            weights = edit.featureWeights(baseline: tracker.baseline)
+        } else {
+            let deviation = sample.face.map { tracker.baseline.deviation(of: $0) } ?? [:]
+            weights = FeatureWeights.automatic(deviation: deviation, poseStrength: sample.pose?.gestureStrength ?? 0)
+        }
         currentWeights = weights
+        let shown: [FaceRegion: Double] = sample.face == nil
+            ? [:]
+            : (edit?.weightValues ?? [.brows: weights.brows, .eyes: weights.eyes, .mouth: weights.mouth])
+        if shownWeights != shown { shownWeights = shown }
         searchGeneration += 1
 
         let ranker = Ranker(baseline: tracker.baseline)
@@ -1264,6 +1464,8 @@ private struct DescribedPhrase {
         let ranked = ranker.rank(tabItems, query: .expression(sample, weights: weights, words: phraseWords),
                                  people: store.people, limit: limit, capsFriends: tab != .stickers)
         setResults(ranked, animateNew: animate, resetFocus: true)
+        // A drag in progress: the web rows follow the word you let go on.
+        guard settled else { return }
         guard let description = describedPose, let described = poseWords else {
             showGiphy(for: .mood(mood), turningPage: newQuery)
             showTemplates(for: .mood(mood), turningPage: newQuery)
@@ -2247,11 +2449,11 @@ private struct DescribedPhrase {
         }
     }
 
-    /// The search's word while live, unless pins (with their Clear) are set, or the face it came from (alone or with a
-    /// pose) is lost: then the hint says so.
+    /// The search's word while live, unless the face it came from (alone or with a pose) is lost: then the hint says
+    /// so. While the face editor is open it is the edited face's word (the camera isn't searching).
     private func computeReadout() -> MoodReadout? {
-        guard mode == .live, pins.isEmpty, let searchReadout else { return nil }
-        if searchReadout.source != .pose && faceMissing {
+        guard mode == .live, let searchReadout else { return nil }
+        if faceEdit == nil, searchReadout.source != .pose && faceMissing {
             return nil
         }
         return searchReadout
@@ -2264,15 +2466,16 @@ private struct DescribedPhrase {
         case .warming:
             return PanelHint(title: HintCopy.warmingTitle, subtitle: HintCopy.warmingSubtitle, actionTitle: nil, action: nil)
         case .live:
+            if faceEdit != nil {
+                return PanelHint(title: HintCopy.editingTitle, subtitle: nil, actionTitle: HintCopy.backToFaceAction,
+                                 action: .backToFace)
+            }
             if faceMissing {
                 // Standing back, the face is too small to read: that's fine, the pose is read.
                 if standingBack.isStandingBack {
                     return PanelHint(title: HintCopy.standingBackTitle, subtitle: HintCopy.standingBackSubtitle, actionTitle: nil, action: nil)
                 }
                 return PanelHint(title: HintCopy.noFaceTitle, subtitle: HintCopy.noFaceSubtitle, actionTitle: nil, action: nil)
-            }
-            if !pins.isEmpty {
-                return PanelHint(title: "Focusing on " + pinDescription, subtitle: nil, actionTitle: HintCopy.clearAction, action: .clearPins)
             }
             // The same words the whole time the camera reads you: the ring around the mirror shows a face being held.
             return PanelHint(title: HintCopy.liveTitle, subtitle: nil, actionTitle: nil, action: nil)
@@ -2295,19 +2498,6 @@ private struct DescribedPhrase {
         }
     }
 
-    /// "your mouth", "your eyes", "your eyes and mouth"
-    private var pinDescription: String {
-        var parts: [String] = []
-        if pins.contains(.brows) { parts.append("brows") }
-        if pins.contains(.eyes) { parts.append("eyes") }
-        if pins.contains(.mouth) { parts.append("mouth") }
-        guard let last = parts.last else { return "your face" }
-        if parts.count == 1 {
-            return "your " + last
-        }
-        return "your " + parts.dropLast().joined(separator: ", ") + " and " + last
-    }
-
     // MARK: - Session and persistence
 
     private func resetForNewSession() {
@@ -2326,7 +2516,8 @@ private struct DescribedPhrase {
         showsGiphyRow = store.settings.webDiscoverEnabled && web.hasAPIKey
         clearTemplateRow()
         showsTemplateRow = store.settings.webDiscoverEnabled
-        if !pins.isEmpty { pins = [] }
+        endFaceEdit()
+        if !shownWeights.isEmpty { shownWeights = [:] }
         if holdProgress != 0 { holdProgress = 0 }
         if !newResultIDs.isEmpty { newResultIDs = [] }
         if showSetupCard { showSetupCard = false }
