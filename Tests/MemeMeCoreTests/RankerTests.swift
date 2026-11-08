@@ -84,8 +84,12 @@ final class RankerTests: XCTestCase {
         let uniform = ranker.rank(items, query: .expression(sample(query), weights: .uniform))
         XCTAssertEqual(names(uniform), ["rest", "mouth"])
 
-        let pinned = ranker.rank(items, query: .expression(sample(query), weights: FeatureWeights.uniform.pinning([.mouth])))
-        XCTAssertEqual(names(pinned), ["mouth", "rest"])
+        let edited = ranker.rank(items, query: .expression(sample(query), weights: FeatureWeights.uniform.overriding([.mouth: 5])))
+        XCTAssertEqual(names(edited), ["mouth", "rest"], "the mouth made to count most in the face editor")
+
+        let mouthOnly = FeatureWeights.uniform.overriding([.brows: 0, .eyes: 0])
+        let ignoring = ranker.rank(items, query: .expression(sample(query), weights: mouthOnly))
+        XCTAssertEqual(names(ignoring), ["mouth", "rest"], "brows and eyes ignored: only the mouth decides")
 
         let inferred = FeatureWeights.automatic(deviation: RestingBaseline().deviation(of: query), poseStrength: 0)
         let automatic = ranker.rank(items, query: .expression(sample(query), weights: inferred))

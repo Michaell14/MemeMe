@@ -362,20 +362,48 @@ final class AppModelTests: XCTestCase {
     }
 
     @MainActor
-    func testEscapeClearsPinsBeforeClosing() throws {
+    func testEscapeWithNothingToClearCloses() throws {
         let sandbox = try TestSandbox()
         defer { sandbox.remove() }
         let model = try makeModel(in: sandbox, items: [])
 
-        model.togglePin(.mouth)
-        let pinned = model.pins
-        let first = model.handleEscape()
-        let pinsAfterFirst = model.pins
-        let second = model.handleEscape()
+        XCTAssertFalse(model.handleEscape(), "With nothing to clear, Esc closes the panel")
+    }
 
-        XCTAssertEqual(pinned, [.mouth])
-        XCTAssertTrue(first, "The first Esc clears the pins")
-        XCTAssertTrue(pinsAfterFirst.isEmpty)
-        XCTAssertFalse(second, "With nothing left to clear, Esc closes the panel")
+    /// The editor refines a face the camera caught; without one (no camera in CI, nothing held yet) there is nothing
+    /// to edit, and every editor action does nothing. What the editor does is checked in FaceEditSessionTests,
+    /// FaceSketchTests and StrokeGestureTests.
+    @MainActor
+    func testTheFaceEditorNeedsACaughtFace() throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.remove() }
+        let model = try makeModel(in: sandbox, items: [])
+        model.panelWillShow(previousApp: nil)
+
+        XCTAssertFalse(model.canEditFace)
+        XCTAssertTrue(model.shownWeights.isEmpty)
+        XCTAssertNil(model.weightSummary)
+        model.openFaceEditor()
+        model.toggleFaceEditor()
+        XCTAssertNil(model.faceEdit)
+
+        model.beginFaceDrag(.lowerLip)
+        model.dragFace(by: SketchPoint(x: 0, y: 10), pointer: .zero)
+        model.endFaceDrag()
+        model.stepFaceWeight(.mouth, by: 1)
+        model.undoFaceEdit()
+        model.resetFaceEdit()
+        XCTAssertNil(model.drawOnFace([SketchPoint(x: 66, y: 108), SketchPoint(x: 64, y: 132)]))
+        XCTAssertNil(model.faceEdit)
+        XCTAssertNil(model.editorNotice)
+        model.panelDidHide()
+    }
+
+    @MainActor
+    func testEditorNoticesSayWhatAStrokeDid() {
+        XCTAssertEqual(AppModel.notice(for: .circle(.mouth), mood: .happy), "Circled your mouth: it counts most now.")
+        XCTAssertEqual(AppModel.notice(for: .circle(.eyes), mood: .happy), "Circled your eyes: they count most now.")
+        XCTAssertEqual(AppModel.notice(for: .scribble(.brows), mood: .happy), "Scribbled out your brows: they’re ignored now.")
+        XCTAssertEqual(AppModel.notice(for: .tear, mood: .crying), "Tears drawn. Now searching “crying”.")
     }
 }

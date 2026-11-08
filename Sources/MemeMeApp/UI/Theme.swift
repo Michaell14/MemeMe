@@ -10,6 +10,8 @@ enum Theme {
     static let panelCornerRadius: CGFloat = 24
     static let tileSize: CGFloat = 104
     static let mirrorSize: CGFloat = 104
+    /// The face editor's drawing of your face (200 points: one point per unit of `FaceSketch`).
+    static let editorFaceSize: CGFloat = 200
 
     // MARK: Notch Black
 

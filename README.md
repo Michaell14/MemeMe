@@ -2,7 +2,7 @@
 
 A tiny macOS menu-bar app for reaction images. In any chat, press **⌃⌘M**, make a face, and pick a reaction. It is copied to the clipboard and you are back in the chat. Paste it with ⌘V. MemeMe never pastes or sends anything for you.
 
-- **Your face is the search box.** Hold an expression for a moment and results follow it: memes you already have on your Mac and friend stickers you made, plus (optionally) GIPHY reactions for the mood your face shows. The panel hangs from the notch: **For You** mixes them, **GIFs**, **Stickers** and **Memes** show one kind each.
+- **Your face is the search box.** Hold an expression for a moment and results follow it, then grab the face itself to refine the search (push a feature further, resize what counts, or draw on it): memes you already have on your Mac and friend stickers you made, plus (optionally) GIPHY reactions for the mood your face shows. The panel hangs from the notch: **For You** mixes them, **GIFs**, **Stickers** and **Memes** show one kind each.
 - **One commit.** ↵, a number key 1–9, or a click copies the result and closes the panel.
 - **Small.** Swift and Apple frameworks only, no third-party packages, no bundled ML models. The camera runs only while the panel is open.
 
@@ -92,7 +92,7 @@ Every change to the app on the default branch is released automatically. When `S
 | ⌘V or drop an image on the panel | Search with that image. It is not saved unless you click **Keep it** |
 | Tab / Shift-Tab | The next / previous tab: For You · GIFs · Stickers · Memes (the panel opens on For You) |
 | Right-click one of your memes | More like this; Esc goes back to your face |
-| Click your eyes or mouth in the mirror | Focus the search on that part of the face |
+| ⌘E, the sliders button or a click on the mirror | Edit the face the camera caught. Your brows, eyes and mouth glow by how much each counts. Drag a round dot to push a feature further (a brow, an eyelid, a pupil, a mouth corner, the lower lip, or the dot above the head to tilt it). Drag a ring's square out or in, pinch on a part, or use − and +, to change how much that part counts (0 ignores it). With the pen, circle a part to make it count most, scribble one out to ignore it, or draw tears to search for "crying". Your memes re-rank as you go and GIPHY follows once you let go. ⌘Z undoes, Reset goes back to the caught face, Esc goes back to your face |
 | Esc | First clears text, focus, image or more-like; a second Esc closes |
 | Drag a tile into a chat | Drops it into the message box and closes the panel; the clipboard is left alone |
 

@@ -446,6 +446,8 @@ final class PanelController: NSObject {
         static let c: UInt16 = 8
         static let x: UInt16 = 7
         static let a: UInt16 = 0
+        static let e: UInt16 = 14
+        static let z: UInt16 = 6
         static let left: UInt16 = 123
         static let right: UInt16 = 124
         static let down: UInt16 = 125
@@ -528,6 +530,16 @@ final class PanelController: NSObject {
 
         case KeyCode.a where hasCommand && flags.intersection([.control, .option, .shift]).isEmpty:
             return performTextCommand(event, action: #selector(NSText.selectAll(_:)))
+
+        case KeyCode.e where hasCommand && flags.intersection([.control, .option, .shift]).isEmpty:
+            // ⌘E: edit the face the camera caught, or go back to it.
+            model.toggleFaceEditor()
+            return nil
+
+        case KeyCode.z where hasCommand && flags.intersection([.control, .option, .shift]).isEmpty && model.faceEdit != nil:
+            // ⌘Z in the face editor undoes the last change to the face; elsewhere it is the field's own undo.
+            model.undoFaceEdit()
+            return nil
 
         default:
             // A digit is what the key types on the active layout, not where it sits: AZERTY types

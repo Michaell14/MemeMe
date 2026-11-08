@@ -2,9 +2,10 @@ import AppKit
 import MemeMeCore
 import SwiftUI
 
-/// Left column of the drawer's body: your face, live, in a 104 pt circle; under it what the camera read it as ("your
-/// face", "your pose"), else the hint; and, until you have memes, "Find my memes". The word itself goes up beside the
-/// notch, in the query field.
+/// Left column of the drawer's body: your face, live, in a 104 pt circle, its parts glowing by how much they count;
+/// under it what the camera read it as ("your face", "your pose") and what counts most, else the hint; and, until you
+/// have memes, "Find my memes". The word itself goes up beside the notch, in the query field. While the face editor
+/// is open the mirror dims and the hint offers "Back to your face".
 struct MirrorColumn: View {
     @ObservedObject var model: AppModel
 
@@ -24,8 +25,8 @@ struct MirrorColumn: View {
     var body: some View {
         VStack(alignment: .center, spacing: 12) {
             mirror
-            if let readout = model.readout {
-                ReadoutCaption(readout: readout)
+            if model.faceEdit == nil, let readout = model.readout {
+                ReadoutCaption(readout: readout, detail: model.weightSummary)
             } else {
                 hint
             }
@@ -78,6 +79,11 @@ struct MirrorColumn: View {
                 captureButton
             }
         }
+        .overlay(alignment: .bottomLeading) {
+            if model.canEditFace {
+                editButton
+            }
+        }
         .onChange(of: model.poseCatches) { _, _ in
             catchFlash = 1
             Task { @MainActor in
@@ -89,7 +95,26 @@ struct MirrorColumn: View {
         }
     }
 
-    /// Opens the capture view (also ⇧Space). Above the mirror, so its clicks never reach the eye and mouth targets.
+    /// Opens the face editor (also ⌘E, or a click on your face). Above the mirror, like the camera button.
+    private var editButton: some View {
+        Button {
+            model.openFaceEditor()
+        } label: {
+            Image(systemName: "slider.horizontal.3")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(Theme.text)
+                .frame(width: 26, height: 26)
+                .background(Circle().fill(Theme.raised2))
+                .overlay(Circle().strokeBorder(Theme.ground, lineWidth: 2))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .offset(x: -2, y: 2)
+        .help("Edit your face: push a feature further, or change how much it counts (⌘E)")
+        .accessibilityLabel("Edit your face")
+    }
+
+    /// Opens the capture view (also ⇧Space). Above the mirror, so its clicks never open the face editor.
     private var captureButton: some View {
         Button {
             model.openCapture()
@@ -112,12 +137,17 @@ struct MirrorColumn: View {
     private var mirrorContent: some View {
         switch model.mode {
         case .live:
-            LiveMirror(camera: model.camera, pins: model.pins, interactive: true) { region in
-                model.togglePin(region)
+            if model.faceEdit != nil {
+                // The editor's face below is the search now; the camera only shows you.
+                LiveMirror(camera: model.camera, weights: [:], onClick: nil)
+                    .opacity(0.35)
+            } else {
+                LiveMirror(camera: model.camera, weights: model.shownWeights,
+                           onClick: model.canEditFace ? { model.openFaceEditor() } : nil)
             }
         case .text:
             if model.showsFaceToken {
-                LiveMirror(camera: model.camera, pins: model.pins, interactive: false) { _ in }
+                LiveMirror(camera: model.camera, weights: [:], onClick: nil)
                     .opacity(0.35)
             } else {
                 MirrorSilhouette(size: size)
@@ -199,23 +229,34 @@ struct MirrorColumn: View {
     }
 }
 
-/// What the word beside the notch was read from ("your face", "your pose", "your face and pose"), under the mirror.
+/// What the word beside the notch was read from ("your face", "your pose", "your face and pose"), under the mirror,
+/// and what counts most in it ("mostly your brows"): the mirror's glow in words.
 /// Sparkles when the on-device model named a pose with no word of its own; the rule's phrase shows the pose's figure.
 private struct ReadoutCaption: View {
     let readout: MoodReadout
+    var detail: String?
 
     var body: some View {
-        HStack(spacing: 4) {
-            Image(systemName: symbolName)
-                .font(.system(size: 10))
-                .accessibilityHidden(true)
-            Text(verbatim: caption)
-                .font(.system(size: 11))
-                .lineLimit(1)
+        VStack(spacing: 2) {
+            HStack(spacing: 4) {
+                Image(systemName: symbolName)
+                    .font(.system(size: 10))
+                    .accessibilityHidden(true)
+                Text(verbatim: caption)
+                    .font(.system(size: 11))
+                    .lineLimit(1)
+            }
+            .foregroundColor(Theme.mutedText)
+            if let detail {
+                Text(verbatim: detail)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(Theme.text)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
-        .foregroundColor(Theme.mutedText)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(verbatim: "Reading \(readout.word) from \(caption)"))
+        .accessibilityLabel(Text(verbatim: "Reading \(readout.word) from \(caption)" + (detail.map { ", \($0)" } ?? "")))
     }
 
     private var symbolName: String {
@@ -234,22 +275,23 @@ private struct ReadoutCaption: View {
 
 // MARK: - Mirror contents
 
-/// The live camera with clickable eyes / mouth. Observes the camera so the overlays follow the face.
+/// The live camera, its parts glowing by `weights`. Observes the camera so the glows follow the face.
 private struct LiveMirror: View {
     @ObservedObject var camera: CameraController
-    let pins: Set<FaceRegion>
-    let interactive: Bool
-    let onToggle: (FaceRegion) -> Void
+    let weights: [FaceRegion: Double]
+    let onClick: (() -> Void)?
 
     var body: some View {
         CameraPreviewView(
             session: camera.session,
-            regionRects: interactive ? camera.regionRects : [:],
-            pins: pins,
-            onToggle: onToggle
+            regionRects: weights.isEmpty ? [:] : camera.regionRects,
+            weights: weights,
+            onClick: onClick
         )
-        .allowsHitTesting(interactive)
-        .accessibilityLabel("Your live camera, mirrored")
+        .allowsHitTesting(onClick != nil)
+        .accessibilityLabel(Text(verbatim: onClick == nil
+            ? "Your live camera, mirrored"
+            : "Your live camera, mirrored. Click to edit your face"))
     }
 }
 
