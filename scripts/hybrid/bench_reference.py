@@ -24,6 +24,7 @@ def main():
     ap.add_argument("--data", required=True)
     ap.add_argument("--weights", required=True)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--dump-pixels", help="also write each decoded image as raw RGB (for model-only parity)")
     args = ap.parse_args()
 
     import onnxruntime as ort
@@ -139,8 +140,18 @@ def main():
     results["latency_live_frame_s"] = time_it(live_once)
     print("latency", results["latency_held_search_s"], results["latency_live_frame_s"], flush=True)
 
+    if args.dump_pixels:
+        os.makedirs(args.dump_pixels, exist_ok=True)
+        for kind, imgs in (("gallery", G_imgs), ("query", Q_imgs)):
+            for i, im in enumerate(imgs):
+                with open(os.path.join(args.dump_pixels, f"{kind}_{i}.rgb"), "wb") as f:
+                    f.write(np.asarray(im, dtype=np.uint8).tobytes())
+    sizes = {("gallery", i): im.size for i, im in enumerate(G_imgs)}
+    sizes.update({("query", i): im.size for i, im in enumerate(Q_imgs)})
+
     def item(kind, i, path, box, full, face, emo, zs):
         return {"kind": kind, "index": int(i), "file": os.path.relpath(path, args.data),
+                "size": [int(v) for v in sizes[(kind, i)]],
                 "box": None if box is None else [float(v) for v in box],
                 "clip_full": full.tolist(), "clip_face": face.tolist(), "emo": emo.tolist(), "zs": zs.tolist()}
 

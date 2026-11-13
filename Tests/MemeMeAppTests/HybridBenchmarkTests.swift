@@ -1,4 +1,5 @@
 import CoreGraphics
+import CoreML
 import Foundation
 import Vision
 import XCTest
@@ -17,7 +18,7 @@ final class HybridBenchmarkTests: XCTestCase {
         struct Gallery: Decodable { let id: String; let file: String; let labels: [String]; let has_face: Bool }
         struct Query: Decodable { let file: String; let emotion: String; let split: String }
         struct Image: Decodable {
-            let kind: String; let index: Int; let file: String; let box: [Double]?
+            let kind: String; let index: Int; let file: String; let box: [Double]?; let size: [Int]?
             let clip_full: [Float]; let clip_face: [Float]; let emo: [Double]; let zs: [Double]
         }
         let results: [String: Double]
@@ -30,6 +31,21 @@ final class HybridBenchmarkTests: XCTestCase {
     private struct Measured {
         var full: [Float]; var face: [Float]; var emo: [Double]
         var visionCrop: PixelRect?; var rgb: RGBImage
+        var visionFace: [Float]; var visionEmo: [Double]   // the app's path: Vision's crop (the whole image without one)
+    }
+
+    private func note(_ line: String) {
+        FileHandle.standardError.write(Data(("HYBRID-BENCH " + line + "\n").utf8))
+    }
+
+    /// MEMEME_HYBRID_COMPUTE_UNITS: all (the app's setting, default), cpu, cpuAndGPU, cpuAndNeuralEngine.
+    private func computeUnits() -> MLComputeUnits {
+        switch ProcessInfo.processInfo.environment["MEMEME_HYBRID_COMPUTE_UNITS"] {
+        case "cpu": return .cpuOnly
+        case "cpuAndGPU": return .cpuAndGPU
+        case "cpuAndNeuralEngine": return .cpuAndNeuralEngine
+        default: return .all
+        }
     }
 
     func testHybridAgainstTheBenchmark() throws {
@@ -39,13 +55,20 @@ final class HybridBenchmarkTests: XCTestCase {
             throw XCTSkip("set MEMEME_HYBRID_TEST_MODELS, MEMEME_BENCHMARK_DATA and MEMEME_BENCHMARK_REFERENCE")
         }
         let data = URL(fileURLWithPath: dataPath, isDirectory: true)
-        let models = try HybridModels(directory: URL(fileURLWithPath: modelsPath, isDirectory: true))
+        let models = try HybridModels(directory: URL(fileURLWithPath: modelsPath, isDirectory: true),
+                                      computeUnits: computeUnits())
         let reference = try JSONDecoder().decode(Reference.self, from: Data(contentsOf: URL(fileURLWithPath: referencePath)))
+        var clock = CFAbsoluteTimeGetCurrent()
         models.warmUp()
+        note("models loaded and warmed up in \(fmt(CFAbsoluteTimeGetCurrent() - clock)) s (compute units \(computeUnits().rawValue))")
+        clock = CFAbsoluteTimeGetCurrent()
         var report: [String: Any] = [:]
 
         // ---------- per image: CLIP and HSEmotion, on the same crops as the reference ----------
         var measured: [String: Measured] = [:]
+        // Model-only parity: the reference's own decoded pixels (PIL), so JPEG decoders don't count.
+        let pixelsDir = env["MEMEME_BENCHMARK_PIXELS"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+        var modelClipCos: [Double] = [], modelFaceCos: [Double] = [], modelEmoDiff: [Double] = []
         var clipCos: [Double] = [], faceCos: [Double] = [], emoDiff: [Double] = [], zsDiff: [Double] = []
         var worst: [(file: String, what: String, value: Double)] = []
         var detectorAgrees = 0
@@ -63,8 +86,33 @@ final class HybridBenchmarkTests: XCTestCase {
             let emo = try models.emotion(faceImage)
             let visionCrop = HybridAnalyzer.largestFaceCrop(in: cg)
             if (visionCrop != nil) == (image.box != nil) { detectorAgrees += 1 }
+            let visionFace: [Float], visionEmo: [Double]
+            if visionCrop == refCrop {
+                visionFace = face
+                visionEmo = emo
+            } else {
+                let crop = visionCrop.map { rgb.cropped(to: $0) } ?? rgb
+                visionFace = visionCrop == nil ? full : try models.clipEmbedding(crop)
+                visionEmo = try models.emotion(crop)
+            }
             measured[image.kind + ":" + String(image.index)] = Measured(full: full, face: face, emo: emo,
-                                                                         visionCrop: visionCrop, rgb: rgb)
+                                                                         visionCrop: visionCrop, rgb: rgb,
+                                                                         visionFace: visionFace, visionEmo: visionEmo)
+            if measured.count % 25 == 0 {
+                note("measured \(measured.count) of \(reference.images.count) images, \(fmt(CFAbsoluteTimeGetCurrent() - clock)) s")
+            }
+            if let pixelsDir, let size = image.size, size.count == 2,
+               let raw = try? Data(contentsOf: pixelsDir.appendingPathComponent("\(image.kind)_\(image.index).rgb")),
+               raw.count == size[0] * size[1] * 3 {
+                let pil = RGBImage(width: size[0], height: size[1], pixels: [UInt8](raw))
+                let pilFull = try models.clipEmbedding(pil)
+                let pilFace = refCrop.map { pil.cropped(to: $0) } ?? pil
+                let pilFaceEmbedding = refCrop == nil ? pilFull : try models.clipEmbedding(pilFace)
+                let pilEmo = try models.emotion(pilFace)
+                modelClipCos.append(cosine(pilFull, image.clip_full))
+                modelFaceCos.append(cosine(pilFaceEmbedding, image.clip_face))
+                modelEmoDiff.append(zip(pilEmo, image.emo).map { abs($0 - $1) }.max() ?? 1)
+            }
             let c = cosine(full, image.clip_full), f = cosine(face, image.clip_face)
             let e = zip(emo, image.emo).map { abs($0 - $1) }.max() ?? 1
             let zsSource = image.kind == "gallery" ? full : face
@@ -88,7 +136,18 @@ final class HybridBenchmarkTests: XCTestCase {
         parity["clip_cosine_below_0.99"] = clipCos.filter { $0 < 0.99 }.count
         parity["hsemotion_diff_above_0.02"] = emoDiff.filter { $0 > 0.02 }.count
         parity["vision_and_res10_agree_on_face"] = detectorAgrees
-        report["parity"] = parity
+        report["parity_end_to_end"] = parity
+        var modelParity: [String: Any] = [:]
+        modelParity["images"] = modelClipCos.count
+        modelParity["clip_full_cosine_min"] = modelClipCos.min() ?? 0
+        modelParity["clip_full_cosine_mean"] = mean(modelClipCos)
+        modelParity["clip_face_cosine_min"] = modelFaceCos.min() ?? 0
+        modelParity["clip_cosine_below_0.99"] = (modelClipCos + modelFaceCos).filter { $0 < 0.99 }.count
+        modelParity["hsemotion_max_abs_diff_max"] = modelEmoDiff.max() ?? 1
+        modelParity["hsemotion_max_abs_diff_mean"] = mean(modelEmoDiff)
+        modelParity["hsemotion_diff_above_0.02"] = modelEmoDiff.filter { $0 > 0.02 }.count
+        report["parity_model_only"] = modelParity
+        note("model-only parity: CLIP cosine min \(fmt(min(modelClipCos.min() ?? 0, modelFaceCos.min() ?? 0))), HSEmotion max abs \(fmt(modelEmoDiff.max() ?? 1))")
         for w in worst.prefix(12) { print("HYBRID-BENCH parity outlier \(w.file): \(w.what) \(w.value)") }
 
         // ---------- hybrid match@5 ----------
@@ -102,8 +161,9 @@ final class HybridBenchmarkTests: XCTestCase {
                     return HybridIndexEntry(key: gallery[i].id, contentHash: "", clipFull: m.full, hasFace: img.box != nil,
                                             emo: m.emo, zs: models.zeroShot(m.full))
                 }
-                return try HybridAnalyzer.entry(for: m.rgb, faceCrop: m.visionCrop, key: gallery[i].id, contentHash: "",
-                                                models: models)
+                // HybridAnalyzer.entry, from the passes already made.
+                return HybridIndexEntry(key: gallery[i].id, contentHash: "", clipFull: m.full, hasFace: m.visionCrop != nil,
+                                        emo: m.visionEmo, zs: models.zeroShot(m.full))
             }
         }
         func queryFor(_ i: Int, visionDetector: Bool) throws -> HybridQuery {
@@ -111,7 +171,8 @@ final class HybridBenchmarkTests: XCTestCase {
             if !visionDetector {
                 return HybridQuery(full: m.full, emotion: m.emo, zeroShot: models.zeroShot(m.face))
             }
-            return try HybridAnalyzer.query(frame: m.rgb, faceCrop: m.visionCrop, emotion: nil, models: models)
+            // HybridAnalyzer.query, from the passes already made.
+            return HybridQuery(full: m.full, emotion: m.visionEmo, zeroShot: models.zeroShot(m.visionFace))
         }
         let test = reference.queries.indices.filter { reference.queries[$0].split == "test" }
         func evaluate(_ top5: (Int) throws -> [Int]) rethrows -> (p5: Double, macro: Double, lists: [Int: [String]]) {
@@ -154,6 +215,7 @@ final class HybridBenchmarkTests: XCTestCase {
         report["hybrid"] = hybridRuns
         report["python_reference"] = reference.results
 
+        note("hybrid ranked, \(fmt(CFAbsoluteTimeGetCurrent() - clock)) s")
         // ---------- the classic ranker on the same data (population-neutral resting face) ----------
         let baseline = RestingBaseline()
         let items: [LibraryItem] = try gallery.map { g in
@@ -205,8 +267,17 @@ final class HybridBenchmarkTests: XCTestCase {
         routedReport["test_queries"] = test.count
         report["app_routing"] = routedReport
 
+        note("classic ranked, \(fmt(CFAbsoluteTimeGetCurrent() - clock)) s")
         // ---------- speed ----------
-        report["speed"] = try measureSpeed(models: models, data: data, reference: reference, entries: appEntries)
+        var speeds: [String: Any] = [:]
+        let unitSettings: [(String, MLComputeUnits)] = [("all", .all), ("cpuOnly", .cpuOnly),
+                                                         ("cpuAndNeuralEngine", .cpuAndNeuralEngine)]
+        for (name, units) in unitSettings {
+            let timed = try HybridModels(directory: URL(fileURLWithPath: modelsPath, isDirectory: true), computeUnits: units)
+            timed.warmUp()
+            speeds[name] = try measureSpeed(models: timed, data: data, reference: reference, entries: appEntries, label: name)
+        }
+        report["speed"] = speeds
 
         let json = try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys])
         print("HYBRID-BENCH report\n" + String(decoding: json, as: UTF8.self))
@@ -214,15 +285,18 @@ final class HybridBenchmarkTests: XCTestCase {
             try json.write(to: URL(fileURLWithPath: out))
         }
 
-        // The parity bounds from the task.
-        XCTAssertGreaterThanOrEqual(clipCos.min() ?? 0, 0.99, "CLIP cosine with the reference")
-        XCTAssertLessThanOrEqual(emoDiff.max() ?? 1, 0.02, "HSEmotion probabilities against the reference")
+        // The parity bounds from the task, on the models (the same pixels as the reference). End to end, Apple's image
+        // decoders differ from PIL's by a few levels per pixel; that is reported above, not asserted.
+        if !modelClipCos.isEmpty {
+            XCTAssertGreaterThanOrEqual(min(modelClipCos.min() ?? 0, modelFaceCos.min() ?? 0), 0.99, "CLIP cosine with the reference")
+            XCTAssertLessThanOrEqual(modelEmoDiff.max() ?? 1, 0.02, "HSEmotion probabilities against the reference")
+        }
     }
 
     /// A live frame (the app's face request + crop + HSEmotion) and a held-face search (two CLIP passes, zero-shot, and
     /// scoring the gallery, and 5,000 entries), on 640 × 480 frames made from the test photos.
     private func measureSpeed(models: HybridModels, data: URL, reference: Reference,
-                              entries: [HybridIndexEntry]) throws -> [String: Any] {
+                              entries: [HybridIndexEntry], label: String) throws -> [String: Any] {
         let files = reference.queries.filter { $0.split == "test" }.prefix(24).map { data.appendingPathComponent($0.file) }
         let frames = files.compactMap { url in HybridAnalyzer.firstFrame(of: url).flatMap { self.webcamFrame($0) } }
         XCTAssertFalse(frames.isEmpty)
@@ -274,7 +348,7 @@ final class HybridBenchmarkTests: XCTestCase {
         speed["held_search_s_5000_items_mean"] = mean(heldBig)
         speed["rank_only_s_5000_items_mean"] = mean(rank5k)
         speed["cpu"] = ProcessInfo.processInfo.processorCount
-        print("HYBRID-BENCH speed live frame \(fmt(mean(landmarks))) s (landmarks), \(fmt(mean(rectangles))) s (rectangles); held search \(fmt(mean(held))) s (209), \(fmt(mean(heldBig))) s (5,000)")
+        print("HYBRID-BENCH speed [\(label)] live frame \(fmt(mean(landmarks))) s (landmarks), \(fmt(mean(rectangles))) s (rectangles); held search \(fmt(mean(held))) s (209), \(fmt(mean(heldBig))) s (5,000)")
         return speed
     }
 

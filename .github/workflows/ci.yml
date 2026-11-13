@@ -194,16 +194,21 @@ jobs:
       # Parity with the benchmark's Python reference (bench.py's B/32 hybrid), expression match@5 of the hybrid and
       # of the classic ranker on the benchmark, and speed on this runner. The images are downloaded, never committed.
       - name: Hybrid parity and benchmark
+        timeout-minutes: 45
         env:
           MEMEME_HYBRID_TEST_MODELS: ${{ github.workspace }}/build/HybridModels
           MEMEME_BENCHMARK_DATA: ${{ github.workspace }}/build/benchmark-data
           MEMEME_BENCHMARK_REFERENCE: ${{ github.workspace }}/build/benchmark-reference.json
           MEMEME_BENCHMARK_OUT: ${{ github.workspace }}/build/hybrid-benchmark.json
+          MEMEME_BENCHMARK_PIXELS: ${{ github.workspace }}/build/benchmark-pixels
+          # The runner is a VM without a Neural Engine and with a paravirtualized GPU; accuracy runs on the CPU there
+          # (speed is timed for each compute-unit setting).
+          MEMEME_HYBRID_COMPUTE_UNITS: cpu
         run: |
           py=build/.hybrid-venv/bin/python
           "$py" -I scripts/hybrid/fetch_benchmark_data.py --out "$MEMEME_BENCHMARK_DATA"
           "$py" -I scripts/hybrid/bench_reference.py --data "$MEMEME_BENCHMARK_DATA" \
-            --weights build/.hybrid-weights --out "$MEMEME_BENCHMARK_REFERENCE"
+            --weights build/.hybrid-weights --out "$MEMEME_BENCHMARK_REFERENCE" --dump-pixels "$MEMEME_BENCHMARK_PIXELS"
           swift test --filter MemeMeAppTests.HybridBenchmarkTests 2>&1 | tee build/hybrid-benchmark.log
           status=${PIPESTATUS[0]}
           {
