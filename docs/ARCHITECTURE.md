@@ -642,8 +642,15 @@ public enum HSEmotionClass: Int { anger, contempt, disgust, fear, happiness, neu
     // surprise .shocked, happiness .happy, anger .angry, sadness .sad, disgust .disgusted, fear .scared, neutral/contempt .unimpressed
 public struct EmotionPrompts: Codable { classes; prompts; scale; embeddings: [[Float]] /* 7 × 512 */; static func load(from:) }
 public enum HybridRouting {
-    static func usesHybrid(_ sample:, baseline:) -> Bool    // a face with 8 emotion numbers, no PoseBadge, no clear FaceCues cue
-    static func mood(for:baseline:hybrid:) -> Mood           // HSEmotion's top class when usesHybrid, else MoodClassifier
+    static let routedCues: Set<FaceCues.Cue>                  // tongueOut, wink, pucker, eyeRoll: the hybrid can't see them
+    static let cueHoldDuration: TimeInterval                  // PeakHoldConfig().holdDuration (0.3 s)
+    static func usesHybrid(_ sample:, baseline:, cueHeld: Bool = true) -> Bool   // a face with 8 emotion numbers, no PoseBadge,
+                                                              // and not a clear routed cue that was held
+    static func mood(for:baseline:hybrid:cueHeld:) -> Mood    // a clear pose's or cue's word (MoodClassifier) whatever ranks;
+                                                              // else HSEmotion's top class when usesHybrid
+}
+public struct CueHistory {                                    // each frame's clear cue, last 3 s (AppModel)
+    mutating func observe(_ cue:, at:); func isHeld(_ cue:, at:, for: = cueHoldDuration) -> Bool   // unbroken run ≥ duration − one frame
 }
 public enum MatchingModel: String { case hybrid, classic }  // AppSettings.matchingModel (default .hybrid, lenient)
 public struct HybridIndexEntry: Codable { key; contentHash; clipFull: [Float] /* FloatCoding */; hasFace; emo: [Double]?; zs }
@@ -995,7 +1002,7 @@ Requests per frame: `VNDetectFaceLandmarksRequest` (the largest face's features,
 - `HybridAnalyzer`: `rgbImage(from: CGImage)` (sRGB, alpha dropped), `largestFaceCrop(in:)` (`VNDetectFaceRectanglesRequest`) / `largestFaceCrop(_ faces:imageWidth:imageHeight:)`, `firstFrame(of:)` (frame 0, EXIF-oriented, ≤ 4096 px), `entry(for:…)`, `query(frame:faceCrop:emotion:models:)` (CLIP of the frame and of the crop).
 - `CameraController.setHybridModels(_:)`: each analyzed frame with a face gets HSEmotion on the largest face's crop (the landmarks request's boxes) as `sample.emotion`, and the last 1.5 s of such frames are kept for `heldFrame(at: timestamp) async -> HeldFrame?`.
 - `HybridIndexer` (`@MainActor`): `activate(models:index:)`, `sync(items:)` (kinds other than .web, tiers other than .skipped; newest first), `sync(templates:download:)`, `entry(for: LibraryItem / MemeTemplate)` (nil when the content hash differs), `saveNow()`. One item at a time at utility priority, waiting while `shouldDeferBackgroundWork`; saved at most every 10 s and at the end.
-- `AppModel`: `start` loads the models and index off the main actor (only with `matchingModel == .hybrid`; `defaults MatchingModel` overrides the setting at launch). `runExpressionSearch` takes the hybrid path when `HybridRouting.usesHybrid(tracker.query)` and the editor has no edits: the word and GIPHY at once, then (after the CLIP passes, cached per query timestamp) your memes by `HybridMatcher.score` (meme tier, at most 2 friend stickers outside Stickers, items not yet indexed after them by `Ranker`), and the classic memes in the hybrid's order (then the mood table's), paged as before. Otherwise everything is as before. Index syncs: start, panel open, library changes, Save as sticker, a new Imgflip list.
+- `AppModel`: `start` loads the models and index off the main actor (only with `matchingModel == .hybrid`; `defaults MatchingModel` overrides the setting at launch). `runExpressionSearch` takes the hybrid path when `HybridRouting.usesHybrid(tracker.query, cueHeld:)` (held: `CueHistory.isHeld` over the frames around the query; decided once per query) and the editor has no edits: the word and GIPHY at once, then (after the CLIP passes, cached per query timestamp) your memes by `HybridMatcher.score` (meme tier, at most 2 friend stickers outside Stickers, items not yet indexed after them by `Ranker`), and the classic memes in the hybrid's order (then the mood table's), paged as before. Otherwise everything is as before. Index syncs: start, panel open, library changes, Save as sticker, a new Imgflip list.
 
 ### Vision/ThumbnailCache.swift
 
