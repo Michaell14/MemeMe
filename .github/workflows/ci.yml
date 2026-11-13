@@ -204,12 +204,23 @@ jobs:
           # The runner is a VM without a Neural Engine and with a paravirtualized GPU; accuracy runs on the CPU there
           # (speed is timed for each compute-unit setting).
           MEMEME_HYBRID_COMPUTE_UNITS: cpu
+          MEMEME_HYBRID_VARIANTS: fp16=${{ github.workspace }}/build/HybridModels,mixed=${{ github.workspace }}/build/HybridModels-mixed,fp32=${{ github.workspace }}/build/HybridModels-fp32
         run: |
           py=build/.hybrid-venv/bin/python
+          # Two other CLIP conversions to compare with the shipped one (fp16), on the same pixels.
+          for precision in mixed fp32; do
+            dir="build/HybridModels-$precision"
+            "$py" -I scripts/hybrid/convert_models.py --weights build/.hybrid-weights --out "$dir" \
+              --clip-precision "$precision" --clip-only
+            cp -R build/HybridModels/HSEmotion.mlpackage "$dir/"
+            cp Resources/Hybrid/emotion_prompts.json "$dir/"
+          done
           "$py" -I scripts/hybrid/fetch_benchmark_data.py --out "$MEMEME_BENCHMARK_DATA"
           "$py" -I scripts/hybrid/bench_reference.py --data "$MEMEME_BENCHMARK_DATA" \
             --weights build/.hybrid-weights --out "$MEMEME_BENCHMARK_REFERENCE" --dump-pixels "$MEMEME_BENCHMARK_PIXELS"
-          swift test --filter MemeMeAppTests.HybridBenchmarkTests 2>&1 | tee build/hybrid-benchmark.log
+          # Release build: the speed numbers are for optimized code, as the app ships.
+          swift test -c release -Xswiftc -enable-testing --filter MemeMeAppTests.HybridBenchmarkTests 2>&1 \
+            | tee build/hybrid-benchmark.log
           status=${PIPESTATUS[0]}
           {
             echo '### Hybrid matcher benchmark'

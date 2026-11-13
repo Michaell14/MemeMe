@@ -150,6 +150,39 @@ final class HybridBenchmarkTests: XCTestCase {
         note("model-only parity: CLIP cosine min \(fmt(min(modelClipCos.min() ?? 0, modelFaceCos.min() ?? 0))), HSEmotion max abs \(fmt(modelEmoDiff.max() ?? 1))")
         for w in worst.prefix(12) { print("HYBRID-BENCH parity outlier \(w.file): \(w.what) \(w.value)") }
 
+        // ---------- CLIP conversions compared on the reference's pixels (MEMEME_HYBRID_VARIANTS: name=dir,…) ----------
+        if let pixelsDir, let variants = env["MEMEME_HYBRID_VARIANTS"] {
+            var variantReport: [String: Any] = [:]
+            for spec in variants.split(separator: ",") {
+                let parts = spec.split(separator: "=", maxSplits: 1).map(String.init)
+                guard parts.count == 2 else { continue }
+                let variant = try HybridModels(directory: URL(fileURLWithPath: parts[1], isDirectory: true),
+                                               computeUnits: computeUnits())
+                variant.warmUp()
+                var cos: [Double] = []
+                var seconds: [Double] = []
+                for image in reference.images {
+                    guard let size = image.size, size.count == 2,
+                          let raw = try? Data(contentsOf: pixelsDir.appendingPathComponent("\(image.kind)_\(image.index).rgb")),
+                          raw.count == size[0] * size[1] * 3 else { continue }
+                    let pil = RGBImage(width: size[0], height: size[1], pixels: [UInt8](raw))
+                    let start = CFAbsoluteTimeGetCurrent()
+                    let e = try variant.clipEmbedding(pil)
+                    seconds.append(CFAbsoluteTimeGetCurrent() - start)
+                    cos.append(cosine(e, image.clip_full))
+                }
+                var r: [String: Any] = [:]
+                r["images"] = cos.count
+                r["clip_full_cosine_min"] = cos.min() ?? 0
+                r["clip_full_cosine_mean"] = mean(cos)
+                r["clip_cosine_below_0.99"] = cos.filter { $0 < 0.99 }.count
+                r["clip_s_per_image_mean"] = mean(seconds)
+                variantReport[parts[0]] = r
+                note("CLIP variant \(parts[0]): cosine min \(fmt(cos.min() ?? 0)) mean \(fmt(mean(cos))), below 0.99: \(cos.filter { $0 < 0.99 }.count), \(fmt(mean(seconds))) s per image")
+            }
+            report["clip_variants"] = variantReport
+        }
+
         // ---------- hybrid match@5 ----------
         let gallery = reference.gallery
         let labels = gallery.map { Set($0.labels) }

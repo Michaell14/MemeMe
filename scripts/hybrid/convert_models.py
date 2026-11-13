@@ -48,7 +48,22 @@ def write_prompts(path, t):
     })
 
 
-def convert_clip(model, out_dir):
+# Ops kept in fp32 by --clip-precision mixed: the normalizations, softmax, reductions and residual adds, where fp16
+# accumulation loses the most; the matrix multiplies (and the weights) stay fp16.
+MIXED_FP32_OPS = {"layer_norm", "softmax", "reduce_mean", "reduce_sum", "add", "sub", "mul", "real_div", "pow", "sqrt",
+                  "rsqrt"}
+
+
+def clip_precision(name):
+    import coremltools as ct
+    if name == "fp32":
+        return ct.precision.FLOAT32
+    if name == "mixed":
+        return ct.transform.FP16ComputePrecision(op_selector=lambda op: op.op_type not in MIXED_FP32_OPS)
+    return ct.precision.FLOAT16
+
+
+def convert_clip(model, out_dir, precision="fp16"):
     import coremltools as ct
     import torch
 
@@ -73,10 +88,10 @@ def convert_clip(model, out_dir):
         inputs=[ct.TensorType(name="image", shape=(1, 3, 224, 224), dtype=np.float32)],
         outputs=[ct.TensorType(name="embedding", dtype=np.float32)],
         convert_to="mlprogram",
-        compute_precision=ct.precision.FLOAT16,
+        compute_precision=clip_precision(precision),
         minimum_deployment_target=ct.target.macOS14,
     )
-    mlmodel.short_description = "OpenCLIP ViT-B-32-quickgelu (LAION-400M e32) image encoder"
+    mlmodel.short_description = f"OpenCLIP ViT-B-32-quickgelu (LAION-400M e32) image encoder ({precision})"
     path = os.path.join(out_dir, "CLIPImage.mlpackage")
     mlmodel.save(path)
     return path, example.numpy(), reference
@@ -144,6 +159,8 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--prompts-only", action="store_true")
     ap.add_argument("--check-prompts", help="a committed emotion_prompts.json the new one must match")
+    ap.add_argument("--clip-precision", choices=["fp16", "mixed", "fp32"], default="fp16")
+    ap.add_argument("--clip-only", action="store_true", help="convert the CLIP image encoder only")
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
 
@@ -161,8 +178,10 @@ def main():
 
     import coremltools
     import torch
-    clip_path, cx, cref = convert_clip(model, args.out)
+    clip_path, cx, cref = convert_clip(model, args.out, args.clip_precision)
     check_on_device(clip_path, "CLIPImage", cx, cref)
+    if args.clip_only:
+        return
     hse_path, hx, href = convert_hsemotion(args.weights, args.out)
     check_on_device(hse_path, "HSEmotion", hx, href)
     hc.write_json(os.path.join(args.out, "manifest.json"), {
