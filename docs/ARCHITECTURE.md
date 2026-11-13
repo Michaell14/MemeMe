@@ -738,11 +738,11 @@ public enum FrequentPicks {
 }
 ```
 
-### FaceReading.swift
+### HeldFaceReading.swift
 
 ```swift
 /// What the camera reads in a face being held, for "Reading your face" and the big mirror's glow.
-public enum FaceReading {
+public enum HeldFaceReading {
     public struct Cue: Equatable, Hashable, Sendable { label: String; region: FaceRegion?; level: Int /* 0...5 */ }
     /// The `limit` strongest of: the seven numbers against the baseline, each read its own way (brows up / down 0.3,
     /// eyes wide / narrowed 0.3, mouth open 0.4, smile / frown 0.25, mouth wide / lips pressed 0.25, side-eye 0.3,
@@ -1659,12 +1659,12 @@ struct TileLayout: Equatable {
     var mirrorIsLarge: Bool { get }                  // the Recent grid shows (nothing caught), no editor / capture / setup card, mode prompt, warming or live
     var gridColumns: Int { get }                     // 4 while mirrorIsLarge, else 5
     var isReadingFace: Bool { get }                  // mirrorIsLarge, live, holdProgress ≥ 0.05
-    var mirrorWeights: [FaceRegion: Double] { get }  // shownWeights, else FaceReading.glow(of: faceReading) while reading
+    var mirrorWeights: [FaceRegion: Double] { get }  // shownWeights, else HeldFaceReading.glow(of: faceReading) while reading
     var searchPlaceholder: String { get }            // "Type to refine" with a readout; "Type to search, or make a face" while the camera can read you; else "Type to search"
     var canDismissCaughtFace: Bool { get }
     func dismissCaughtFace()                         // the × on the face token: tracker.reset(), GIPHY cleared, the popular classic memes, showRecentResults
     @Published private(set) var savedIDs: Set<UUID>  // store.recents.saved, read on each open
-    @Published private(set) var faceReading: [FaceReading.Cue]   // from each sample while isReadingFace, else []
+    @Published private(set) var faceReading: [HeldFaceReading.Cue]   // from each sample while isReadingFace, else []
     @Published private(set) var previousAppName: String?         // the Recent row's title
     func canSave(_ pick: Pick) -> Bool               // your things in the library only
     func isSaved(_ pick: Pick) -> Bool

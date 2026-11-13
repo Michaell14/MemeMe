@@ -290,7 +290,7 @@ private struct DescribedPhrase {
     @Published private(set) var savedIDs: Set<UUID> = []
     /// What the camera reads in the face being held while the mirror is big ("Brows up", 0...5), strongest first;
     /// empty otherwise.
-    @Published private(set) var faceReading: [FaceReading.Cue] = []
+    @Published private(set) var faceReading: [HeldFaceReading.Cue] = []
     /// The app the panel was opened over ("Messages"), for the Recent row's title.
     @Published private(set) var previousAppName: String?
 
@@ -717,7 +717,7 @@ private struct DescribedPhrase {
     /// The mirror's glow: what counts in the face search showing, else what is read in the face being held.
     var mirrorWeights: [FaceRegion: Double] {
         if !shownWeights.isEmpty { return shownWeights }
-        return isReadingFace ? FaceReading.glow(of: faceReading) : [:]
+        return isReadingFace ? HeldFaceReading.glow(of: faceReading) : [:]
     }
 
     /// What the search field says while empty: it always invites typing.
@@ -751,9 +751,9 @@ private struct DescribedPhrase {
 
     /// The live face's cues while it is held toward the first search (`isReadingFace`).
     private func updateFaceReading(with sample: ExpressionSample) {
-        var cues: [FaceReading.Cue] = []
+        var cues: [HeldFaceReading.Cue] = []
         if isReadingFace, let face = sample.face {
-            cues = FaceReading.cues(face: face, shape: sample.shape, baseline: tracker.baseline)
+            cues = HeldFaceReading.cues(face: face, shape: sample.shape, baseline: tracker.baseline)
         }
         if faceReading != cues { faceReading = cues }
     }

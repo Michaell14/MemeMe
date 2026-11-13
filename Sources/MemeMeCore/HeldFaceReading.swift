@@ -2,7 +2,7 @@ import Foundation
 
 /// What the camera reads in a face being held, in words: each change from your resting face that the search goes by,
 /// 0...5, for the panel's "Reading your face" list and the big mirror's glow while you hold a face.
-public enum FaceReading {
+public enum HeldFaceReading {
     public struct Cue: Equatable, Hashable, Sendable {
         /// "Brows up", "Wink".
         public let label: String

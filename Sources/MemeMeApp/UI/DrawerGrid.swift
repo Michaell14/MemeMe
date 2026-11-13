@@ -500,7 +500,7 @@ private struct TemplateTileContent: View {
 /// Takes the top row's place while a face is held toward the first search: what the camera reads in it, each cue with
 /// a five-step meter ("Brows up ▮▮▮▮▯"), strongest first. Small changes count, so they are named.
 struct FaceReadingPanel: View {
-    let cues: [FaceReading.Cue]
+    let cues: [HeldFaceReading.Cue]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -530,7 +530,7 @@ struct FaceReadingPanel: View {
 }
 
 private struct CueMeter: View {
-    let cue: FaceReading.Cue
+    let cue: HeldFaceReading.Cue
 
     var body: some View {
         HStack(spacing: 10) {
