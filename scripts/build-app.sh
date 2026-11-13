@@ -16,6 +16,11 @@
 #                      identity in the keychain (its name or SHA-1) signs with the hardened runtime,
 #                      a secure timestamp and Resources/MemeMe.entitlements, ready for
 #                      scripts/notarize.sh
+#   HYBRID_MODELS_DIR  the hybrid matcher's converted models (default build/HybridModels, made by
+#                      scripts/build-hybrid-models.sh when missing; needs Python 3.10–3.12 and downloads
+#                      the pinned weights once)
+#   REQUIRE_HYBRID_MODELS  1: fail when the models can't be built (CI). Otherwise the app is built
+#                      without them and uses the classic matcher
 set -euo pipefail
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
@@ -123,6 +128,28 @@ if [[ -e "${GIPHY_MARKS[0]}" ]]; then
   log "GIPHY attribution mark: $(basename -a "${GIPHY_MARKS[@]}" | tr '\n' ' ')"
 else
   echo "warning: Resources/GIPHY/GIPHYLogo.png is missing; the GIPHY row shows \"Powered by GIPHY\" as text" >&2
+fi
+
+# The hybrid matcher's Core ML models (CLIP B/32 image encoder, HSEmotion) and the zero-shot prompts, compiled
+# into Contents/Resources/Hybrid. Without them the app uses the classic matcher.
+HYBRID_SOURCE="${HYBRID_MODELS_DIR:-$BUILD_DIR/HybridModels}"
+if [[ ! -d "$HYBRID_SOURCE/CLIPImage.mlpackage" || ! -d "$HYBRID_SOURCE/HSEmotion.mlpackage" ]]; then
+  log "Building the hybrid models"
+  if ! "$ROOT/scripts/build-hybrid-models.sh" "$HYBRID_SOURCE"; then
+    if [[ "${REQUIRE_HYBRID_MODELS:-0}" == "1" ]]; then
+      echo "error: the hybrid models couldn't be built" >&2
+      exit 1
+    fi
+    echo "warning: the hybrid models couldn't be built; the app uses the classic matcher" >&2
+  fi
+fi
+if [[ -d "$HYBRID_SOURCE/CLIPImage.mlpackage" && -d "$HYBRID_SOURCE/HSEmotion.mlpackage" ]]; then
+  HYBRID_BUNDLE="$APP/Contents/Resources/Hybrid"
+  mkdir -p "$HYBRID_BUNDLE"
+  xcrun coremlcompiler compile "$HYBRID_SOURCE/CLIPImage.mlpackage" "$HYBRID_BUNDLE" >/dev/null
+  xcrun coremlcompiler compile "$HYBRID_SOURCE/HSEmotion.mlpackage" "$HYBRID_BUNDLE" >/dev/null
+  cp "$ROOT/Resources/Hybrid/emotion_prompts.json" "$HYBRID_BUNDLE/emotion_prompts.json"
+  log "Hybrid matcher models: $(du -sh "$HYBRID_BUNDLE" | cut -f1)"
 fi
 
 # 3. Version and update feed. The app compares builds by CFBundleVersion only.

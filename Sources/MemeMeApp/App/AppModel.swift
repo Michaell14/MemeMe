@@ -291,6 +291,8 @@ private struct DescribedPhrase {
     /// What the camera reads in the face being held while the mirror is big ("Brows up", 0...5), strongest first;
     /// empty otherwise.
     @Published private(set) var faceReading: [HeldFaceReading.Cue] = []
+    /// The mirror's glow while a face is read: from the face's parts, also when the meters show the emotion model's words.
+    @Published private var readingGlow: [FaceRegion: Double] = [:]
     /// The app the panel was opened over ("Messages"), for the Recent row's title.
     @Published private(set) var previousAppName: String?
 
@@ -301,6 +303,8 @@ private struct DescribedPhrase {
     let web: WebDiscover
     let templates: MemeTemplates
     let friends: FriendService
+    /// The hybrid matcher's meme index (CLIP B/32 + emotion), built on the Mac in the background.
+    let hybridIndexer: HybridIndexer
     /// Update checks and the one-click install; disabled when the bundle has no feed URL (local builds, tests).
     let updates: UpdateChecker
     /// Names a clear gesture with no word of its own (`PoseDescription`) with the on-device model, where the Mac has
@@ -406,6 +410,15 @@ private struct DescribedPhrase {
     private var cameraAccessTask: Task<Void, Never>?
     private var saveTask: Task<Void, Never>?
     private var indexerObservation: AnyCancellable?
+    /// The hybrid matcher's models once loaded (`start`); nil with the classic matcher or without models in the bundle.
+    private var hybridModels: HybridModels?
+    /// The held face's hybrid query (CLIP of the frame and of the face crop), kept for its sample's timestamp.
+    private var hybridQuery: (timestamp: TimeInterval, query: HybridQuery)?
+    /// Computes `hybridQuery` for the held face (two CLIP passes, off the main actor).
+    private var hybridTask: Task<Void, Never>?
+    private var hybridTaskTimestamp: TimeInterval?
+    /// The classic memes row follows the held face's hybrid ranking while one is set (else the mood table).
+    private var templateHybridQuery: HybridQuery?
     private var updatesObservation: AnyCancellable?
 
     private var limit: Int { Theme.resultLimit }
@@ -437,6 +450,7 @@ private struct DescribedPhrase {
             cacheRoot: webCacheRoot.map { $0.deletingLastPathComponent().appendingPathComponent("Templates", isDirectory: true) }
         )
         self.friends = FriendService(store: store)
+        self.hybridIndexer = HybridIndexer(rootURL: store.rootURL)
         self.updates = UpdateChecker(bundle: .main)
         self.tracker = PeakHoldTracker(baseline: store.settings.baseline)
         // Earlier versions kept sent GIPHY picks in the library; GIPHY's media is no longer kept. A kept image or
@@ -487,6 +501,57 @@ private struct DescribedPhrase {
         startCleanup()
         updates.start()
         refreshFooter()
+        applyMatchingModelDefault()
+        loadHybridModels()
+    }
+
+    /// Whether held faces are ranked by the hybrid matcher: the setting says so and its models loaded.
+    var usesHybridMatcher: Bool {
+        store.settings.matchingModel == .hybrid && hybridModels != nil
+    }
+
+    /// `defaults write com.mememe.app MatchingModel classic|hybrid` switches the matcher (read at launch).
+    static let matchingModelDefaultsKey = "MatchingModel"
+
+    private func applyMatchingModelDefault() {
+        guard let raw = UserDefaults.standard.string(forKey: AppModel.matchingModelDefaultsKey),
+              let model = MatchingModel(rawValue: raw.lowercased()), model != store.settings.matchingModel else { return }
+        var settings = store.settings
+        settings.matchingModel = model
+        store.settings = settings
+        saveSoon()
+    }
+
+    /// Loads the Core ML models and the index off the main actor, then turns on the camera's emotion reading and the
+    /// background indexing. The classic matcher (or no models in the bundle) leaves everything as before.
+    private func loadHybridModels() {
+        guard store.settings.matchingModel == .hybrid, hybridModels == nil else { return }
+        let indexURL = store.rootURL.appendingPathComponent(HybridIndex.fileName, isDirectory: false)
+        Task { [weak self] in
+            let loaded = await Task.detached(priority: .utility) { () -> (HybridModels, HybridIndex)? in
+                guard let models = HybridModels.shared else { return nil }
+                models.warmUp()
+                return (models, HybridIndex.load(from: indexURL))
+            }.value
+            guard let self, let loaded else { return }
+            let (models, index) = loaded
+            self.hybridModels = models
+            self.camera.setHybridModels(models)
+            self.hybridIndexer.activate(models: models, index: index)
+            self.syncHybridIndex()
+        }
+    }
+
+    /// Queues the library's and the classic memes' new or changed images for the hybrid index.
+    private func syncHybridIndex() {
+        guard hybridModels != nil else { return }
+        hybridIndexer.sync(items: store.items)
+        if let list = templates.cachedList {
+            let templates = self.templates
+            hybridIndexer.sync(templates: list) { template in
+                await templates.imageData(for: template)
+            }
+        }
     }
 
     /// Every 10 minutes while the app runs: GIPHY copies, drag copies and clipboard copies older than an hour go,
@@ -524,6 +589,7 @@ private struct DescribedPhrase {
         HUDController.shared.dismiss()
         // A kept image or sticker deleted in Finder while the panel was closed doesn't come back as a tile.
         indexer.removeItemsWithMissingFiles()
+        syncHybridIndex()
         sessionID += 1
         let ownBundleID = Bundle.main.bundleIdentifier
         if let bundleID = previousApp?.bundleIdentifier, bundleID != ownBundleID {
@@ -717,7 +783,7 @@ private struct DescribedPhrase {
     /// The mirror's glow: what counts in the face search showing, else what is read in the face being held.
     var mirrorWeights: [FaceRegion: Double] {
         if !shownWeights.isEmpty { return shownWeights }
-        return isReadingFace ? HeldFaceReading.glow(of: faceReading) : [:]
+        return isReadingFace ? readingGlow : [:]
     }
 
     /// What the search field says while empty: it always invites typing.
@@ -750,12 +816,22 @@ private struct DescribedPhrase {
     }
 
     /// The live face's cues while it is held toward the first search (`isReadingFace`).
+    /// With the hybrid matcher the meters show the emotion model's words ("Happy ▮▮▮▮▯"), unless a pose or a face
+    /// detail is clear (then the rules decide, and the meters show the face's parts as before).
     private func updateFaceReading(with sample: ExpressionSample) {
         var cues: [HeldFaceReading.Cue] = []
+        var glow: [FaceRegion: Double] = [:]
         if isReadingFace, let face = sample.face {
-            cues = HeldFaceReading.cues(face: face, shape: sample.shape, baseline: tracker.baseline)
+            let parts = HeldFaceReading.cues(face: face, shape: sample.shape, baseline: tracker.baseline)
+            glow = HeldFaceReading.glow(of: parts)
+            if usesHybridMatcher, HybridRouting.usesHybrid(sample, baseline: tracker.baseline), let emotion = sample.emotion {
+                cues = HeldFaceReading.emotionCues(emotion)
+            } else {
+                cues = parts
+            }
         }
         if faceReading != cues { faceReading = cues }
+        if readingGlow != glow { readingGlow = glow }
     }
 
     // MARK: - Saved
@@ -1196,6 +1272,7 @@ private struct DescribedPhrase {
         saveTask?.cancel()
         saveTask = nil
         persistBaseline()
+        hybridIndexer.saveNow()
         guard store.isDirty else { return }
         do {
             try store.save()
@@ -1311,6 +1388,7 @@ private struct DescribedPhrase {
         Task { [weak self] in
             guard let self else { return }
             let made = try? await self.friends.makeOwnSticker(fromCapture: url)
+            self.syncHybridIndex()
             if let made {
                 // Reopened meanwhile: the notice would cover the panel, and the sticker is in the library.
                 guard !self.isPanelVisible else { return }
@@ -1355,7 +1433,7 @@ private struct DescribedPhrase {
         // and its face's mood would spend one of GIPHY's searches on GIFs never shown.
         let candidateMood = tracker.candidate.flatMap { candidate -> Mood? in
             if case .pose? = PoseBadge.of(candidate, baseline: tracker.baseline) { return nil }
-            return MoodClassifier.mood(for: candidate.face, pose: candidate.pose, shape: candidate.shape, baseline: tracker.baseline)
+            return HybridRouting.mood(for: candidate, baseline: tracker.baseline, hybrid: usesHybridMatcher)
         }
         if let mood = earlyMood.observe(candidateMood, at: sample.timestamp) {
             web.warm(mood)
@@ -1537,13 +1615,20 @@ private struct DescribedPhrase {
     /// (`describedPhrase`) and never asks again.
     private func runExpressionSearch(animate: Bool, newQuery: Bool = false, settled: Bool = true) {
         let edit = faceEdit
-        guard let sample = edit?.sample ?? tracker.query else {
+        // The hybrid matcher ranks a held face unless a pose or a face detail is clear, or the face was edited (the
+        // editor's seven numbers and per-part weights are the classic ranker's query, not a picture).
+        let hybridSample = (usesHybridMatcher && edit?.isEdited != true)
+            ? tracker.query.flatMap { HybridRouting.usesHybrid($0, baseline: tracker.baseline) ? $0 : nil }
+            : nil
+        if hybridSample == nil { cancelHybridQuery() }
+        guard let sample = hybridSample ?? edit?.sample ?? tracker.query else {
             showRecentResults()
             return
         }
         resultSource = .expression
         let previousWord = searchReadout?.word
-        let mood = edit?.mood(baseline: tracker.baseline)
+        let mood = hybridSample.flatMap { HSEmotionClass.top(of: $0.emotion ?? [])?.mood }
+            ?? edit?.mood(baseline: tracker.baseline)
             ?? MoodClassifier.mood(for: sample.face, pose: sample.pose, shape: sample.shape, baseline: tracker.baseline)
         let badge = PoseBadge.of(sample, baseline: tracker.baseline)
         if heldPose != badge { heldPose = badge }
@@ -1582,6 +1667,16 @@ private struct DescribedPhrase {
             ? [:]
             : (edit?.weightValues ?? [.brows: weights.brows, .eyes: weights.eyes, .mouth: weights.mouth])
         if shownWeights != shown { shownWeights = shown }
+        if let hybridSample {
+            // The word (and GIPHY, searched by it) is known now; your memes and the classic memes follow the CLIP
+            // passes on the held frame (cached for this face, so tab switches re-rank at once).
+            if settled {
+                showGiphy(for: .mood(mood), turningPage: newQuery)
+            }
+            runHybridSearch(hybridSample, mood: mood, weights: weights, animate: animate, newQuery: newQuery, settled: settled)
+            return
+        }
+        templateHybridQuery = nil
         searchGeneration += 1
 
         let ranker = Ranker(baseline: tracker.baseline)
@@ -1613,6 +1708,126 @@ private struct DescribedPhrase {
         if describeTask == nil {
             describe(description, of: sample, mood: mood, animate: animate, newQuery: newQuery)
         }
+    }
+
+    // MARK: - Hybrid matcher
+
+    /// Ranks the held face with the hybrid matcher: at once when its query is known, else once the CLIP passes on its
+    /// frame are done. A frame no longer kept (or a model error) falls back to the classic ranker for this face.
+    private func runHybridSearch(_ sample: ExpressionSample, mood: Mood, weights: FeatureWeights, animate: Bool,
+                                 newQuery: Bool, settled: Bool) {
+        if let cached = hybridQuery, cached.timestamp == sample.timestamp {
+            showHybridResults(cached.query, mood: mood, animate: animate, newQuery: newQuery, settled: settled)
+            return
+        }
+        guard hybridTaskTimestamp != sample.timestamp, let models = hybridModels else { return }
+        cancelHybridQuery()
+        hybridTaskTimestamp = sample.timestamp
+        let session = sessionID
+        let camera = self.camera
+        hybridTask = Task { [weak self] in
+            let held = await camera.heldFrame(at: sample.timestamp)
+            let query: HybridQuery? = await Task.detached(priority: .userInitiated) { () -> HybridQuery? in
+                guard let held else { return nil }
+                return try? HybridAnalyzer.query(frame: held.frame, faceCrop: held.faceCrop,
+                                                 emotion: held.emotion ?? sample.emotion, models: models)
+            }.value
+            guard let self, !Task.isCancelled, session == self.sessionID else { return }
+            self.hybridTask = nil
+            self.hybridTaskTimestamp = nil
+            guard self.isPanelVisible, self.resultSource == .expression, self.tracker.query?.timestamp == sample.timestamp,
+                  self.faceEdit?.isEdited != true else { return }
+            if let query {
+                self.hybridQuery = (sample.timestamp, query)
+                self.showHybridResults(query, mood: mood, animate: animate, newQuery: newQuery, settled: true)
+            } else {
+                modelLog.error("The held frame couldn't be searched with the hybrid matcher; using the classic ranker")
+                self.templateHybridQuery = nil
+                self.searchGeneration += 1
+                let ranked = Ranker(baseline: self.tracker.baseline).rank(
+                    self.tabItems, query: .expression(sample, weights: weights), people: self.store.people,
+                    limit: self.limit, capsFriends: self.tab != .stickers)
+                self.setResults(ranked, animateNew: animate, resetFocus: true)
+                self.showTemplates(for: .mood(mood), turningPage: newQuery)
+            }
+            self.refreshHint()
+        }
+    }
+
+    private func showHybridResults(_ query: HybridQuery, mood: Mood, animate: Bool, newQuery: Bool, settled: Bool) {
+        searchGeneration += 1
+        setResults(hybridRanked(tabItems, query: query), animateNew: animate, resetFocus: true)
+        guard settled else { return }
+        showTemplates(for: .mood(mood), turningPage: newQuery, hybrid: query)
+    }
+
+    private func cancelHybridQuery() {
+        hybridTask?.cancel()
+        hybridTask = nil
+        hybridTaskTimestamp = nil
+    }
+
+    /// Your memes for a held face: meme-tier items with an index entry by `HybridMatcher.score` (best first, at most
+    /// 2 friend stickers outside the Stickers tab, as the classic ranker keeps them); items not indexed yet (just
+    /// added) follow, ranked by the classic ranker, so nothing waits for the index. The two scores are never mixed.
+    private func hybridRanked(_ items: [LibraryItem], query: HybridQuery) -> [RankedResult] {
+        var scored: [(item: LibraryItem, score: Double)] = []
+        var notIndexed: [LibraryItem] = []
+        for item in items where item.tier == .meme {
+            if let entry = hybridIndexer.entry(for: item) {
+                scored.append((item, HybridMatcher.score(query: query, entry: entry)))
+            } else {
+                notIndexed.append(item)
+            }
+        }
+        scored.sort { $0.score > $1.score }
+        let capsFriends = tab != .stickers
+        var results: [RankedResult] = []
+        var friends = 0
+        for (item, score) in scored {
+            if capsFriends && item.kind == .friend {
+                guard friends < 2 else { continue }
+                friends += 1
+            }
+            results.append(RankedResult(item: item, score: score))
+            if results.count == limit { return results }
+        }
+        if !notIndexed.isEmpty, let sample = tracker.query {
+            results += Ranker(baseline: tracker.baseline).rank(
+                notIndexed, query: .expression(sample, weights: currentWeights), people: store.people,
+                limit: limit - results.count, capsFriends: capsFriends)
+        }
+        return results
+    }
+
+    /// The classic memes in the hybrid's order for the held face: templates with an index entry by score, then the
+    /// rest as the mood table orders them; pages of `templatePickSize`, wrapping around.
+    private func hybridTemplates(_ list: [MemeTemplate], query: HybridQuery, mood: Mood, page: Int) -> [MemeTemplate] {
+        var scored: [(index: Int, score: Double)] = []
+        var ranked = Set<Int>()
+        for (i, template) in list.enumerated() {
+            if let entry = hybridIndexer.entry(for: template) {
+                scored.append((i, HybridMatcher.score(query: query, entry: entry)))
+                ranked.insert(i)
+            }
+        }
+        scored.sort { $0.score != $1.score ? $0.score > $1.score : $0.index < $1.index }
+        var order = scored.map(\.index)
+        let byMood = MemeTemplateCatalog.pick(for: mood, from: list.map(\.ref), limit: list.count, page: 0)
+        order += byMood.filter { !ranked.contains($0) }
+        order += list.indices.filter { !ranked.contains($0) && !byMood.contains($0) }
+        guard !order.isEmpty else { return [] }
+        let size = min(AppModel.templatePickSize, order.count)
+        let start = (max(0, page) * AppModel.templatePickSize) % order.count
+        return (0..<size).map { list[order[(start + $0) % order.count]] }
+    }
+
+    /// The templates the row shows for `query`: the hybrid's order for a held face, else `pickTemplates`.
+    private func templatePicks(for query: WebQuery, from list: [MemeTemplate], page: Int, fallback: Mood) -> [MemeTemplate] {
+        if let hybrid = templateHybridQuery, case let .mood(mood) = query {
+            return hybridTemplates(list, query: hybrid, mood: mood, page: page)
+        }
+        return AppModel.pickTemplates(for: query, from: list, page: page, fallback: fallback)
     }
 
     /// The words the held pose is searched by now, and whether its web rows wait for the model: the words kept for
@@ -1835,21 +2050,25 @@ private struct DescribedPhrase {
     /// mood's (or the words') next templates. `fallback`: the face's mood, whose templates follow those a described
     /// pose's words name (`pickTemplates`); the same words with another face's mood are another order, shown from its
     /// first page.
-    private func showTemplates(for query: WebQuery, turningPage: Bool = false, fallback: Mood = .reaction) {
+    private func showTemplates(for query: WebQuery, turningPage: Bool = false, fallback: Mood = .reaction,
+                               hybrid: HybridQuery? = nil) {
         guard showsTemplateRow else { return }
-        let sameOrder: Bool
+        var sameOrder: Bool
         switch query {
         case .described: sameOrder = fallback == templateFallback
         case .mood, .words: sameOrder = true
         }
+        // The hybrid's order and the mood table's are different orders, even for the same word.
+        sameOrder = sameOrder && (hybrid == nil) == (templateHybridQuery == nil)
         if query == templateQuery && sameOrder && (isTemplatesLoading || !templateResults.isEmpty) {
             if turningPage, !isTemplatesLoading, !query.isTyped, let list = templates.cachedList {
                 templatePage += 1
-                setTemplateResults(AppModel.pickTemplates(for: query, from: list, page: templatePage,
-                                                          fallback: templateFallback))
+                templateHybridQuery = hybrid
+                setTemplateResults(templatePicks(for: query, from: list, page: templatePage, fallback: templateFallback))
             }
             return
         }
+        templateHybridQuery = hybrid
         templateGeneration += 1
         let generation = templateGeneration
         templateTask?.cancel()
@@ -1860,7 +2079,7 @@ private struct DescribedPhrase {
         if templatesUnavailable { templatesUnavailable = false }
         if let list = templates.cachedList {
             if isTemplatesLoading { isTemplatesLoading = false }
-            setTemplateResults(AppModel.pickTemplates(for: query, from: list, page: templatePage, fallback: fallback))
+            setTemplateResults(templatePicks(for: query, from: list, page: templatePage, fallback: fallback))
         } else {
             setTemplateResults([])
             isTemplatesLoading = true
@@ -1876,8 +2095,10 @@ private struct DescribedPhrase {
                 if self.templateResults.isEmpty { self.templatesUnavailable = true }
                 return
             }
-            self.setTemplateResults(AppModel.pickTemplates(for: query, from: list, page: self.templatePage,
-                                                           fallback: fallback))
+            // A new or changed list: its templates are embedded for the hybrid matcher in the background.
+            self.syncHybridIndex()
+            self.setTemplateResults(self.templatePicks(for: query, from: list, page: self.templatePage,
+                                                       fallback: fallback))
         }
     }
 
@@ -1915,6 +2136,7 @@ private struct DescribedPhrase {
         templateTask = nil
         templatePage = 0
         templateFallback = .reaction
+        templateHybridQuery = nil
         if !templateResults.isEmpty { templateResults = [] }
         if templateQuery != nil { templateQuery = nil }
         if isTemplatesLoading { isTemplatesLoading = false }
@@ -2564,6 +2786,7 @@ private struct DescribedPhrase {
 
     private func libraryDidChange() {
         refreshFooter()
+        syncHybridIndex()
         guard isPanelVisible else { return }
         let showsRemovedItem = results.contains { store.item(id: $0.item.id) == nil }
         if resultSource == .recent {
@@ -2690,6 +2913,8 @@ private struct DescribedPhrase {
         searchReadout = nil
         cancelDescribing()
         describedPhrase = nil
+        cancelHybridQuery()
+        hybridQuery = nil
         clearGiphyRow()
         showsGiphyRow = store.settings.webDiscoverEnabled && web.hasAPIKey
         clearTemplateRow()

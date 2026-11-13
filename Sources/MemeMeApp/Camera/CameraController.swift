@@ -193,6 +193,29 @@ final class CameraController: NSObject, ObservableObject {
         }
     }
 
+    // MARK: - Hybrid matcher
+
+    /// With models, every analyzed frame with a face also gets HSEmotion on the face crop (`ExpressionSample.emotion`),
+    /// and the last frames are kept (`heldFrame(at:)`) for the held face's CLIP passes. nil turns both off.
+    func setHybridModels(_ models: HybridModels?) {
+        let processor = self.processor
+        frameQueue.async {
+            processor.hybrid = models
+            processor.clearHeldFrames()
+        }
+    }
+
+    /// The frame (and its face crop and emotion) of the sample with this timestamp, while it is among the last
+    /// `FrameProcessor.heldFrameWindow` seconds of frames with a face; nil otherwise. Frames never leave the Mac.
+    func heldFrame(at timestamp: TimeInterval) async -> HeldFrame? {
+        let processor = self.processor
+        return await withCheckedContinuation { continuation in
+            frameQueue.async {
+                continuation.resume(returning: processor.heldFrame(at: timestamp))
+            }
+        }
+    }
+
     // MARK: - Main-actor callbacks
 
     private func sessionRunningChanged(_ running: Bool) {
@@ -310,6 +333,14 @@ final class CameraController: NSObject, ObservableObject {
     }
 }
 
+/// A camera frame kept for the hybrid matcher's held-face search.
+struct HeldFrame: Sendable {
+    let timestamp: TimeInterval
+    let frame: RGBImage
+    let faceCrop: PixelRect?   // nil: no face box of 12 px or more; the whole frame stands for the face
+    let emotion: [Double]?
+}
+
 // MARK: - Frame processing
 
 /// Sample-buffer delegate that runs Vision on the video queue. All of its mutable state is
@@ -334,6 +365,48 @@ private final class FrameProcessor: NSObject, AVCaptureVideoDataOutputSampleBuff
     /// The body last read (on even frames) and the sign of its hands (read on odd frames while a wrist is in view).
     private var lastBody: BodyJoints?
     private var lastHand: HandShape?
+    /// The hybrid matcher's models (nil: off); set on the frame queue.
+    var hybrid: HybridModels?
+    /// Frames with a face from the last `heldFrameWindow` seconds, oldest first (about 640 × 480 × 3 bytes each).
+    private var heldFrames: [HeldFrame] = []
+    static let heldFrameWindow: TimeInterval = 1.5
+
+    func clearHeldFrames() {
+        heldFrames.removeAll()
+    }
+
+    func heldFrame(at timestamp: TimeInterval) -> HeldFrame? {
+        heldFrames.first { abs($0.timestamp - timestamp) < 0.001 }
+    }
+
+    /// HSEmotion on the face crop of this frame, and the frame kept for a held-face search.
+    private func readEmotion(_ pixelBuffer: CVPixelBuffer, faces: [VNFaceObservation], timestamp: TimeInterval,
+                             models: HybridModels) -> [Double]? {
+        guard let frame = FrameProcessor.rgbImage(of: pixelBuffer) else { return nil }
+        let crop = HybridAnalyzer.largestFaceCrop(faces, imageWidth: frame.width, imageHeight: frame.height)
+        let emotion: [Double]?
+        do {
+            emotion = try models.emotion(crop.map { frame.cropped(to: $0) } ?? frame)
+        } catch {
+            emotion = nil
+        }
+        heldFrames.removeAll { timestamp - $0.timestamp > FrameProcessor.heldFrameWindow }
+        heldFrames.append(HeldFrame(timestamp: timestamp, frame: frame, faceCrop: crop, emotion: emotion))
+        return emotion
+    }
+
+    /// The 32BGRA frame as RGB; nil for another format.
+    private static func rgbImage(of pixelBuffer: CVPixelBuffer) -> RGBImage? {
+        guard CVPixelBufferGetPixelFormatType(pixelBuffer) == kCVPixelFormatType_32BGRA,
+              CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly) == kCVReturnSuccess else { return nil }
+        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
+        guard let base = CVPixelBufferGetBaseAddress(pixelBuffer) else { return nil }
+        let width = CVPixelBufferGetWidth(pixelBuffer), height = CVPixelBufferGetHeight(pixelBuffer)
+        let bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer)
+        guard width > 0, height > 0 else { return nil }
+        let buffer = UnsafeRawBufferPointer(start: base, count: bytesPerRow * height)
+        return RGBImage(fourChannel: buffer, width: width, height: height, bytesPerRow: bytesPerRow, bgra: true)
+    }
 
     func reset() {
         lastFrameTime = nil
@@ -341,6 +414,7 @@ private final class FrameProcessor: NSObject, AVCaptureVideoDataOutputSampleBuff
         lastPose = nil
         lastBody = nil
         lastHand = nil
+        heldFrames.removeAll()
         renderer.reset()
     }
 
@@ -417,12 +491,21 @@ private final class FrameProcessor: NSObject, AVCaptureVideoDataOutputSampleBuff
             }
         }
 
+        let timestamp = CACurrentMediaTime()
+        // The hybrid matcher's live emotion reading (not in the capture view, whose camera doesn't search).
+        let emotion: [Double]?
+        if readsBody, features != nil, let models = hybrid {
+            emotion = readEmotion(pixelBuffer, faces: faces, timestamp: timestamp, models: models)
+        } else {
+            emotion = nil
+        }
         let sample = ExpressionSample(
             face: features,
             pose: lastPose,
             shape: shape,
-            timestamp: CACurrentMediaTime(),
-            sharpness: 1
+            timestamp: timestamp,
+            sharpness: 1,
+            emotion: emotion
         )
         let bodyWidth = readsBody ? lastBody?.widthInImage(aspect: Double(imageWidth) / Double(max(imageHeight, 1))) : nil
         let target = controller

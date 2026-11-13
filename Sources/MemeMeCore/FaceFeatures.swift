@@ -189,13 +189,17 @@ public struct ExpressionSample: Codable, Hashable, Sendable {
     public var shape: FaceShape?
     public var timestamp: TimeInterval   // seconds, monotonic (CACurrentMediaTime on the app side)
     public var sharpness: Double         // 0...1, 1 when unknown
+    /// The hybrid matcher's emotion model on the face crop: 8 probabilities in `HSEmotionClass` order; nil without a
+    /// face, or when the model isn't running (the classic matcher, no models in the bundle).
+    public var emotion: [Double]?
 
     public init(face: FaceFeatures?, pose: PoseFeatures? = nil, shape: FaceShape? = nil, timestamp: TimeInterval,
-                sharpness: Double = 1) {
+                sharpness: Double = 1, emotion: [Double]? = nil) {
         self.face = face
         self.pose = pose
         self.shape = shape
         self.timestamp = timestamp
         self.sharpness = sharpness
+        self.emotion = emotion
     }
 }

@@ -82,7 +82,8 @@ jobs:
             echo "No v* tag yet: first release"
             release=true
           elif git diff --quiet "$prev" HEAD -- Sources Resources Package.swift VERSION \
-              scripts/build-app.sh scripts/build-dmg.sh scripts/dmg-settings.py \
+              scripts/build-app.sh scripts/build-hybrid-models.sh scripts/hybrid \
+              scripts/build-dmg.sh scripts/dmg-settings.py \
               scripts/dmgbuild-requirements.txt; then
             echo "The app is unchanged since $prev: no release"
           else
@@ -168,8 +169,63 @@ jobs:
           chmod +x "$checker"
           "$checker" "$(swift build --show-bin-path)/MemeMe"
 
+      # The hybrid matcher's Core ML models, converted from the pinned weights (downloaded once, kept in the cache).
+      - name: Python for the hybrid models
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache the hybrid weights and tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/.hybrid-weights
+            build/.hybrid-venv
+          key: hybrid-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/hybrid/requirements.txt', 'scripts/hybrid/hybrid_common.py') }}
+
+      - name: Hybrid models
+        run: |
+          chmod +x scripts/build-hybrid-models.sh
+          PYTHON="$(command -v python3.12)" ./scripts/build-hybrid-models.sh build/HybridModels
+
       - name: Test
         run: swift test
+
+      # Parity with the benchmark's Python reference (bench.py's B/32 hybrid), expression match@5 of the hybrid and
+      # of the classic ranker on the benchmark, and speed on this runner. The images are downloaded, never committed.
+      - name: Hybrid parity and benchmark
+        env:
+          MEMEME_HYBRID_TEST_MODELS: ${{ github.workspace }}/build/HybridModels
+          MEMEME_BENCHMARK_DATA: ${{ github.workspace }}/build/benchmark-data
+          MEMEME_BENCHMARK_REFERENCE: ${{ github.workspace }}/build/benchmark-reference.json
+          MEMEME_BENCHMARK_OUT: ${{ github.workspace }}/build/hybrid-benchmark.json
+        run: |
+          py=build/.hybrid-venv/bin/python
+          "$py" -I scripts/hybrid/fetch_benchmark_data.py --out "$MEMEME_BENCHMARK_DATA"
+          "$py" -I scripts/hybrid/bench_reference.py --data "$MEMEME_BENCHMARK_DATA" \
+            --weights build/.hybrid-weights --out "$MEMEME_BENCHMARK_REFERENCE"
+          swift test --filter MemeMeAppTests.HybridBenchmarkTests 2>&1 | tee build/hybrid-benchmark.log
+          status=${PIPESTATUS[0]}
+          {
+            echo '### Hybrid matcher benchmark'
+            echo '```'
+            grep 'HYBRID-BENCH' build/hybrid-benchmark.log | grep -v 'report' || true
+            echo '```'
+            echo '```json'
+            cat "$MEMEME_BENCHMARK_OUT" 2>/dev/null || echo '{}'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      - name: Upload the hybrid benchmark
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hybrid-benchmark
+          path: |
+            build/hybrid-benchmark.json
+            build/hybrid-benchmark.log
+          if-no-files-found: ignore
 
       # A temporary keychain that holds only the Developer ID identity; deleted by "Clean up keychain".
       - name: Import Developer ID certificate
@@ -272,6 +328,8 @@ jobs:
           APP_BUILD: ${{ steps.version.outputs.build }}
           UPDATE_FEED_URL: https://github.com/${{ github.repository }}/releases/latest/download/latest.json
           RELEASE: ${{ steps.decide.outputs.release }}
+          HYBRID_MODELS_DIR: ${{ github.workspace }}/build/HybridModels
+          REQUIRE_HYBRID_MODELS: "1"
         run: |
           if [[ "$RELEASE" == "true" && -z "${CODESIGN_IDENTITY:-}" ]]; then
             echo "::error::Release builds must be signed with the Developer ID, but CODESIGN_IDENTITY is not set"

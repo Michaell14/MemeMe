@@ -216,6 +216,11 @@ struct MemeTemplate: Codable, Hashable, Sendable {
     }
 
     /// Starts downloading a template so copying it is instant.
+    /// The template's image file as Imgflip serves it (through the HTTP cache), for the hybrid matcher's index.
+    func imageData(for template: MemeTemplate) async -> Data? {
+        await fullData(from: template.url, priority: .utility).value
+    }
+
     func prefetchForCopy(_ template: MemeTemplate) {
         guard !FileManager.default.fileExists(atPath: copyFile(for: template).path) else { return }
         _ = fullData(from: template.url, priority: .utility)
