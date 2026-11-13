@@ -623,6 +623,45 @@ Scoring (binding):
 - **moreLike(L)**: exclude `L.id`; `score = 0.6·fp + 0.3·fs + 0.1·(1 - |item.intensity - L.intensity|)` (fp/fs as above, comparing to L).
 - **recent(app)**: items whose ids appear in `recents` (in that order, meme or maybe tier), then fill up to `limit` with own meme-tier items by `lastSentAt` desc, then `addedAt` desc. Score 1.
 
+### HybridMatcher.swift, HybridIndex.swift, HybridImage.swift
+
+The benchmarked hybrid matcher (README "How matching works"; reference: `scripts/hybrid/bench_reference.py`, bench.py's B/32 rows).
+
+```swift
+public enum HybridMatcher {
+    public static let expressionWeight = 0.2, zeroShotScale = 100.0, embeddingSize = 512
+    public static func probSim(_ a: [Double], _ b: [Double]) -> Double     // 1 − ½ Σ|a − b|; 0 when sizes differ
+    public static func visual(_ q: [Float], _ m: [Float]) -> Double         // (q·m + 1) / 2
+    public static func expression(query: HybridQuery, entry: HybridIndexEntry) -> Double   // emo if entry.hasFace, else zs
+    public static func score(query:entry:weight: = expressionWeight) -> Double             // (1 − w)·visual + w·expression
+    public static func rank(_:query:) -> [(entry, score)]                   // best first, ties in the order given
+    public static func softmax(_:), l2Normalized(_:), zeroShot(embedding:prompts:)        // softmax(scale · e · Tᵀ)
+}
+public struct HybridQuery { full: [Float]; emotion: [Double] /* 8 */; zeroShot: [Double] /* 7 */ }
+public enum HSEmotionClass: Int { anger, contempt, disgust, fear, happiness, neutral, sadness, surprise; var mood: Mood }
+    // surprise .shocked, happiness .happy, anger .angry, sadness .sad, disgust .disgusted, fear .scared, neutral/contempt .unimpressed
+public struct EmotionPrompts: Codable { classes; prompts; scale; embeddings: [[Float]] /* 7 × 512 */; static func load(from:) }
+public enum HybridRouting {
+    static func usesHybrid(_ sample:, baseline:) -> Bool    // a face with 8 emotion numbers, no PoseBadge, no clear FaceCues cue
+    static func mood(for:baseline:hybrid:) -> Mood           // HSEmotion's top class when usesHybrid, else MoodClassifier
+}
+public enum MatchingModel: String { case hybrid, classic }  // AppSettings.matchingModel (default .hybrid, lenient)
+public struct HybridIndexEntry: Codable { key; contentHash; clipFull: [Float] /* FloatCoding */; hasFace; emo: [Double]?; zs }
+public struct HybridIndex: Codable {                         // hybrid-index.json beside library.json
+    static let currentModelRevision, fileName; var modelRevision; entries by key (item id, or "imgflip:<id>")
+    static func load(from:) -> HybridIndex                   // empty when missing, damaged or another revision
+    func save(to:) throws; mutating func upsert(_:), remove(_:), retain(keys:where:); func needsIndexing(key:contentHash:)
+}
+public struct RGBImage { width, height, pixels /* RGB8 */; cropped(to:); resizedBicubic(width:height:) /* Pillow's, to the byte */ }
+public enum HybridPreprocess {
+    static func clipInput(_:) -> [Float]       // short side → 224 (torchvision truncates the long side), center crop, CLIP mean/std, CHW
+    static func emotionInput(_:) -> [Float]    // straight to 224 × 224, ImageNet mean/std, CHW
+    static func faceCrop(x1:y1:x2:y2:imageWidth:imageHeight:) -> PixelRect?   // bench.py: ≥ 12 px, + 15 % of the larger side, clipped, rounded half to even
+    static func faceCrop(visionBox:y:width:height:imageWidth:imageHeight:) -> PixelRect?
+}
+```
+`ExpressionSample.emotion: [Double]?` carries a frame's HSEmotion reading; `HeldFaceReading.emotionCues(_:)` makes the meters from it. `Mood` gained `.disgusted` and `.scared`.
+
 ### TileRows.swift
 
 ```swift
@@ -949,6 +988,14 @@ enum ImageAnalyzer {
 }
 ```
 Requests per frame: `VNDetectFaceLandmarksRequest` (the largest face's features, and its `FaceShape` with the frame drawn by `RGBAPixels` when it has a face), `VNDetectHumanBodyPoseRequest` (the body whose head is in the largest face's box), `VNDetectHumanHandPoseRequest` (up to 4 hands, only when a wrist was seen); no pose for frames under 128 px on the short side. The pose kept is that of the frame with the clearest gesture when it is ≥ 0.3 and clearer than the chosen frame's; per image once: `VNGenerateImageFeaturePrintRequest`, `VNClassifyImageRequest` (top labels with confidence ≥ 0.3, at most 8), `VNRecognizeTextRequest` (`.fast`, no language correction, joined, ≤ 200 chars) when `includeText`. Intensity uses `RestingBaseline()` (population neutral).
+
+### Vision/HybridModels.swift, Library/HybridIndexer.swift
+
+- `HybridModels` (`@unchecked Sendable`, predictions locked per model): `CLIPImage` and `HSEmotion` (.mlmodelc in Contents/Resources/Hybrid, or .mlpackage / .mlmodelc in `$MEMEME_HYBRID_MODELS`) and `emotion_prompts.json`; `shared` (nil without models), `clipEmbedding(_ RGBImage) -> [Float]` (normalized), `emotion(_ RGBImage) -> [Double]` (softmax), `zeroShot(_:)`, `warmUp()`.
+- `HybridAnalyzer`: `rgbImage(from: CGImage)` (sRGB, alpha dropped), `largestFaceCrop(in:)` (`VNDetectFaceRectanglesRequest`) / `largestFaceCrop(_ faces:imageWidth:imageHeight:)`, `firstFrame(of:)` (frame 0, EXIF-oriented, ≤ 4096 px), `entry(for:…)`, `query(frame:faceCrop:emotion:models:)` (CLIP of the frame and of the crop).
+- `CameraController.setHybridModels(_:)`: each analyzed frame with a face gets HSEmotion on the largest face's crop (the landmarks request's boxes) as `sample.emotion`, and the last 1.5 s of such frames are kept for `heldFrame(at: timestamp) async -> HeldFrame?`.
+- `HybridIndexer` (`@MainActor`): `activate(models:index:)`, `sync(items:)` (kinds other than .web, tiers other than .skipped; newest first), `sync(templates:download:)`, `entry(for: LibraryItem / MemeTemplate)` (nil when the content hash differs), `saveNow()`. One item at a time at utility priority, waiting while `shouldDeferBackgroundWork`; saved at most every 10 s and at the end.
+- `AppModel`: `start` loads the models and index off the main actor (only with `matchingModel == .hybrid`; `defaults MatchingModel` overrides the setting at launch). `runExpressionSearch` takes the hybrid path when `HybridRouting.usesHybrid(tracker.query)` and the editor has no edits: the word and GIPHY at once, then (after the CLIP passes, cached per query timestamp) your memes by `HybridMatcher.score` (meme tier, at most 2 friend stickers outside Stickers, items not yet indexed after them by `Ranker`), and the classic memes in the hybrid's order (then the mood table's), paged as before. Otherwise everything is as before. Index syncs: start, panel open, library changes, Save as sticker, a new Imgflip list.
 
 ### Vision/ThumbnailCache.swift
 
