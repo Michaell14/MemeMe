@@ -642,10 +642,12 @@ public enum HSEmotionClass: Int { anger, contempt, disgust, fear, happiness, neu
     // surprise .shocked, happiness .happy, anger .angry, sadness .sad, disgust .disgusted, fear .scared, neutral/contempt .unimpressed
 public struct EmotionPrompts: Codable { classes; prompts; scale; embeddings: [[Float]] /* 7 × 512 */; static func load(from:) }
 public enum HybridRouting {
-    static let routedCues: Set<FaceCues.Cue>                  // tongueOut, wink, pucker, eyeRoll: the hybrid can't see them
+    static let unrepresentableCues: Set<FaceCues.Cue>         // tongueOut, wink, pucker, eyeRoll: the hybrid can't see them
+    static let routedCues: Set<FaceCues.Cue>                  // [] : only a clear pose routes (held details cost 3.2 points)
     static let cueHoldDuration: TimeInterval                  // PeakHoldConfig().holdDuration (0.3 s)
-    static func usesHybrid(_ sample:, baseline:, cueHeld: Bool = true) -> Bool   // a face with 8 emotion numbers, no PoseBadge,
-                                                              // and not a clear routed cue that was held
+    static func usesHybrid(_ sample:, baseline:, cueHeld: Bool = true, routing: = routedCues) -> Bool
+                                                              // a face with 8 emotion numbers, no PoseBadge, and not a clear
+                                                              // routed cue that was held
     static func mood(for:baseline:hybrid:cueHeld:) -> Mood    // a clear pose's or cue's word (MoodClassifier) whatever ranks;
                                                               // else HSEmotion's top class when usesHybrid
 }

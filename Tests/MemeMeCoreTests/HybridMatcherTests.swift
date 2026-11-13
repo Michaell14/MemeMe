@@ -125,20 +125,23 @@ final class HybridMatcherTests: XCTestCase {
         // No emotion reading (the models aren't there) or no face: the rules.
         XCTAssertFalse(HybridRouting.usesHybrid(ExpressionSample(face: face, timestamp: 1), baseline: baseline))
         XCTAssertFalse(HybridRouting.usesHybrid(ExpressionSample(face: nil, timestamp: 1, emotion: emotion), baseline: baseline))
-        // A held tongue out (the hybrid can't see it) keeps the rule ranker; a single frame of it doesn't. Its word
-        // shows either way.
+        // By default a face detail never routes (only a clear pose does); its word shows either way.
         let tongue = ExpressionSample(face: face, shape: FaceShape(tongue: 0.9), timestamp: 1, emotion: emotion)
         XCTAssertEqual(baseline.cues(of: tongue.shape).clearCue, .tongueOut)
-        XCTAssertFalse(HybridRouting.usesHybrid(tongue, baseline: baseline, cueHeld: true))
-        XCTAssertTrue(HybridRouting.usesHybrid(tongue, baseline: baseline, cueHeld: false))
+        XCTAssertTrue(HybridRouting.routedCues.isEmpty)
+        XCTAssertTrue(HybridRouting.usesHybrid(tongue, baseline: baseline, cueHeld: true))
+        // Routing the details the hybrid can't represent: held, the rule ranker; a single frame, the hybrid.
+        let routed = HybridRouting.unrepresentableCues
+        XCTAssertFalse(HybridRouting.usesHybrid(tongue, baseline: baseline, cueHeld: true, routing: routed))
+        XCTAssertTrue(HybridRouting.usesHybrid(tongue, baseline: baseline, cueHeld: false, routing: routed))
         XCTAssertEqual(HybridRouting.mood(for: tongue, baseline: baseline, hybrid: true, cueHeld: true), .tongueOut)
         XCTAssertEqual(HybridRouting.mood(for: tongue, baseline: baseline, hybrid: true, cueHeld: false), .tongueOut)
         // A smirk always goes to the hybrid, and the field still says "smirk".
         let smirk = ExpressionSample(face: face, shape: FaceShape(cornerTilt: 0.3), timestamp: 1, emotion: emotion)
         XCTAssertEqual(baseline.cues(of: smirk.shape).clearCue, .smirk)
-        XCTAssertTrue(HybridRouting.usesHybrid(smirk, baseline: baseline, cueHeld: true))
+        XCTAssertTrue(HybridRouting.usesHybrid(smirk, baseline: baseline, cueHeld: true, routing: routed))
         XCTAssertEqual(HybridRouting.mood(for: smirk, baseline: baseline, hybrid: true), .smirk)
-        XCTAssertEqual(HybridRouting.routedCues, [.tongueOut, .wink, .pucker, .eyeRoll])
+        XCTAssertEqual(routed, [.tongueOut, .wink, .pucker, .eyeRoll])
     }
 
     func testCueHistoryTellsAHeldDetailFromOneFrame() {

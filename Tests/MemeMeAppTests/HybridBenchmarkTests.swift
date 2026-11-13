@@ -219,8 +219,8 @@ final class HybridBenchmarkTests: XCTestCase {
 
     private enum Route: String, CaseIterable {
         case hybridOnly = "hybrid only"
-        case poseOnly = "hybrid unless a clear pose"
-        case heldDetails = "hybrid unless a clear pose or tongue out / wink / duck face / eye roll (the app)"
+        case poseOnly = "hybrid unless a clear pose (the app)"
+        case heldDetails = "hybrid unless a clear pose or tongue out / wink / duck face / eye roll"
         case anyDetail = "hybrid unless a clear pose or any clear face detail (before)"
     }
 
@@ -337,8 +337,10 @@ final class HybridBenchmarkTests: XCTestCase {
                 let classicRoute: Bool
                 switch route {
                 case .hybridOnly: classicRoute = false
-                case .poseOnly: classicRoute = pose
-                case .heldDetails: classicRoute = !HybridRouting.usesHybrid(sample, baseline: baseline, cueHeld: true)
+                case .poseOnly: classicRoute = !HybridRouting.usesHybrid(sample, baseline: baseline, cueHeld: true)
+                case .heldDetails:
+                    classicRoute = !HybridRouting.usesHybrid(sample, baseline: baseline, cueHeld: true,
+                                                             routing: HybridRouting.unrepresentableCues)
                 case .anyDetail: classicRoute = pose || cue != nil
                 }
                 if sample.emotion == nil || classicRoute {

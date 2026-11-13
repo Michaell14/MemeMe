@@ -157,20 +157,25 @@ public struct EmotionPrompts: Codable, Equatable, Sendable {
 
 /// When the hybrid matcher decides a held face's search, and which word it shows.
 public enum HybridRouting {
-    /// Face details the hybrid can't represent (CLIP and the emotion model don't see them): held for
-    /// `cueHoldDuration`, they keep the rule-based ranker. A smirk and one raised brow always go to the hybrid.
-    public static let routedCues: Set<FaceCues.Cue> = [.tongueOut, .wink, .pucker, .eyeRoll]
+    /// Face details CLIP and the emotion model can't represent.
+    public static let unrepresentableCues: Set<FaceCues.Cue> = [.tongueOut, .wink, .pucker, .eyeRoll]
+    /// The face details that, held for `cueHoldDuration`, keep the rule-based ranker: none. On the benchmark, routing
+    /// the held `unrepresentableCues` cost 3.2 points of match@5 (30.4 % against 33.6 % for poses only: 25 of 113 still
+    /// photos read as an eye roll), so only a clear pose routes. Set it to `unrepresentableCues` to route them again.
+    /// A clear detail's word shows in the field either way; a smirk and one raised brow always go to the hybrid.
+    public static let routedCues: Set<FaceCues.Cue> = []
     /// The normal hold (`PeakHoldConfig.holdDuration`).
     public static let cueHoldDuration: TimeInterval = PeakHoldConfig().holdDuration
 
-    /// The hybrid ranks the search unless a pose is clear (with a word of its own or described), or one of
-    /// `routedCues` is clear and was held (`cueHeld`), or the frame has no face or no emotion reading.
-    public static func usesHybrid(_ sample: ExpressionSample, baseline: RestingBaseline, cueHeld: Bool = true) -> Bool {
+    /// The hybrid ranks the search unless a pose is clear (with a word of its own or described), or one of `routed`
+    /// (`routedCues` by default: none) is clear and was held (`cueHeld`), or the frame has no face or no emotion reading.
+    public static func usesHybrid(_ sample: ExpressionSample, baseline: RestingBaseline, cueHeld: Bool = true,
+                                  routing routed: Set<FaceCues.Cue> = routedCues) -> Bool {
         guard sample.face != nil, let emotion = sample.emotion, emotion.count == HSEmotionClass.allCases.count else {
             return false
         }
         if PoseBadge.of(sample, baseline: baseline) != nil { return false }
-        if let cue = baseline.cues(of: sample.shape).clearCue, routedCues.contains(cue), cueHeld { return false }
+        if let cue = baseline.cues(of: sample.shape).clearCue, routed.contains(cue), cueHeld { return false }
         return true
     }
 
