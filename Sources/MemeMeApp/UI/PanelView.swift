@@ -95,15 +95,23 @@ struct PanelView: View {
         .frame(height: metrics.bandHeight)
     }
 
-    /// The query: the word the camera's search went by (dimmed while a new face is held toward replacing it), or what
-    /// you type. Its glyph says where the search comes from: your face or pose, or words (with your face kept: click
-    /// it to drop the face).
+    /// The query: always a search field. The magnifier and "Type to search, or make a face" say you can type. Once
+    /// the camera caught a face its word sits in the field as a token (dimmed while a new face is held toward replacing
+    /// it; × goes back to your recent picks) and the field says "Type to refine": typing keeps the face. While you type
+    /// with the face kept, the glyph is your face: click it to drop the face.
     private var queryField: some View {
         HStack(spacing: 6) {
             queryGlyph
+            if model.queryText.isEmpty, let readout = model.readout {
+                faceToken(readout)
+            }
             ZStack(alignment: .leading) {
                 if model.queryText.isEmpty {
-                    queryPlaceholder
+                    Text(verbatim: model.searchPlaceholder)
+                        .font(.system(size: 13))
+                        .foregroundColor(Theme.placeholderText)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                         .allowsHitTesting(false)
                         .accessibilityHidden(true)
                 }
@@ -125,37 +133,57 @@ struct PanelView: View {
         )
     }
 
-    @ViewBuilder
-    private var queryPlaceholder: some View {
-        if let readout = model.readout {
-            HStack(spacing: 5) {
-                // An edit just changed the word: the old one, struck out, then the new one.
-                if let replaced = model.replacedWord {
-                    Text(verbatim: replaced)
-                        .font(.system(size: 13, weight: .medium))
-                        .strikethrough(true, color: Theme.mutedText)
-                        .foregroundColor(Theme.mutedText)
-                        .lineLimit(1)
-                    Image(systemName: "arrow.right")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundColor(Theme.mutedText)
-                        .accessibilityHidden(true)
-                }
-                Text(verbatim: readout.word)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(Theme.text)
+    /// The word the camera's search went by, as a token in the field: where it came from (your face, your pose, or
+    /// sparkles when the on-device model named the pose), the word (an edit that changed it shows the old one struck
+    /// out), and × to say "not this face".
+    private func faceToken(_ readout: MoodReadout) -> some View {
+        let dismissable = model.canDismissCaughtFace
+        return HStack(spacing: 4) {
+            Image(systemName: readout.named ? "sparkles" : (readout.source == .face ? "face.smiling" : "figure.arms.open"))
+                .font(.system(size: 10, weight: .semibold))
+                .accessibilityHidden(true)
+            if let replaced = model.replacedWord {
+                Text(verbatim: replaced)
+                    .font(.system(size: 12, weight: .medium))
+                    .strikethrough(true, color: Theme.mutedText)
+                    .foregroundColor(Theme.mutedText)
                     .lineLimit(1)
-                    .truncationMode(.tail)
-                    .opacity(model.holdProgress >= 0.05 ? 0.45 : 1)
-                    .animation(.easeOut(duration: 0.15), value: readout)
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundColor(Theme.mutedText)
+                    .accessibilityHidden(true)
             }
-            .animation(.easeOut(duration: 0.2), value: model.replacedWord)
-        } else {
-            Text("Type to search")
-                .font(.system(size: 13))
-                .foregroundColor(Theme.placeholderText)
+            Text(verbatim: readout.word)
+                .font(.system(size: 12, weight: .semibold))
                 .lineLimit(1)
+                .truncationMode(.tail)
+            if dismissable {
+                Button {
+                    model.dismissCaughtFace()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 7, weight: .bold))
+                        .foregroundColor(Theme.mutedText)
+                        .frame(width: 14, height: 14)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Not this face: back to your recent picks")
+                .accessibilityLabel("Not this face")
+            }
         }
+        .foregroundColor(Theme.text)
+        .padding(.leading, 6)
+        .padding(.trailing, dismissable ? 2 : 7)
+        .frame(height: 20)
+        .background(Capsule().fill(Theme.line))
+        .opacity(model.holdProgress >= 0.05 ? 0.45 : 1)
+        .animation(.easeOut(duration: 0.15), value: readout)
+        .animation(.easeOut(duration: 0.2), value: model.replacedWord)
+        .fixedSize(horizontal: false, vertical: true)
+        .layoutPriority(1)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text(verbatim: "Searching \(readout.word)"))
     }
 
     @ViewBuilder
@@ -169,10 +197,6 @@ struct PanelView: View {
             .buttonStyle(.plain)
             .help(model.faceTokenIsPose ? "Stop using your pose in this search" : "Stop using your face in this search")
             .accessibilityLabel(model.faceTokenIsPose ? "Stop using your pose in this search" : "Stop using your face in this search")
-        } else if model.queryText.isEmpty, let readout = model.readout {
-            glyphCircle(readout.named ? "sparkles" : (readout.source == .face ? "face.smiling" : "figure.arms.open"),
-                        filled: false)
-                .accessibilityHidden(true)
         } else {
             glyphCircle("magnifyingglass", filled: false)
                 .accessibilityHidden(true)
@@ -426,7 +450,8 @@ private struct NamingFace: View {
 
 // MARK: - Tabs
 
-/// The right ear: For You · GIFs · Stickers · Memes. Tab and Shift-Tab move along them; the panel opens on For You.
+/// The right ear: For You · GIFs · Stickers · Memes · ★ (Saved). Tab and Shift-Tab move along them; the panel opens
+/// on For You. Saved is a star alone, so the five fit beside the notch.
 private struct TabBar: View {
     @ObservedObject var model: AppModel
 
@@ -446,11 +471,10 @@ private struct TabBar: View {
         return Button {
             model.selectTab(tab)
         } label: {
-            Text(verbatim: tab.title)
-                .font(.system(size: 12, weight: .medium))
+            tabLabel(tab, isSelected: isSelected)
                 .foregroundColor(isSelected ? Theme.text : Theme.mutedText)
-                .lineLimit(1)
-                .padding(.horizontal, 8)
+                .padding(.horizontal, tab == .saved ? 0 : 7)
+                .frame(minWidth: 22)
                 .frame(height: 22)
                 .background(
                     RoundedRectangle(cornerRadius: 5, style: .continuous)
@@ -459,6 +483,20 @@ private struct TabBar: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .help(Text(verbatim: tab == .saved ? "Saved: what you starred (⌘S)" : tab.title))
+        .accessibilityLabel(Text(verbatim: tab.title))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    @ViewBuilder
+    private func tabLabel(_ tab: ResultTab, isSelected: Bool) -> some View {
+        if tab == .saved {
+            Image(systemName: isSelected ? "star.fill" : "star")
+                .font(.system(size: 11, weight: .medium))
+        } else {
+            Text(verbatim: tab.title)
+                .font(.system(size: 12, weight: .medium))
+                .lineLimit(1)
+        }
     }
 }

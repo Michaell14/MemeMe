@@ -2,10 +2,12 @@ import AppKit
 import MemeMeCore
 import SwiftUI
 
-/// Left column of the drawer's body: your face, live, in a 104 pt circle, its parts glowing by how much they count;
-/// under it what the camera read it as ("your face", "your pose") and what counts most, else the hint; and, until you
-/// have memes, "Find my memes". The word itself goes up beside the notch, in the query field. While the face editor
-/// is open the mirror dims and the hint offers "Back to your face".
+/// Left column of the drawer's body: your face, live, in a circle, its parts glowing by how much they count; under it
+/// what the camera read it as ("your face", "your pose") and what counts most, else the hint; and, until you have
+/// memes, "Find my memes". The word itself goes up beside the notch, in the query field. While the face editor is open
+/// the mirror dims and the hint offers "Back to your face".
+/// The circle is 216 pt while you make a face (the panel just opened: small changes are easy to see, and the parts
+/// being read glow while you hold one) and 104 pt once a face is caught, so the tiles take over before you pick.
 struct MirrorColumn: View {
     @ObservedObject var model: AppModel
 
@@ -14,7 +16,9 @@ struct MirrorColumn: View {
     /// "Look in Documents…" was clicked: gone at once, before the indexer reports the folder.
     @State private var documentsAdded = false
 
-    private let size = Theme.mirrorSize
+    private var size: CGFloat {
+        model.mirrorIsLarge ? Theme.largeMirrorSize : Theme.mirrorSize
+    }
     /// The ring sits 2 pt outside the mirror and is 3 pt wide.
     private let ringInset: CGFloat = -3.5
 
@@ -142,7 +146,7 @@ struct MirrorColumn: View {
                 LiveMirror(camera: model.camera, weights: [:], onClick: nil)
                     .opacity(0.35)
             } else {
-                LiveMirror(camera: model.camera, weights: model.shownWeights,
+                LiveMirror(camera: model.camera, weights: model.mirrorWeights,
                            onClick: model.canEditFace ? { model.openFaceEditor() } : nil)
             }
         case .text:

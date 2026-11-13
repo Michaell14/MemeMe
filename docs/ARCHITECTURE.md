@@ -638,16 +638,16 @@ public struct TileRows: Equatable, Sendable {
     public func move(from slot: Int, dx: Int, dy: Int) -> Int?   // arrow keys: along the row, or to the nearest row with tiles (column kept when it can); nil when there is nowhere to go
 }
 ```
-Keyboard focus over the panel's tiles: rows of `columns` slots numbered row by row from 0, each filled from the left; empty rows are skipped. The panel has two rows of 5.
+Keyboard focus over the panel's tiles: rows of `columns` slots numbered row by row from 0, each filled from the left; empty rows are skipped. The panel has two rows of 5 (of 4 beside the big mirror, `AppModel.gridColumns`).
 
 ### ResultTab.swift
 
 ```swift
 public enum ResultTab: String, CaseIterable, Sendable {
-    case forYou, gifs, stickers, memes
-    public var title: String { get }                 // "For You", "GIFs", "Stickers", "Memes"
+    case forYou, gifs, stickers, memes, saved
+    public var title: String { get }                 // "For You", "GIFs", "Stickers", "Memes", "Saved"
     public func cycled(by offset: Int) -> ResultTab  // wrapping around (Tab, Shift-Tab)
-    public func shows(_ kind: TileKind) -> Bool      // every kind in For You, else its own
+    public func shows(_ kind: TileKind) -> Bool      // every kind in For You and Saved (only what you saved), else its own
 }
 public enum TileKind: Equatable, Sendable {
     case sticker, gif, meme
@@ -719,13 +719,37 @@ public enum StickerEligibility {
 ```swift
 public struct RecentStore: Codable, Equatable, Sendable {
     public private(set) var byApp: [String: [UUID]]
+    public private(set) var saved: [UUID]        // your things you starred, newest first (the Saved tab); "saved" in recents.json, lenient
     public static let globalKey: String          // "*"
     public init()
     /// Moves id to the front of the app's list and of the global list; each capped at 30.
     public mutating func record(_ id: UUID, appBundleID: String?)
     /// App list first, then global entries not already included.
     public func recent(appBundleID: String?) -> [UUID]
-    public mutating func remove(_ ids: Set<UUID>)
+    public func isSaved(_ id: UUID) -> Bool
+    @discardableResult public mutating func toggleSaved(_ id: UUID) -> Bool   // to the front, or out; whether it is saved now
+    public mutating func remove(_ ids: Set<UUID>)  // from every list, saved too
+}
+/// The Frequent row: your things sent ≥ minimumSends (2) times, most sent first (ties: latest sent, then name), not
+/// GIPHY's, not skipped, without `excluded`.
+public enum FrequentPicks {
+    public static let minimumSends: Int
+    public static func pick(_ items: [LibraryItem], excluding: Set<UUID> = [], limit: Int) -> [LibraryItem]
+}
+```
+
+### FaceReading.swift
+
+```swift
+/// What the camera reads in a face being held, for "Reading your face" and the big mirror's glow.
+public enum FaceReading {
+    public struct Cue: Equatable, Hashable, Sendable { label: String; region: FaceRegion?; level: Int /* 0...5 */ }
+    /// The `limit` strongest of: the seven numbers against the baseline, each read its own way (brows up / down 0.3,
+    /// eyes wide / narrowed 0.3, mouth open 0.4, smile / frown 0.25, mouth wide / lips pressed 0.25, side-eye 0.3,
+    /// head tilted 0.3 read as 5; level = round(5 × min(1, |change| / that))), and the clear cues measured in `shape`
+    /// (round(5 × strength), when > 0). Strongest first, ties in that order; zeros pad the list.
+    public static func cues(face: FaceFeatures, shape: FaceShape? = nil, baseline: RestingBaseline, limit: Int = 4) -> [Cue]
+    public static func glow(of cues: [Cue]) -> [FaceRegion: Double]   // per region its strongest level, > 0 only
 }
 ```
 
@@ -1343,8 +1367,8 @@ Key handling:
 
 ```swift
 struct PanelView: View { init(model: AppModel, metrics: NotchMetrics) }               // the drawer per DESIGN.md
-struct MirrorColumn: View { init(model: AppModel) }                                  // the 104 pt round mirror (CameraPreviewView / silhouette / image / drop well), what the word was read from or the hint, Find my memes / Look in Documents…
-struct DrawerGrid: View { init(model: AppModel) }                                    // the two rows of 5 for model.layout
+struct MirrorColumn: View { init(model: AppModel) }                                  // the round mirror (216 pt while model.mirrorIsLarge, else 104) (CameraPreviewView / silhouette / image / drop well), what the word was read from or the hint, Find my memes / Look in Documents…
+struct DrawerGrid: View { init(model: AppModel) }                                    // the two rows for model.layout, titled beside the big mirror; FaceReadingPanel in the top row's place while model.isReadingFace
 struct PickTile: View { init(pick: Pick, isFocused: Bool, marksType: Bool, model: AppModel) }   // one tile: your thing, a GIPHY GIF or a classic meme
 struct PoweredByGiphyMark: View                                                      // "Powered by" + GIPHY's logo
 struct FooterView: View { @ObservedObject var model: AppModel }                     // only while footer != .hidden: indexing, added, update
@@ -1632,6 +1656,20 @@ struct TileLayout: Equatable {
     var canMoreLikeFocused: Bool { get }             // only for your memes
     func selectTab(_ newTab: ResultTab)              // ranks your things for it again (refreshCurrentResults), pages GIPHY for it, focus to its first tile
     func cycleTab(by offset: Int)                    // Tab, Shift-Tab
+    var mirrorIsLarge: Bool { get }                  // the Recent grid shows (nothing caught), no editor / capture / setup card, mode prompt, warming or live
+    var gridColumns: Int { get }                     // 4 while mirrorIsLarge, else 5
+    var isReadingFace: Bool { get }                  // mirrorIsLarge, live, holdProgress ≥ 0.05
+    var mirrorWeights: [FaceRegion: Double] { get }  // shownWeights, else FaceReading.glow(of: faceReading) while reading
+    var searchPlaceholder: String { get }            // "Type to refine" with a readout; "Type to search, or make a face" while the camera can read you; else "Type to search"
+    var canDismissCaughtFace: Bool { get }
+    func dismissCaughtFace()                         // the × on the face token: tracker.reset(), GIPHY cleared, the popular classic memes, showRecentResults
+    @Published private(set) var savedIDs: Set<UUID>  // store.recents.saved, read on each open
+    @Published private(set) var faceReading: [FaceReading.Cue]   // from each sample while isReadingFace, else []
+    @Published private(set) var previousAppName: String?         // the Recent row's title
+    func canSave(_ pick: Pick) -> Bool               // your things in the library only
+    func isSaved(_ pick: Pick) -> Bool
+    func toggleSaved(_ pick: Pick)                   // RecentStore.toggleSaved, saveSoon; the Saved tab ranks again
+    func toggleSaveFocused()                         // ⌘S
     static let templatePickSize: Int                 // Theme.slotCount
     static func pickTemplates(for query: WebQuery, from list: [MemeTemplate], page: Int = 0, fallback: Mood = .reaction) -> [MemeTemplate]   // MemeTemplateCatalog, ≤ templatePickSize; a mood's `page`th group (pick(for:from:limit:page:)), typed words have no pages, a described pose pick(forDescription:mood: fallback…page:)
     /// A described pose's words when held: the namer's kept name (named), else the rule's phrase; waits when the namer is available and was never asked.

@@ -448,6 +448,7 @@ final class PanelController: NSObject {
         static let a: UInt16 = 0
         static let e: UInt16 = 14
         static let z: UInt16 = 6
+        static let s: UInt16 = 1
         static let left: UInt16 = 123
         static let right: UInt16 = 124
         static let down: UInt16 = 125
@@ -534,6 +535,11 @@ final class PanelController: NSObject {
         case KeyCode.e where hasCommand && flags.intersection([.control, .option, .shift]).isEmpty:
             // ⌘E: edit the face the camera caught, or go back to it.
             model.toggleFaceEditor()
+            return nil
+
+        case KeyCode.s where hasCommand && flags.intersection([.control, .option, .shift]).isEmpty:
+            // ⌘S: save the focused tile to the Saved tab, or take it out.
+            model.toggleSaveFocused()
             return nil
 
         case KeyCode.z where hasCommand && flags.intersection([.control, .option, .shift]).isEmpty && model.faceEdit != nil:

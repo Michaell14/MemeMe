@@ -90,7 +90,8 @@ Every change to the app on the default branch is released automatically. When `S
 | Arrow keys | Move the focus across the two rows of tiles |
 | Typing | Search by words: text in images, labels, file names, sources, friends' names. Filter words: `mine`, `gif`, `sticker`, a friend's name. GIPHY's GIFs and the classic memes follow the words too ("sad", "guy looking back") |
 | ⌘V or drop an image on the panel | Search with that image. It is not saved unless you click **Keep it** |
-| Tab / Shift-Tab | The next / previous tab: For You · GIFs · Stickers · Memes (the panel opens on For You) |
+| Tab / Shift-Tab | The next / previous tab: For You · GIFs · Stickers · Memes · ★ Saved (the panel opens on For You) |
+| ⌘S, or Save on a tile you point at | Save one of your things to the Saved tab (again takes it out). GIPHY's GIFs and the classic memes can't be kept |
 | Right-click one of your memes | More like this; Esc goes back to your face |
 | ⌘E, the sliders button or a click on the mirror | Edit the face the camera caught. Your brows, eyes and mouth glow by how much each counts. Drag a round dot to push a feature further (a brow, an eyelid, a pupil, a mouth corner, the lower lip, or the dot above the head to tilt it). Drag a ring's square out or in, pinch on a part, or use − and +, to change how much that part counts (0 ignores it). With the pen, circle a part to make it count most, scribble one out to ignore it, or draw tears to search for "crying". Your memes re-rank as you go and GIPHY follows once you let go. ⌘Z undoes, Reset goes back to the caught face, Esc goes back to your face |
 | Esc | First clears text, focus, image or more-like; a second Esc closes |
@@ -139,7 +140,7 @@ Sources/MemeMeCore/           Foundation-only logic, also builds on Linux
   PeakHoldTracker               turns camera frames into a stable query ("no shutter")
   FeatureWeights, Ranker        scoring for face, text, image, more-like and recent searches
   EarlyMoodTrigger, TileRows     when a held face's mood is clear (early GIPHY search); keyboard focus across the rows
-  ResultTab                     the tabs (For You, GIFs, Stickers, Memes), what kind a thing is, For You's mix
+  ResultTab                     the tabs (For You, GIFs, Stickers, Memes, Saved), what kind a thing is, For You's mix
   Mood, MemeTemplateCatalog     face → mood word for GIPHY; the classic memes for a mood, words or a described pose
   PoseDescription               a pose with no word of its own in words: facts for the on-device model, a phrase by rule
   Classifier, LibraryItem,      library model, meme/maybe/skipped sorting, JSON store

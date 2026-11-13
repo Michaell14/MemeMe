@@ -10,6 +10,9 @@ enum Theme {
     static let panelCornerRadius: CGFloat = 24
     static let tileSize: CGFloat = 104
     static let mirrorSize: CGFloat = 104
+    /// The mirror while you make a face (`AppModel.mirrorIsLarge`): 20 + 216 + 16 + 4 tiles of 104 8 pt apart + 20.
+    static let largeMirrorSize: CGFloat = 216
+    static let largeMirrorColumns: Int = 4
     /// The face editor's drawing of your face (200 points: one point per unit of `FaceSketch`).
     static let editorFaceSize: CGFloat = 200
 

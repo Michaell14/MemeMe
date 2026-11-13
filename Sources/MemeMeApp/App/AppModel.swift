@@ -46,6 +46,11 @@ private enum HintCopy {
     static let warmingTitle = "Starting camera…"
     static let warmingSubtitle = "Your recent picks are ready below."
     static let liveTitle = "Make a face or a pose. Results follow it."
+    /// Under the big mirror until a face is caught.
+    static let liveSubtitle = "Small changes count: a wink, one brow."
+    /// While a face is held toward the search, under the big mirror.
+    static let holdingTitle = "Hold it…"
+    static let holdingSubtitle = "Then it searches."
     static let standingBackTitle = "Reading your pose"
     static let standingBackSubtitle = "Hold each pose for a second. Come closer for faces."
     static let noFaceTitle = "Can’t see your face"
@@ -133,9 +138,13 @@ struct TileLayout: Equatable {
     let giphyRows: Set<Int>
     /// Kinds mix (For You): GIFs of yours carry a "GIF" tag.
     let marksTypes: Bool
+    /// Each row's title over its tiles ("Recent in Messages", "Frequent"); nil for none. Only while the mirror is big.
+    let titles: [String?]
+    /// The rows whose tiles show how often they were sent ("14×"): the Frequent row.
+    let countRows: Set<Int>
 
     init(top: [Pick], bottom: [Pick], columns: Int, loading: [Bool], messages: [String?], giphyRows: Set<Int>,
-         marksTypes: Bool) {
+         marksTypes: Bool, titles: [String?] = [nil, nil], countRows: Set<Int> = []) {
         let top = Array(top.prefix(columns))
         let bottom = Array(bottom.prefix(columns))
         var tiles: [Pick?] = top.map { Optional($0) }
@@ -148,6 +157,12 @@ struct TileLayout: Equatable {
         self.messages = messages
         self.giphyRows = giphyRows
         self.marksTypes = marksTypes
+        self.titles = titles
+        self.countRows = countRows
+    }
+
+    func title(ofRow row: Int) -> String? {
+        titles.indices.contains(row) ? titles[row] : nil
     }
 
     var showsGiphy: Bool { !giphyRows.isEmpty }
@@ -271,6 +286,13 @@ private struct DescribedPhrase {
     @Published var isDraggingTile: Bool = false
     /// The capture view replaces the panel's contents: a big filtered mirror and a shutter.
     @Published private(set) var isCaptureOpen: Bool = false
+    /// Your things you saved (the star on a tile; the Saved tab).
+    @Published private(set) var savedIDs: Set<UUID> = []
+    /// What the camera reads in the face being held while the mirror is big ("Brows up", 0...5), strongest first;
+    /// empty otherwise.
+    @Published private(set) var faceReading: [FaceReading.Cue] = []
+    /// The app the panel was opened over ("Messages"), for the Recent row's title.
+    @Published private(set) var previousAppName: String?
 
     let store: LibraryStore
     let camera: CameraController
@@ -325,7 +347,8 @@ private struct DescribedPhrase {
     private var faceBackSince: TimeInterval?
     private var userInteracted = false
     private var useCameraDespiteOtherApp = false
-    private var resultSource: ResultSource = .recent
+    /// Published: whether the mirror is big (`mirrorIsLarge`) follows it.
+    @Published private var resultSource: ResultSource = .recent
     private var currentWeights: FeatureWeights = .uniform
     private var faceTokenSample: ExpressionSample?
     private var faceTokenWeights: FeatureWeights = .uniform
@@ -505,9 +528,13 @@ private struct DescribedPhrase {
         let ownBundleID = Bundle.main.bundleIdentifier
         if let bundleID = previousApp?.bundleIdentifier, bundleID != ownBundleID {
             previousBundleID = bundleID
+            previousAppName = previousApp?.localizedName
         } else {
             previousBundleID = nil
+            previousAppName = nil
         }
+        let saved = Set(store.recents.saved)
+        if savedIDs != saved { savedIDs = saved }
         isPanelVisible = true
         shownAt = CACurrentMediaTime()
         resetForNewSession()
@@ -526,6 +553,7 @@ private struct DescribedPhrase {
         cancelSessionTasks()
         camera.stop()
         if holdProgress != 0 { holdProgress = 0 }
+        if !faceReading.isEmpty { faceReading = [] }
         if showSetupCard { showSetupCard = false }
         if let shownID = shownSummaryID, indexer.pendingSummary?.id == shownID {
             indexer.clearPendingSummary()
@@ -664,6 +692,101 @@ private struct DescribedPhrase {
         guard mode == .moreLike || mode == .image || mode == .text else { return }
         clearTextState()
         returnToFace()
+    }
+
+    // MARK: - Making a face
+
+    /// The camera is big (`Theme.largeMirrorSize`) while you make a face: the panel shows your recent and frequent
+    /// picks and the camera reads you or is starting. Once a face is caught it shrinks back and the tiles take over,
+    /// before you pick one.
+    var mirrorIsLarge: Bool {
+        resultSource == .recent && faceEdit == nil && !isCaptureOpen && !showSetupCard
+            && (mode == .live || mode == .warming || mode == .prompt)
+    }
+
+    /// Tiles per row: 4 beside the big mirror, else 5.
+    var gridColumns: Int {
+        mirrorIsLarge ? Theme.largeMirrorColumns : Theme.columns
+    }
+
+    /// A face is being held toward the first search: "Reading your face" lists what the camera reads.
+    var isReadingFace: Bool {
+        mirrorIsLarge && mode == .live && holdProgress >= 0.05
+    }
+
+    /// The mirror's glow: what counts in the face search showing, else what is read in the face being held.
+    var mirrorWeights: [FaceRegion: Double] {
+        if !shownWeights.isEmpty { return shownWeights }
+        return isReadingFace ? FaceReading.glow(of: faceReading) : [:]
+    }
+
+    /// What the search field says while empty: it always invites typing.
+    var searchPlaceholder: String {
+        if readout != nil { return "Type to refine" }
+        switch mode {
+        case .live, .warming, .prompt: return "Type to search, or make a face"
+        default: return "Type to search"
+        }
+    }
+
+    /// The × on the word in the search field: the camera caught a face, and nothing else covers it.
+    var canDismissCaughtFace: Bool {
+        mode == .live && resultSource == .expression && faceEdit == nil && !isCaptureOpen && tracker.query != nil
+    }
+
+    /// The × on the word in the search field: not this face. The panel goes back to your recent and frequent picks
+    /// with the big mirror, and the next face you hold is searched as before.
+    func dismissCaughtFace() {
+        guard canDismissCaughtFace else { return }
+        tracker.reset()
+        earlyMood.reset()
+        cancelDescribing()
+        clearReplacedWord()
+        if holdProgress != 0 { holdProgress = 0 }
+        clearGiphyRow()
+        showTemplates(for: .mood(.reaction))
+        showRecentResults()
+        refreshHint()
+    }
+
+    /// The live face's cues while it is held toward the first search (`isReadingFace`).
+    private func updateFaceReading(with sample: ExpressionSample) {
+        var cues: [FaceReading.Cue] = []
+        if isReadingFace, let face = sample.face {
+            cues = FaceReading.cues(face: face, shape: sample.shape, baseline: tracker.baseline)
+        }
+        if faceReading != cues { faceReading = cues }
+    }
+
+    // MARK: - Saved
+
+    /// Only your own things are kept: GIPHY's GIFs and the classic memes aren't saved.
+    func canSave(_ pick: Pick) -> Bool {
+        guard case let .meme(item) = pick else { return false }
+        return item.kind != .web && store.item(id: item.id) != nil
+    }
+
+    func isSaved(_ pick: Pick) -> Bool {
+        guard case let .meme(item) = pick else { return false }
+        return savedIDs.contains(item.id)
+    }
+
+    /// The star on a tile (and ⌘S on the focused one): saves it to the Saved tab, or takes it out.
+    func toggleSaved(_ pick: Pick) {
+        guard canSave(pick), case let .meme(item) = pick else { return }
+        var recents = store.recents
+        recents.toggleSaved(item.id)
+        store.recents = recents
+        savedIDs = Set(recents.saved)
+        saveSoon()
+        if tab == .saved {
+            refreshCurrentResults()
+        }
+    }
+
+    func toggleSaveFocused() {
+        guard let pick = focusedPick else { return }
+        toggleSaved(pick)
     }
 
     // MARK: - Face editor
@@ -1247,6 +1370,7 @@ private struct DescribedPhrase {
             runExpressionSearch(animate: true, newQuery: true)
             notePoseCaught(after: previousPose)
         }
+        updateFaceReading(with: sample)
         refreshHint()
     }
 
@@ -1374,7 +1498,8 @@ private struct DescribedPhrase {
         if !shownWeights.isEmpty { shownWeights = [:] }
         searchGeneration += 1
         let ranker = Ranker(baseline: tracker.baseline)
-        let recentIDs = store.recents.recent(appBundleID: previousBundleID)
+        // The Saved tab: what you saved, newest first.
+        let recentIDs = tab == .saved ? store.recents.saved : store.recents.recent(appBundleID: previousBundleID)
         let ranked = ranker.rank(
             tabItems,
             query: .recent(appBundleID: previousBundleID),
@@ -1811,7 +1936,7 @@ private struct DescribedPhrase {
     /// when it has none of yours. Stickers and Memes show none, but GIPHY's search goes on under them, so the GIFs are
     /// there when you switch back.
     private var giphySlots: Int {
-        tab == .gifs && results.isEmpty ? Theme.slotCount : Theme.columns
+        tab == .gifs && results.isEmpty ? 2 * gridColumns : gridColumns
     }
 
     /// What each slot holds for the tab showing, row by row. For You: your things mixed with the classic memes on top
@@ -1819,8 +1944,10 @@ private struct DescribedPhrase {
     /// yours on top when there are some, GIPHY's in their own row or both. Stickers: yours. Memes: yours, then the
     /// classic memes. GIPHY's GIFs never share a row with yours.
     private func makeLayout() -> TileLayout {
-        let columns = Theme.columns
+        let columns = gridColumns
         let ownPicks = results.map { Pick.meme($0.item) }
+        var titles: [String?] = [nil, nil]
+        var countRows: Set<Int> = []
         let templatePicks = templateResults.map { Pick.template($0) }
         let gifPicks = giphyResults.map { Pick.gif($0) }
         var top: [Pick] = []
@@ -1846,7 +1973,24 @@ private struct DescribedPhrase {
             }
             loading[0] = top.count < columns && isTemplatesLoading
             messages[0] = top.isEmpty ? ownEmptyMessage : nil
-            if showsGiphyRow {
+            // Just opened: what you sent most, under what you sent last.
+            var frequent: [LibraryItem] = []
+            if resultSource == .recent {
+                var shownIDs = Set<UUID>()
+                for case let .meme(item) in top {
+                    shownIDs.insert(item.id)
+                }
+                frequent = FrequentPicks.pick(store.items, excluding: shownIDs, limit: columns)
+            }
+            if mirrorIsLarge {
+                titles[0] = recentRowTitle
+            }
+            if !frequent.isEmpty {
+                bottom = frequent.map { Pick.meme($0) }
+                countRows = [1]
+                if mirrorIsLarge { titles[1] = "Frequent" }
+            } else if showsGiphyRow {
+                if mirrorIsLarge { titles[1] = "From GIPHY" }
                 bottom = Array(gifPicks.prefix(columns))
                 giphyRows = [1]
                 loading[1] = isGiphyLoading
@@ -1879,9 +2023,32 @@ private struct DescribedPhrase {
             (top, bottom) = TileLayout.split(ownPicks + templatePicks, columns: columns)
             loading = [top.count < columns && isTemplatesLoading, bottom.count < columns && isTemplatesLoading]
             messages[0] = top.isEmpty ? ownEmptyMessage : nil
+        case .saved:
+            (top, bottom) = TileLayout.split(ownPicks, columns: columns)
+            messages[0] = ownPicks.isEmpty ? savedEmptyMessage : nil
         }
         return TileLayout(top: top, bottom: bottom, columns: columns, loading: loading, messages: messages,
-                          giphyRows: giphyRows, marksTypes: tab == .forYou)
+                          giphyRows: giphyRows, marksTypes: tab == .forYou || tab == .saved, titles: titles,
+                          countRows: countRows)
+    }
+
+    /// The top row's title beside the big mirror: what you sent last here ("Recent in Messages"), else your newest, or
+    /// the classic memes before you have any.
+    private var recentRowTitle: String {
+        guard !results.isEmpty else { return "Classic memes" }
+        let recent = store.recents.recent(appBundleID: previousBundleID)
+        guard results.contains(where: { recent.contains($0.item.id) }) else { return "Your newest" }
+        if let bundleID = previousBundleID, let name = previousAppName, !name.isEmpty,
+           store.recents.byApp[bundleID]?.isEmpty == false {
+            return "Recent in \(name)"
+        }
+        return "Recent"
+    }
+
+    private var savedEmptyMessage: String {
+        savedIDs.isEmpty
+            ? "Nothing saved yet. Point at one of your memes and click Save."
+            : "Nothing you saved matches."
     }
 
     /// What a row of yours that shows nothing says.
@@ -2019,7 +2186,9 @@ private struct DescribedPhrase {
 
     /// Your things the tab shows: the library without GIPHY's GIFs (they are never kept in it), of the tab's kind.
     private var tabItems: [LibraryItem] {
-        store.items.filter { $0.kind != .web && tab.shows(TileKind($0)) }
+        store.items.filter { item in
+            item.kind != .web && tab.shows(TileKind(item)) && (tab != .saved || savedIDs.contains(item.id))
+        }
     }
 
     private func setResults(_ newResults: [RankedResult], animateNew: Bool, resetFocus: Bool) {
@@ -2477,7 +2646,16 @@ private struct DescribedPhrase {
                 }
                 return PanelHint(title: HintCopy.noFaceTitle, subtitle: HintCopy.noFaceSubtitle, actionTitle: nil, action: nil)
             }
-            // The same words the whole time the camera reads you: the ring around the mirror shows a face being held.
+            // Under the big mirror, until a face is caught: the words say small changes count, then "Hold it…" while one
+            // is held. After that the same words the whole time: the ring around the mirror shows a face being held.
+            if isReadingFace {
+                return PanelHint(title: HintCopy.holdingTitle, subtitle: HintCopy.holdingSubtitle, actionTitle: nil,
+                                 action: nil)
+            }
+            if mirrorIsLarge {
+                return PanelHint(title: HintCopy.liveTitle, subtitle: HintCopy.liveSubtitle, actionTitle: nil,
+                                 action: nil)
+            }
             return PanelHint(title: HintCopy.liveTitle, subtitle: nil, actionTitle: nil, action: nil)
         case .text:
             return PanelHint(title: HintCopy.textTitle, subtitle: HintCopy.textSubtitle, actionTitle: nil, action: nil)
