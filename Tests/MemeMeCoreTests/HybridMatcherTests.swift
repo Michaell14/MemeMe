@@ -125,11 +125,37 @@ final class HybridMatcherTests: XCTestCase {
         // No emotion reading (the models aren't there) or no face: the rules.
         XCTAssertFalse(HybridRouting.usesHybrid(ExpressionSample(face: face, timestamp: 1), baseline: baseline))
         XCTAssertFalse(HybridRouting.usesHybrid(ExpressionSample(face: nil, timestamp: 1, emotion: emotion), baseline: baseline))
-        // A clear face detail (a tongue out) keeps its word and the rule ranker.
+        // A held tongue out (the hybrid can't see it) keeps the rule ranker; a single frame of it doesn't. Its word
+        // shows either way.
         let tongue = ExpressionSample(face: face, shape: FaceShape(tongue: 0.9), timestamp: 1, emotion: emotion)
-        XCTAssertNotNil(baseline.cues(of: tongue.shape).clearCue)
-        XCTAssertFalse(HybridRouting.usesHybrid(tongue, baseline: baseline))
-        XCTAssertEqual(HybridRouting.mood(for: tongue, baseline: baseline, hybrid: true), .tongueOut)
+        XCTAssertEqual(baseline.cues(of: tongue.shape).clearCue, .tongueOut)
+        XCTAssertFalse(HybridRouting.usesHybrid(tongue, baseline: baseline, cueHeld: true))
+        XCTAssertTrue(HybridRouting.usesHybrid(tongue, baseline: baseline, cueHeld: false))
+        XCTAssertEqual(HybridRouting.mood(for: tongue, baseline: baseline, hybrid: true, cueHeld: true), .tongueOut)
+        XCTAssertEqual(HybridRouting.mood(for: tongue, baseline: baseline, hybrid: true, cueHeld: false), .tongueOut)
+        // A smirk always goes to the hybrid, and the field still says "smirk".
+        let smirk = ExpressionSample(face: face, shape: FaceShape(cornerTilt: 0.3), timestamp: 1, emotion: emotion)
+        XCTAssertEqual(baseline.cues(of: smirk.shape).clearCue, .smirk)
+        XCTAssertTrue(HybridRouting.usesHybrid(smirk, baseline: baseline, cueHeld: true))
+        XCTAssertEqual(HybridRouting.mood(for: smirk, baseline: baseline, hybrid: true), .smirk)
+        XCTAssertEqual(HybridRouting.routedCues, [.tongueOut, .wink, .pucker, .eyeRoll])
+    }
+
+    func testCueHistoryTellsAHeldDetailFromOneFrame() {
+        var history = CueHistory()
+        // 10 frames a second: no cue, then a tongue out for 0.4 s, then one frame of a wink.
+        history.observe(nil, at: 0.0)
+        for (i, t) in [0.1, 0.2, 0.3, 0.4, 0.5].enumerated() { history.observe(i < 5 ? .tongueOut : nil, at: t) }
+        history.observe(.wink, at: 0.6)
+        history.observe(nil, at: 0.7)
+        XCTAssertTrue(history.isHeld(.tongueOut, at: 0.3))           // 0.1 ... 0.5
+        XCTAssertTrue(history.isHeld(.tongueOut, at: 0.1))
+        XCTAssertFalse(history.isHeld(.tongueOut, at: 0.1, for: 0.6))
+        XCTAssertFalse(history.isHeld(.wink, at: 0.6))               // one frame
+        XCTAssertFalse(history.isHeld(.wink, at: 0.3))               // another cue then
+        XCTAssertFalse(history.isHeld(.tongueOut, at: 9))            // unknown frame
+        history.observe(nil, at: 10)                                 // older than the window: forgotten
+        XCTAssertFalse(history.isHeld(.tongueOut, at: 0.3))
     }
 
     func testMetersShowTheEmotionWords() {

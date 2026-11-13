@@ -419,6 +419,10 @@ private struct DescribedPhrase {
     private var hybridTaskTimestamp: TimeInterval?
     /// The classic memes row follows the held face's hybrid ranking while one is set (else the mood table).
     private var templateHybridQuery: HybridQuery?
+    /// Each frame's clear face detail, to tell a held one (tongue out, wink…: the classic ranker) from one frame of it.
+    private var cueHistory = CueHistory()
+    /// Whether the held query (by its timestamp) goes to the hybrid: decided once, so re-ranking it never changes ranker.
+    private var hybridRoute: (timestamp: TimeInterval, usesHybrid: Bool)?
     private var updatesObservation: AnyCancellable?
 
     private var limit: Int { Theme.resultLimit }
@@ -824,7 +828,9 @@ private struct DescribedPhrase {
         if isReadingFace, let face = sample.face {
             let parts = HeldFaceReading.cues(face: face, shape: sample.shape, baseline: tracker.baseline)
             glow = HeldFaceReading.glow(of: parts)
-            if usesHybridMatcher, HybridRouting.usesHybrid(sample, baseline: tracker.baseline), let emotion = sample.emotion {
+            // The emotion model's words, unless a pose or a face detail names the face (its word shows instead).
+            if usesHybridMatcher, let emotion = sample.emotion, PoseBadge.of(sample, baseline: tracker.baseline) == nil,
+               tracker.baseline.cues(of: sample.shape).clearCue == nil {
                 cues = HeldFaceReading.emotionCues(emotion)
             } else {
                 cues = parts
@@ -1427,7 +1433,11 @@ private struct DescribedPhrase {
         }
 
         standingBack.observe(bodyWidth: camera.bodyWidth, at: sample.timestamp)
+        let cueBaseline = tracker.baseline
         let queryChanged = tracker.ingest(sample)
+        if sample.face != nil {
+            cueHistory.observe(cueBaseline.cues(of: sample.shape).clearCue, at: sample.timestamp)
+        }
         // Search the web for the expression being held, so its results are in by the time the hold completes. Not for
         // a clear gesture with no word of its own: it is searched by the words describing it, known once it is held,
         // and its face's mood would spend one of GIPHY's searches on GIFs never shown.
@@ -1618,7 +1628,7 @@ private struct DescribedPhrase {
         // The hybrid matcher ranks a held face unless a pose or a face detail is clear, or the face was edited (the
         // editor's seven numbers and per-part weights are the classic ranker's query, not a picture).
         let hybridSample = (usesHybridMatcher && edit?.isEdited != true)
-            ? tracker.query.flatMap { HybridRouting.usesHybrid($0, baseline: tracker.baseline) ? $0 : nil }
+            ? tracker.query.flatMap { routesToHybrid($0) ? $0 : nil }
             : nil
         if hybridSample == nil { cancelHybridQuery() }
         guard let sample = hybridSample ?? edit?.sample ?? tracker.query else {
@@ -1627,7 +1637,8 @@ private struct DescribedPhrase {
         }
         resultSource = .expression
         let previousWord = searchReadout?.word
-        let mood = hybridSample.flatMap { HSEmotionClass.top(of: $0.emotion ?? [])?.mood }
+        // A clear face detail keeps its word ("smirk") whatever ranks it; else the emotion model's top class.
+        let mood = hybridSample.map { HybridRouting.mood(for: $0, baseline: tracker.baseline, hybrid: true, cueHeld: false) }
             ?? edit?.mood(baseline: tracker.baseline)
             ?? MoodClassifier.mood(for: sample.face, pose: sample.pose, shape: sample.shape, baseline: tracker.baseline)
         let badge = PoseBadge.of(sample, baseline: tracker.baseline)
@@ -1759,6 +1770,17 @@ private struct DescribedPhrase {
         setResults(hybridRanked(tabItems, query: query), animateNew: animate, resetFocus: true)
         guard settled else { return }
         showTemplates(for: .mood(mood), turningPage: newQuery, hybrid: query)
+    }
+
+    /// Whether the held query goes to the hybrid (`HybridRouting.usesHybrid`), with its face detail held or not as
+    /// the frames around it say; decided once per query.
+    private func routesToHybrid(_ sample: ExpressionSample) -> Bool {
+        if let route = hybridRoute, route.timestamp == sample.timestamp { return route.usesHybrid }
+        let cue = tracker.baseline.cues(of: sample.shape).clearCue
+        let held = cue.map { cueHistory.isHeld($0, at: sample.timestamp) } ?? false
+        let uses = HybridRouting.usesHybrid(sample, baseline: tracker.baseline, cueHeld: held)
+        hybridRoute = (sample.timestamp, uses)
+        return uses
     }
 
     private func cancelHybridQuery() {
@@ -2915,6 +2937,8 @@ private struct DescribedPhrase {
         describedPhrase = nil
         cancelHybridQuery()
         hybridQuery = nil
+        hybridRoute = nil
+        cueHistory.reset()
         clearGiphyRow()
         showsGiphyRow = store.settings.webDiscoverEnabled && web.hasAPIKey
         clearTemplateRow()

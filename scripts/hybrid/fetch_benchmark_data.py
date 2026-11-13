@@ -1,13 +1,16 @@
 """Downloads the benchmark's images (never committed): the 209 memegen templates and the 225 sampled face photos.
 
-    python fetch_benchmark_data.py --out DATA_DIR
+    python fetch_benchmark_data.py --out DATA_DIR [--sample N] [--queries-only]
 
 Writes DATA_DIR/gallery/<id>.<ext> (memegen's blank templates, as bench.py's gallery.csv names them) and
 DATA_DIR/queries/<file> (muxspace/facial_expressions), and copies the CSVs next to them in bench.py's layout.
 Missing downloads are reported and skipped, as bench.py skips query files that don't exist.
+--sample N keeps N templates and N photos, evenly spread over the lists (CI's parity check on every push), and writes
+CSVs listing only those; --queries-only leaves the templates out (the speed script needs face photos only).
 """
 import argparse
 import csv
+import io
 import os
 import shutil
 import sys
@@ -41,21 +44,38 @@ def get(url, path):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
+    ap.add_argument("--sample", type=int, default=0, help="keep N templates and N photos, evenly spread")
+    ap.add_argument("--queries-only", action="store_true")
     args = ap.parse_args()
     out = args.out
     os.makedirs(os.path.join(out, "gallery"), exist_ok=True)
     os.makedirs(os.path.join(out, "queries"), exist_ok=True)
-    for name in ["gallery.csv", "gallery_labels.txt", "queries_sample.csv"]:
-        shutil.copy(os.path.join(BENCH, name), os.path.join(out, name))
+    shutil.copy(os.path.join(BENCH, "gallery_labels.txt"), os.path.join(out, "gallery_labels.txt"))
+
+    def rows_of(name):
+        with open(os.path.join(BENCH, name), newline="") as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+            fields = reader.fieldnames
+        if args.sample and len(rows) > args.sample:
+            step = len(rows) / args.sample
+            rows = [rows[int(i * step)] for i in range(args.sample)]
+        buf = io.StringIO()
+        w = csv.DictWriter(buf, fieldnames=fields, lineterminator="\n")
+        w.writeheader()
+        w.writerows(rows)
+        with open(os.path.join(out, name), "w", newline="") as f:
+            f.write(buf.getvalue())
+        return rows
 
     jobs = []
-    with open(os.path.join(BENCH, "gallery.csv"), newline="") as f:
-        for row in csv.DictReader(f):
+    gallery = rows_of("gallery.csv")
+    if not args.queries_only:
+        for row in gallery:
             name = os.path.basename(row["file"])
             jobs.append((MEMEGEN.format(name=name), os.path.join(out, "gallery", name)))
-    with open(os.path.join(BENCH, "queries_sample.csv"), newline="") as f:
-        for row in csv.DictReader(f):
-            jobs.append((MUXSPACE.format(name=row["image"]), os.path.join(out, "queries", row["image"])))
+    for row in rows_of("queries_sample.csv"):
+        jobs.append((MUXSPACE.format(name=row["image"]), os.path.join(out, "queries", row["image"])))
     with ThreadPoolExecutor(8) as pool:
         ok = list(pool.map(lambda j: get(*j), jobs))
     print(f"downloaded {sum(ok)} of {len(jobs)} images into {out}")

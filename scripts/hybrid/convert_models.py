@@ -48,18 +48,10 @@ def write_prompts(path, t):
     })
 
 
-# Ops kept in fp32 by --clip-precision mixed: the normalizations, softmax, reductions and residual adds, where fp16
-# accumulation loses the most; the matrix multiplies (and the weights) stay fp16.
-MIXED_FP32_OPS = {"layer_norm", "softmax", "reduce_mean", "reduce_sum", "add", "sub", "mul", "real_div", "pow", "sqrt",
-                  "rsqrt"}
-
-
 def clip_precision(name):
     import coremltools as ct
     if name == "fp32":
         return ct.precision.FLOAT32
-    if name == "mixed":
-        return ct.transform.FP16ComputePrecision(op_selector=lambda op: op.op_type not in MIXED_FP32_OPS)
     return ct.precision.FLOAT16
 
 
@@ -159,7 +151,8 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--prompts-only", action="store_true")
     ap.add_argument("--check-prompts", help="a committed emotion_prompts.json the new one must match")
-    ap.add_argument("--clip-precision", choices=["fp16", "mixed", "fp32"], default="fp16")
+    ap.add_argument("--clip-precision", choices=["fp16", "fp32"], default="fp16",
+                    help="fp16 ships; fp32 (twice the size) only for the benchmark's comparison")
     ap.add_argument("--clip-only", action="store_true", help="convert the CLIP image encoder only")
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)

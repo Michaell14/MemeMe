@@ -157,24 +157,61 @@ public struct EmotionPrompts: Codable, Equatable, Sendable {
 
 /// When the hybrid matcher decides a held face's search, and which word it shows.
 public enum HybridRouting {
-    /// The hybrid ranks the search unless a pose (with a word or described) or a face detail (tongue out, wink…) is
-    /// clear, or the frame has no face or no emotion reading: those keep the rule-based word and ranker.
-    public static func usesHybrid(_ sample: ExpressionSample, baseline: RestingBaseline) -> Bool {
+    /// Face details the hybrid can't represent (CLIP and the emotion model don't see them): held for
+    /// `cueHoldDuration`, they keep the rule-based ranker. A smirk and one raised brow always go to the hybrid.
+    public static let routedCues: Set<FaceCues.Cue> = [.tongueOut, .wink, .pucker, .eyeRoll]
+    /// The normal hold (`PeakHoldConfig.holdDuration`).
+    public static let cueHoldDuration: TimeInterval = PeakHoldConfig().holdDuration
+
+    /// The hybrid ranks the search unless a pose is clear (with a word of its own or described), or one of
+    /// `routedCues` is clear and was held (`cueHeld`), or the frame has no face or no emotion reading.
+    public static func usesHybrid(_ sample: ExpressionSample, baseline: RestingBaseline, cueHeld: Bool = true) -> Bool {
         guard sample.face != nil, let emotion = sample.emotion, emotion.count == HSEmotionClass.allCases.count else {
             return false
         }
         if PoseBadge.of(sample, baseline: baseline) != nil { return false }
-        if baseline.cues(of: sample.shape).clearCue != nil { return false }
+        if let cue = baseline.cues(of: sample.shape).clearCue, routedCues.contains(cue), cueHeld { return false }
         return true
     }
 
-    /// The word for a sample: HSEmotion's top class when the hybrid handles it, else `MoodClassifier`'s.
-    public static func mood(for sample: ExpressionSample, baseline: RestingBaseline, hybrid: Bool) -> Mood {
-        if hybrid, usesHybrid(sample, baseline: baseline), let emotion = sample.emotion,
-           let top = HSEmotionClass.top(of: emotion) {
-            return top.mood
+    /// The word for a sample: a clear pose's or face detail's word (`MoodClassifier`) whatever ranks it, else
+    /// HSEmotion's top class when the hybrid handles it, else `MoodClassifier`'s.
+    public static func mood(for sample: ExpressionSample, baseline: RestingBaseline, hybrid: Bool,
+                            cueHeld: Bool = true) -> Mood {
+        let rules = MoodClassifier.mood(for: sample.face, pose: sample.pose, shape: sample.shape, baseline: baseline)
+        guard hybrid, usesHybrid(sample, baseline: baseline, cueHeld: cueHeld),
+              PoseBadge.of(sample, baseline: baseline) == nil, baseline.cues(of: sample.shape).clearCue == nil,
+              let emotion = sample.emotion, let top = HSEmotionClass.top(of: emotion) else { return rules }
+        return top.mood
+    }
+}
+
+/// The clear face detail of each recent camera frame, to tell a held one from a single frame's.
+public struct CueHistory: Sendable {
+    public static let window: TimeInterval = 3
+    /// A frame's worth of slack: a hold of `duration` spans about `duration` − one frame between its first and last.
+    public static let frameSlack: TimeInterval = 0.11
+    private var frames: [(timestamp: TimeInterval, cue: FaceCues.Cue?)] = []
+
+    public init() {}
+
+    public mutating func observe(_ cue: FaceCues.Cue?, at timestamp: TimeInterval) {
+        frames.append((timestamp, cue))
+        frames.removeAll { timestamp - $0.timestamp > CueHistory.window }
+    }
+
+    public mutating func reset() { frames.removeAll() }
+
+    /// Whether `cue` showed in an unbroken run of frames around `timestamp` lasting at least `duration`.
+    public func isHeld(_ cue: FaceCues.Cue, at timestamp: TimeInterval,
+                       for duration: TimeInterval = HybridRouting.cueHoldDuration) -> Bool {
+        guard let i = frames.firstIndex(where: { abs($0.timestamp - timestamp) < 0.001 }), frames[i].cue == cue else {
+            return false
         }
-        return MoodClassifier.mood(for: sample.face, pose: sample.pose, shape: sample.shape, baseline: baseline)
+        var first = i, last = i
+        while first > 0, frames[first - 1].cue == cue { first -= 1 }
+        while last + 1 < frames.count, frames[last + 1].cue == cue { last += 1 }
+        return frames[last].timestamp - frames[first].timestamp >= duration - CueHistory.frameSlack
     }
 }
 

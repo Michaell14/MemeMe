@@ -158,7 +158,8 @@ def main():
     images = [item("gallery", i, g["file"][i], G_box[i], E_G[i], E_Gf[i], H_G[i], ZS_G[i]) for i in range(len(g))]
     images += [item("query", i, q["file"][i], Q_box[i], E_Q[i], E_Qf[i], H_Q[i], ZS_Q[i]) for i in range(len(q))]
     hc.write_json(args.out, {
-        "results": results,
+        # A small sample can leave a class empty (NaN): those are left out, JSON has no NaN.
+        "results": {k: v for k, v in results.items() if np.isfinite(v)},
         "gallery": [{"id": g["id"][i], "file": os.path.relpath(g["file"][i], args.data),
                      "labels": sorted(g["labels"][i]), "has_face": bool(G_has[i])} for i in range(len(g))],
         "queries": [{"file": os.path.relpath(q["file"][i], args.data), "emotion": lab[i], "split": q["split"][i]}

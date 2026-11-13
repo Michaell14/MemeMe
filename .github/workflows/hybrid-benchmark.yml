@@ -1,0 +1,118 @@
+name: Hybrid benchmark
+
+# The full benchmark of the hybrid matcher against the team's Python reference (bench.py's B/32 hybrid) on all 434
+# images: parity within the agreed bounds, expression match@5 of the hybrid (benchmark boxes and Vision faces), the
+# classic ranker and each routing rule, and which face details trigger. Run by hand (Actions → Hybrid benchmark → Run
+# workflow), or by a push whose commit message contains [full-benchmark]. Every push runs the 20-image parity check in
+# ci.yml instead. The reference's embeddings and the downloaded images are cached between runs.
+on:
+  workflow_dispatch:
+    inputs:
+      compare_fp32:
+        description: "Also compare an fp32 CLIP conversion on the same pixels (informational; not shipped)"
+        type: boolean
+        default: false
+  push:
+    branches: ["**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hybrid-benchmark-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  benchmark:
+    name: Full hybrid benchmark
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[full-benchmark]')
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache the hybrid weights and tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/.hybrid-weights
+            build/.hybrid-venv
+          key: hybrid-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/hybrid/requirements.txt', 'scripts/hybrid/hybrid_common.py') }}
+
+      - name: Hybrid models
+        run: |
+          chmod +x scripts/build-hybrid-models.sh
+          PYTHON="$(command -v python3.12)" ./scripts/build-hybrid-models.sh build/HybridModels
+
+      # The images, the reference's embeddings and its decoded pixels: made again only when the reference changes.
+      - name: Cache the benchmark reference
+        id: reference
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/benchmark-data
+            build/benchmark-reference.json
+            build/benchmark-pixels
+          key: hybrid-reference-${{ hashFiles('scripts/hybrid/*.py', 'scripts/hybrid/benchmark/*', 'scripts/hybrid/requirements.txt') }}
+
+      - name: Benchmark reference (Python)
+        if: steps.reference.outputs.cache-hit != 'true'
+        run: |
+          py=build/.hybrid-venv/bin/python
+          "$py" -I scripts/hybrid/fetch_benchmark_data.py --out build/benchmark-data
+          "$py" -I scripts/hybrid/bench_reference.py --data build/benchmark-data --weights build/.hybrid-weights \
+            --out build/benchmark-reference.json --dump-pixels build/benchmark-pixels
+
+      - name: fp32 CLIP for comparison
+        if: inputs.compare_fp32
+        run: |
+          dir=build/HybridModels-fp32
+          build/.hybrid-venv/bin/python -I scripts/hybrid/convert_models.py --weights build/.hybrid-weights \
+            --out "$dir" --clip-precision fp32 --clip-only
+          cp -R build/HybridModels/HSEmotion.mlpackage "$dir/"
+          cp Resources/Hybrid/emotion_prompts.json "$dir/"
+
+      - name: Benchmark (Swift, release build)
+        env:
+          MEMEME_HYBRID_TEST_MODELS: ${{ github.workspace }}/build/HybridModels
+          MEMEME_BENCHMARK_DATA: ${{ github.workspace }}/build/benchmark-data
+          MEMEME_BENCHMARK_REFERENCE: ${{ github.workspace }}/build/benchmark-reference.json
+          MEMEME_BENCHMARK_PIXELS: ${{ github.workspace }}/build/benchmark-pixels
+          MEMEME_BENCHMARK_OUT: ${{ github.workspace }}/build/hybrid-benchmark.json
+          MEMEME_BENCHMARK_MODE: full
+          COMPARE_FP32: ${{ inputs.compare_fp32 }}
+        run: |
+          if [[ "$COMPARE_FP32" == "true" ]]; then
+            export MEMEME_HYBRID_VARIANTS="fp16=$MEMEME_HYBRID_TEST_MODELS,fp32=$GITHUB_WORKSPACE/build/HybridModels-fp32"
+          fi
+          swift test -c release -Xswiftc -enable-testing --filter MemeMeAppTests.HybridBenchmarkTests 2>&1 \
+            | tee build/hybrid-benchmark.log
+          status=${PIPESTATUS[0]}
+          {
+            echo '### Hybrid matcher benchmark'
+            echo '```'
+            grep 'HYBRID-BENCH' build/hybrid-benchmark.log | grep -v 'report' || true
+            echo '```'
+            echo '```json'
+            cat "$MEMEME_BENCHMARK_OUT" 2>/dev/null || echo '{}'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      - name: Upload the benchmark
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hybrid-benchmark
+          path: |
+            build/hybrid-benchmark.json
+            build/hybrid-benchmark.log
+          if-no-files-found: ignore
