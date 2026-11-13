@@ -4,11 +4,14 @@ import XCTest
 
 final class ResultTabTests: XCTestCase {
     func testTabCyclesForwardAndBackWrappingAround() {
-        XCTAssertEqual(ResultTab.allCases, [.forYou, .gifs, .stickers, .memes])
+        XCTAssertEqual(ResultTab.allCases, [.forYou, .gifs, .stickers, .memes, .saved])
         XCTAssertEqual(ResultTab.forYou.cycled(by: 1), .gifs)
-        XCTAssertEqual(ResultTab.memes.cycled(by: 1), .forYou)
-        XCTAssertEqual(ResultTab.forYou.cycled(by: -1), .memes)
-        XCTAssertEqual(ResultTab.stickers.cycled(by: -5), .gifs)
+        XCTAssertEqual(ResultTab.memes.cycled(by: 1), .saved)
+        XCTAssertEqual(ResultTab.saved.cycled(by: 1), .forYou)
+        XCTAssertEqual(ResultTab.forYou.cycled(by: -1), .saved)
+        XCTAssertEqual(ResultTab.stickers.cycled(by: -5), .stickers)
+        XCTAssertEqual(ResultTab.stickers.cycled(by: -6), .gifs)
+        XCTAssertEqual(ResultTab.saved.title, "Saved")
         XCTAssertEqual(ResultTab.forYou.title, "For You")
         XCTAssertEqual(ResultTab.gifs.title, "GIFs")
     }
@@ -23,6 +26,9 @@ final class ResultTabTests: XCTestCase {
         XCTAssertFalse(ResultTab.stickers.shows(.gif))
         XCTAssertTrue(ResultTab.memes.shows(.meme))
         XCTAssertFalse(ResultTab.memes.shows(.sticker))
+        for kind in [TileKind.sticker, .gif, .meme] {
+            XCTAssertTrue(ResultTab.saved.shows(kind), "Saved shows every kind you saved")
+        }
     }
 
     func testAnItemsKindIsStickerThenGIFThenMeme() {

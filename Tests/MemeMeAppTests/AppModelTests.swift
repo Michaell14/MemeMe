@@ -351,6 +351,9 @@ final class AppModelTests: XCTestCase {
                        "Memes shows still images, not stickers")
 
         model.cycleTab(by: 1)
+        XCTAssertEqual(model.tab, .saved)
+        XCTAssertTrue(model.results.isEmpty, "nothing saved yet")
+        model.cycleTab(by: 1)
         XCTAssertEqual(model.tab, .forYou, "Tab wraps around")
 
         model.selectTab(.gifs)

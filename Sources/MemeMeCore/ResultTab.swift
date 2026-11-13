@@ -1,9 +1,9 @@
 import Foundation
 
-/// The panel's tabs. For You mixes everything: your things in the top row, GIPHY's GIFs under them. The others show
-/// one kind of thing each.
+/// The panel's tabs. For You mixes everything: your things in the top row, GIPHY's GIFs under them. GIFs, Stickers and
+/// Memes show one kind of thing each; Saved, the things of yours you starred.
 public enum ResultTab: String, CaseIterable, Sendable {
-    case forYou, gifs, stickers, memes
+    case forYou, gifs, stickers, memes, saved
 
     public var title: String {
         switch self {
@@ -11,6 +11,7 @@ public enum ResultTab: String, CaseIterable, Sendable {
         case .gifs: return "GIFs"
         case .stickers: return "Stickers"
         case .memes: return "Memes"
+        case .saved: return "Saved"
         }
     }
 
@@ -22,10 +23,11 @@ public enum ResultTab: String, CaseIterable, Sendable {
         return all[((index + offset) % count + count) % count]
     }
 
-    /// Whether the tab shows your things of `kind`: all of them in For You, else its own kind.
+    /// Whether the tab shows your things of `kind`: all of them in For You and Saved (which shows only what you saved),
+    /// else its own kind.
     public func shows(_ kind: TileKind) -> Bool {
         switch self {
-        case .forYou: return true
+        case .forYou, .saved: return true
         case .gifs: return kind == .gif
         case .stickers: return kind == .sticker
         case .memes: return kind == .meme
