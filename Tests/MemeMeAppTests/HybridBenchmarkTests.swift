@@ -77,16 +77,18 @@ final class HybridBenchmarkTests: XCTestCase {
             if e > 0.02 { worst.append((image.file, "emotion max abs", e)) }
         }
         let n = reference.images.count
-        report["parity"] = [
-            "images": n,
-            "clip_full_cosine_min": clipCos.min() ?? 0, "clip_full_cosine_mean": mean(clipCos),
-            "clip_face_cosine_min": faceCos.min() ?? 0,
-            "hsemotion_max_abs_diff_max": emoDiff.max() ?? 1, "hsemotion_max_abs_diff_mean": mean(emoDiff),
-            "zero_shot_max_abs_diff_max": zsDiff.max() ?? 1,
-            "clip_cosine_below_0.99": clipCos.filter { $0 < 0.99 }.count,
-            "hsemotion_diff_above_0.02": emoDiff.filter { $0 > 0.02 }.count,
-            "vision_and_res10_agree_on_face": detectorAgrees,
-        ]
+        var parity: [String: Any] = [:]
+        parity["images"] = n
+        parity["clip_full_cosine_min"] = clipCos.min() ?? 0
+        parity["clip_full_cosine_mean"] = mean(clipCos)
+        parity["clip_face_cosine_min"] = faceCos.min() ?? 0
+        parity["hsemotion_max_abs_diff_max"] = emoDiff.max() ?? 1
+        parity["hsemotion_max_abs_diff_mean"] = mean(emoDiff)
+        parity["zero_shot_max_abs_diff_max"] = zsDiff.max() ?? 1
+        parity["clip_cosine_below_0.99"] = clipCos.filter { $0 < 0.99 }.count
+        parity["hsemotion_diff_above_0.02"] = emoDiff.filter { $0 > 0.02 }.count
+        parity["vision_and_res10_agree_on_face"] = detectorAgrees
+        report["parity"] = parity
         for w in worst.prefix(12) { print("HYBRID-BENCH parity outlier \(w.file): \(w.what) \(w.value)") }
 
         // ---------- hybrid match@5 ----------
@@ -141,9 +143,12 @@ final class HybridBenchmarkTests: XCTestCase {
                 let scores = entries.map { HybridMatcher.score(query: q, entry: $0) }
                 return Array(scores.indices.sorted { scores[$0] != scores[$1] ? scores[$0] > scores[$1] : $0 < $1 }.prefix(5))
             }
-            hybridRuns[name] = ["expr_p5_test": result.p5, "expr_p5_macro_test": result.macro,
-                                "top5_overlap_with_python": overlap(result.lists),
-                                "gallery_faces": entries.filter(\.hasFace).count]
+            var run: [String: Any] = [:]
+            run["expr_p5_test"] = result.p5
+            run["expr_p5_macro_test"] = result.macro
+            run["top5_overlap_with_python"] = overlap(result.lists)
+            run["gallery_faces"] = entries.filter { $0.hasFace }.count
+            hybridRuns[name] = run
             print("HYBRID-BENCH hybrid [\(name)] match@5 \(fmt(result.p5)) macro \(fmt(result.macro)) top-5 overlap \(fmt(overlap(result.lists)))")
         }
         report["hybrid"] = hybridRuns
@@ -177,7 +182,7 @@ final class HybridBenchmarkTests: XCTestCase {
         let classic = evaluate(classicTop5)
         print("HYBRID-BENCH classic ranker match@5 \(fmt(classic.p5)) macro \(fmt(classic.macro))")
         // As the app routes it: the hybrid unless a pose or a face detail is clear.
-        let entries = try galleryEntries(visionDetector: true)
+        let appEntries = try galleryEntries(visionDetector: true)
         var routedToClassic = 0
         let routed = try evaluate { i in
             let sample = samples[i]!
@@ -185,16 +190,23 @@ final class HybridBenchmarkTests: XCTestCase {
                 routedToClassic += 1
                 return classicTop5(i)
             }
-            let scores = entries.map { HybridMatcher.score(query: q, entry: $0) }
+            let scores = appEntries.map { HybridMatcher.score(query: q, entry: $0) }
             return Array(scores.indices.sorted { scores[$0] != scores[$1] ? scores[$0] > scores[$1] : $0 < $1 }.prefix(5))
         }
         print("HYBRID-BENCH app routing match@5 \(fmt(routed.p5)) macro \(fmt(routed.macro)) (\(routedToClassic) of \(test.count) queries to the classic ranker)")
-        report["classic"] = ["expr_p5_test": classic.p5, "expr_p5_macro_test": classic.macro]
-        report["app_routing"] = ["expr_p5_test": routed.p5, "expr_p5_macro_test": routed.macro,
-                                 "queries_to_classic": routedToClassic, "test_queries": test.count]
+        var classicReport: [String: Any] = [:]
+        classicReport["expr_p5_test"] = classic.p5
+        classicReport["expr_p5_macro_test"] = classic.macro
+        report["classic"] = classicReport
+        var routedReport: [String: Any] = [:]
+        routedReport["expr_p5_test"] = routed.p5
+        routedReport["expr_p5_macro_test"] = routed.macro
+        routedReport["queries_to_classic"] = routedToClassic
+        routedReport["test_queries"] = test.count
+        report["app_routing"] = routedReport
 
         // ---------- speed ----------
-        report["speed"] = try measureSpeed(models: models, data: data, reference: reference, entries: entries)
+        report["speed"] = try measureSpeed(models: models, data: data, reference: reference, entries: appEntries)
 
         let json = try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys])
         print("HYBRID-BENCH report\n" + String(decoding: json, as: UTF8.self))
@@ -224,7 +236,7 @@ final class HybridBenchmarkTests: XCTestCase {
         }
         func live(_ frame: CGImage, request: VNImageBasedRequest) throws -> Double {
             let start = CFAbsoluteTimeGetCurrent()
-            try VNImageRequestHandler(cgImage: frame, orientation: .up).perform([request])
+            try VNImageRequestHandler(cgImage: frame, orientation: .up, options: [:]).perform([request])
             let faces = (request.results ?? []).compactMap { $0 as? VNFaceObservation }
             let rgb = HybridAnalyzer.rgbImage(from: frame)!
             let crop = HybridAnalyzer.largestFaceCrop(faces, imageWidth: rgb.width, imageHeight: rgb.height)
@@ -251,14 +263,17 @@ final class HybridBenchmarkTests: XCTestCase {
             rank5k.append(r)
             heldBig.append(queryTime + r)
         }
-        let speed: [String: Any] = [
-            "frames": frames.count, "frame_size": "640x480",
-            "live_frame_s_landmarks_mean": mean(landmarks), "live_frame_s_landmarks_median": median(landmarks),
-            "live_frame_s_rectangles_mean": mean(rectangles),
-            "held_search_s_gallery209_mean": mean(held), "held_search_s_gallery209_median": median(held),
-            "held_search_s_5000_items_mean": mean(heldBig), "rank_only_s_5000_items_mean": mean(rank5k),
-            "cpu": ProcessInfo.processInfo.processorCount,
-        ]
+        var speed: [String: Any] = [:]
+        speed["frames"] = frames.count
+        speed["frame_size"] = "640x480"
+        speed["live_frame_s_landmarks_mean"] = mean(landmarks)
+        speed["live_frame_s_landmarks_median"] = median(landmarks)
+        speed["live_frame_s_rectangles_mean"] = mean(rectangles)
+        speed["held_search_s_gallery209_mean"] = mean(held)
+        speed["held_search_s_gallery209_median"] = median(held)
+        speed["held_search_s_5000_items_mean"] = mean(heldBig)
+        speed["rank_only_s_5000_items_mean"] = mean(rank5k)
+        speed["cpu"] = ProcessInfo.processInfo.processorCount
         print("HYBRID-BENCH speed live frame \(fmt(mean(landmarks))) s (landmarks), \(fmt(mean(rectangles))) s (rectangles); held search \(fmt(mean(held))) s (209), \(fmt(mean(heldBig))) s (5,000)")
         return speed
     }
