@@ -34,6 +34,10 @@ private struct OwnStickerWork: @unchecked Sendable {
     let pose: PoseFeatures?
 }
 
+private struct ScreenStickerWork: @unchecked Sendable {
+    let analysis: ImageAnalysis
+}
+
 /// A sticker removed with ×, kept in memory so + can restore it.
 private struct RemovedSticker {
     let item: LibraryItem
@@ -190,6 +194,51 @@ private struct BatchRecord {
         guard store.add(item) else {
             try? FileManager.default.removeItem(at: cut.pngURL)
             return store.items.first(where: { $0.contentHash == cut.contentHash }).map { (item: $0, isNew: false) }
+        }
+        saveStore()
+        return (item: item, isNew: true)
+    }
+
+    /// "Save" in the screen cut (⌃⌘S): the die-cut PNG of what you cut out of the screen, kept as one of your own
+    /// stickers named `name` (source "Screen"; `sourceApp`, the app it was cut from, as its detail). Its picture is read
+    /// like any meme's (a face, labels, a feature print) so face and word searches find it. A sticker made from the
+    /// same pixels before is returned instead.
+    func makeScreenSticker(png: Data, name: String, sourceApp: String?) async throws -> (item: LibraryItem, isNew: Bool) {
+        let directory = store.stickersDirectory
+        let fileURL = directory.appendingPathComponent("sticker-\(UUID().uuidString).png", isDirectory: false)
+        let analysis = try await Task.detached(priority: .userInitiated) { () throws -> ScreenStickerWork in
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try png.write(to: fileURL, options: .atomic)
+            return ScreenStickerWork(analysis: try ImageAnalyzer.analyze(url: fileURL, includeText: false))
+        }.value.analysis
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let item = LibraryItem(
+            fileURL: fileURL,
+            displayName: trimmed.isEmpty ? "Sticker" : trimmed,
+            kind: .mine,
+            tier: .meme,
+            source: "Screen",
+            sourceDetail: sourceApp,
+            fileSize: FriendService.fileSize(of: fileURL),
+            contentHash: analysis.contentHash,
+            isSticker: true,
+            isAnimated: false,
+            face: analysis.face,
+            pose: analysis.pose,
+            poseRevision: LibraryItem.currentPoseRevision,
+            intensity: analysis.intensity,
+            featurePrint: analysis.featurePrint,
+            featurePrintRevision: analysis.featurePrintRevision,
+            labels: analysis.labels,
+            faceShape: analysis.faceShape,
+            faceRevision: LibraryItem.currentFaceRevision
+        )
+        guard store.add(item) else {
+            try? FileManager.default.removeItem(at: fileURL)
+            if let existing = store.items.first(where: { $0.contentHash == analysis.contentHash }) {
+                return (item: existing, isNew: false)
+            }
+            throw CocoaError(.fileWriteUnknown)
         }
         saveStore()
         return (item: item, isNew: true)

@@ -1406,6 +1406,24 @@ struct CaptureView: View { init(model: AppModel) }                              
 - `PickerTile`: your things' thumbnails via `ThumbnailCache.shared` (a sticker aspect-fit 8 pt in, else aspect fill), the focused GIF of yours as `AnimatedImageView(url:)`; GIPHY's GIFs and stickers load `web.still(for:)` / `webStickers.still(for:)` and, while focused, the preview; classic memes `model.templates.image(for:)`, aspect fit. Focused: a 2 pt `Theme.accent` ring 3 pt out; hovered: lifted 2 pt.
 - `PoweredByGiphyMark`: "Powered by" + `Bundle.main.image(forResource: "GIPHYLogo")` (Resources/GIPHY/GIPHYLogo.png, copied by build-app.sh, 12 pt tall), else the words "Powered by GIPHY".
 
+### UI/ScreenCutController.swift, Stickers/ScreenSubjects.swift
+
+```swift
+@MainActor final class ScreenCutController { init(model: AppModel); var isOpen: Bool { get }; func start(); func close() }   // ⌃⌘S (AppDelegate) and model.onRequestScreenCut
+@MainActor final class ScreenCutModel: ObservableObject   // status, hovered / selection (ScreenPiece), dragBox, name; hover(at:), click(at:adding:removing:), drag(from:to:), endDrag(), save(), copy(), cancel()
+struct ScreenPiece { let rect: CGRect; let cutout: CGImage; let outline: CGImage; let isRectangle: Bool }   // rect normalized, origin top-left
+final class ScreenSubjects: @unchecked Sendable {         // heavy: off the main actor
+    init(image: CGImage)                                  // VNGenerateForegroundInstanceMaskRequest on the whole screenshot
+    static func capture(_ screen: NSScreen) async throws -> CGImage   // SCScreenshotManager, MemeMe's windows excluded, ≤ 2880 px
+    func instance(at point: CGPoint) -> Int?
+    func piece(forInstances: IndexSet) throws -> ScreenPiece
+    func piece(inBox: CGRect) throws -> ScreenPiece       // subject lifting on the box alone; the box itself without subjects
+    static func stickerPNG(of piece: ScreenPiece) throws -> Data      // StickerMaker.render (outline unless a rectangle) + encodePNG
+    static func suggestedName(for piece: ScreenPiece) -> String?      // VNClassifyImageRequest, confidence ≥ 0.3
+}
+```
+`FriendService.makeScreenSticker(png:name:sourceApp:)` writes the PNG to `store.stickersDirectory`, reads it with `ImageAnalyzer.analyze` and adds a `.mine` sticker (source "Screen"). Without Screen Recording access (`CGPreflightScreenCaptureAccess`), `start()` asks (`CGRequestScreenCaptureAccess`) and says so on the HUD.
+
 ### UI/HUDController.swift
 
 ```swift

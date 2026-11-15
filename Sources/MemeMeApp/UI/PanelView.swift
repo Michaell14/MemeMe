@@ -283,6 +283,18 @@ struct PanelView: View {
     private var bottomBar: some View {
         HStack(spacing: 4) {
             faceButton
+            Button {
+                model.requestScreenCut()
+            } label: {
+                Image(systemName: "scissors")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(Theme.mutedText)
+                    .frame(width: 34, height: 34)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Cut a sticker out of your screen (⌃⌘S)")
+            .accessibilityLabel("Cut a sticker out of your screen")
             Spacer(minLength: 8)
             if model.focusedPick != nil && !model.isCaptureOpen {
                 Button {

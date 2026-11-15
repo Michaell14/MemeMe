@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import MemeMeCore
 import os
 
@@ -11,6 +12,9 @@ private let launchLog = Logger(subsystem: "com.mememe.app", category: "app")
     private var statusItem: StatusItemController?
     private var popoverModel: StickerPopoverModel?
     private var hotKey: HotKey?
+    /// ⌃⌘S from anywhere: cut a sticker out of the screen.
+    private var screenCutHotKey: HotKey?
+    private var screenCut: ScreenCutController?
 
     /// Set once the first-run panel has opened by itself, so later launches (login) stay quiet until ⌃⌘M.
     /// AppModel.syncLoginItem reads it too: only that first launch registers Open at Login by itself.
@@ -34,13 +38,27 @@ private let launchLog = Logger(subsystem: "com.mememe.app", category: "app")
             panel?.toggle()
         })
 
+        let screenCut = ScreenCutController(model: model)
+        let startScreenCut: @MainActor () -> Void = { [weak panel, weak screenCut] in
+            panel?.hide()
+            screenCut?.start()
+        }
+        model.onRequestScreenCut = startScreenCut
+        let screenCutHotKey = HotKey(keyCode: UInt32(kVK_ANSI_S), modifiers: UInt32(controlKey | cmdKey),
+                                     action: startScreenCut)
+
         self.model = model
         self.panel = panel
+        self.screenCut = screenCut
+        self.screenCutHotKey = screenCutHotKey
         self.popoverModel = popoverModel
         self.statusItem = statusItem
         self.hotKey = hotKey
 
         model.setHotKeyAvailable(hotKey.register())
+        if !screenCutHotKey.register() {
+            launchLog.error("⌃⌘S is taken by another app: the screen cut opens from the panel's ✂ only")
+        }
         model.start()
 
         // First run: the panel opens by itself, under the menu bar, once per install. Later launches (login item)
@@ -55,6 +73,7 @@ private let launchLog = Logger(subsystem: "com.mememe.app", category: "app")
 
     func applicationWillTerminate(_ notification: Notification) {
         hotKey?.unregister()
+        screenCutHotKey?.unregister()
         model?.saveNow()
     }
 

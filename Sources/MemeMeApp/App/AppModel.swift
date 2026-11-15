@@ -363,6 +363,13 @@ private struct DescribedPhrase {
     private let poseNamer: any PoseNaming
 
     var onRequestClose: (() -> Void)?
+    /// Opens the screen cut (✂ in the panel; ⌃⌘S from anywhere): the app delegate closes the panel and starts it.
+    var onRequestScreenCut: (() -> Void)?
+
+    /// ✂ in the panel: cut a sticker out of what is on screen.
+    func requestScreenCut() {
+        onRequestScreenCut?()
+    }
 
     /// Opening the panel with camera access undecided asks for it 0.6 s later (first run).
     /// Tests turn this off so opening the panel never schedules the system prompt.
