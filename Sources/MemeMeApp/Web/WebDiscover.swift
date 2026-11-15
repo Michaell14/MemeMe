@@ -98,6 +98,8 @@ enum WebQuery: Hashable, Sendable {
     @Published private(set) var isFetching: Bool = false
 
     private let store: LibraryStore
+    /// GIPHY's GIFs, or its stickers (the GIPHY Stickers source): one WebDiscover each.
+    let kind: GiphyProvider.Kind
     private let paths: WebPaths
     /// GIPHY's API, never cached.
     private let apiSession: URLSession
@@ -142,9 +144,12 @@ enum WebQuery: Hashable, Sendable {
 
     /// `cacheRoot`: the cache folder (nil = ~/Library/Caches/MemeMe/Web); tests pass a temp folder.
     /// `configuration`: the network sessions' base configuration (nil = default); tests pass one that serves canned replies.
-    init(store: LibraryStore, cacheRoot: URL?, configuration: URLSessionConfiguration? = nil) {
+    /// `kind`: GIPHY's GIFs (default) or its stickers.
+    init(store: LibraryStore, cacheRoot: URL?, configuration: URLSessionConfiguration? = nil,
+         kind: GiphyProvider.Kind = .gifs) {
         self.store = store
-        paths = WebPaths.make(root: cacheRoot)
+        self.kind = kind
+        paths = WebPaths.make(root: cacheRoot, folder: kind == .gifs ? "MemeMe/Web" : "MemeMe/WebStickers")
         let base = configuration ?? .default
 
         let api = (base.copy() as? URLSessionConfiguration) ?? .default
@@ -357,7 +362,7 @@ enum WebQuery: Hashable, Sendable {
         }
         recordSearch()
 
-        let provider = GiphyProvider(apiKey: key, session: apiSession)
+        let provider = GiphyProvider(apiKey: key, kind: kind, session: apiSession)
         let mayRetry: @Sendable () async -> Bool = { [weak self] in
             await self?.recordRetry() ?? false
         }
@@ -522,14 +527,15 @@ private struct WebPaths: Sendable {
         root.appendingPathComponent("rate.json", isDirectory: false)
     }
 
-    static func make(root customRoot: URL? = nil) -> WebPaths {
+    /// `folder`: under Caches when no `customRoot` is given.
+    static func make(root customRoot: URL? = nil, folder: String = "MemeMe/Web") -> WebPaths {
         let fileManager = FileManager.default
         let root: URL
         if let customRoot = customRoot {
             root = customRoot
         } else {
             let caches = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first ?? fileManager.temporaryDirectory
-            root = caches.appendingPathComponent("MemeMe/Web", isDirectory: true)
+            root = caches.appendingPathComponent(folder, isDirectory: true)
         }
         let files = root.appendingPathComponent("files", isDirectory: true)
         try? fileManager.createDirectory(at: files, withIntermediateDirectories: true, attributes: nil)

@@ -1,16 +1,26 @@
 import Foundation
 
-/// GIPHY search: `GET https://api.giphy.com/v1/gifs/search?api_key=&q=&limit=&offset=0&rating=&lang=en`.
+/// GIPHY search: `GET https://api.giphy.com/v1/gifs/search?api_key=&q=&limit=&offset=0&rating=&lang=en`, or
+/// `/v1/stickers/search` for GIPHY's stickers (animated, on transparent).
 struct GiphyProvider: GIFProvider {
+    /// What is searched: GIPHY's GIFs or its stickers. Both come back in the same shape.
+    enum Kind: String, Sendable {
+        case gifs, stickers
+
+        var path: String { "/v1/\(rawValue)/search" }
+    }
+
     private let apiKey: String
+    private let kind: Kind
     private let rating: String
     private let session: URLSession
 
     private static let maximumLimit = 50
     private static let requestTimeout: TimeInterval = 10
 
-    init(apiKey: String, rating: String = "pg-13", session: URLSession = .shared) {
+    init(apiKey: String, kind: Kind = .gifs, rating: String = "pg-13", session: URLSession = .shared) {
         self.apiKey = apiKey
+        self.kind = kind
         self.rating = rating
         self.session = session
     }
@@ -26,7 +36,7 @@ struct GiphyProvider: GIFProvider {
         var components = URLComponents()
         components.scheme = "https"
         components.host = "api.giphy.com"
-        components.path = "/v1/gifs/search"
+        components.path = kind.path
         components.queryItems = [
             URLQueryItem(name: "api_key", value: apiKey),
             URLQueryItem(name: "q", value: trimmedQuery),

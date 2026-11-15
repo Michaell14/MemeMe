@@ -17,26 +17,33 @@ private func observePreviewSessionRunning(
 }
 
 /// The live, mirrored camera preview. Each part of the face (brows, eyes, mouth) glows by how much it counts in the
-/// search showing, white like the rest of Notch Black (dashed when it is ignored); a click opens the face editor.
+/// search showing, white like the rest of Notch Black (dashed when it is ignored), the part the search leans on in the
+/// signal color. A click on a part leans the search on it; elsewhere, `onClick`.
 struct CameraPreviewView: NSViewRepresentable {
     let session: AVCaptureSession
     var regionRects: [FaceRegion: CGRect]   // Vision-normalized image coordinates
     /// How much each part counts (0 ignored … 5); empty: no glow.
     var weights: [FaceRegion: Double]
-    /// A click anywhere on the mirror; nil: clicks do nothing.
+    /// A click anywhere on the mirror (not on a part when `onRegionClick` is set); nil: such clicks do nothing.
     var onClick: (() -> Void)?
+    /// A click on a glowing part; nil: parts take no clicks of their own.
+    var onRegionClick: ((FaceRegion) -> Void)? = nil
+    /// The part the search leans on: drawn in the signal color.
+    var highlighted: FaceRegion? = nil
 
     func makeNSView(context: Context) -> PreviewHostView {
         let view = PreviewHostView(session: session)
         view.onClick = onClick
-        view.update(regionRects: regionRects, weights: weights)
+        view.onRegionClick = onRegionClick
+        view.update(regionRects: regionRects, weights: weights, highlighted: highlighted)
         return view
     }
 
     func updateNSView(_ nsView: PreviewHostView, context: Context) {
         nsView.attach(session)
         nsView.onClick = onClick
-        nsView.update(regionRects: regionRects, weights: weights)
+        nsView.onRegionClick = onRegionClick
+        nsView.update(regionRects: regionRects, weights: weights, highlighted: highlighted)
     }
 }
 
@@ -53,8 +60,16 @@ extension CameraPreviewView {
             }
         }
 
+        var onRegionClick: ((FaceRegion) -> Void)? {
+            didSet {
+                guard (onRegionClick == nil) != (oldValue == nil) else { return }
+                window?.invalidateCursorRects(for: self)
+            }
+        }
+
         private var regionRects: [FaceRegion: CGRect] = [:]
         private var weights: [FaceRegion: Double] = [:]
+        private var highlighted: FaceRegion?
         private var isPointerInside = false
         private var overlays: [FaceRegion: CAShapeLayer] = [:]
         private var runningObservation: NSKeyValueObservation?
@@ -70,6 +85,9 @@ extension CameraPreviewView {
         }
         /// An ignored part: Text 2, dashed.
         private static let ignoredStroke = CGColor(red: 142.0 / 255.0, green: 142.0 / 255.0, blue: 147.0 / 255.0, alpha: 0.9)
+        /// The part the search leans on: Notch Black's signal color.
+        private static let signal = CGColor(red: 255.0 / 255.0, green: 154.0 / 255.0, blue: 92.0 / 255.0, alpha: 1)
+        private static let signalFill = CGColor(red: 255.0 / 255.0, green: 154.0 / 255.0, blue: 92.0 / 255.0, alpha: 0.18)
         private static let backdrop = CGColor(red: 38.0 / 255.0, green: 40.0 / 255.0, blue: 46.0 / 255.0, alpha: 1)
 
         init(session: AVCaptureSession) {
@@ -113,10 +131,11 @@ extension CameraPreviewView {
             watchRunningState(of: session)
         }
 
-        func update(regionRects: [FaceRegion: CGRect], weights: [FaceRegion: Double]) {
-            guard regionRects != self.regionRects || weights != self.weights else { return }
+        func update(regionRects: [FaceRegion: CGRect], weights: [FaceRegion: Double], highlighted: FaceRegion? = nil) {
+            guard regionRects != self.regionRects || weights != self.weights || highlighted != self.highlighted else { return }
             self.regionRects = regionRects
             self.weights = weights
+            self.highlighted = highlighted
             updateOverlays()
         }
 
@@ -157,6 +176,16 @@ extension CameraPreviewView {
         }
 
         override func mouseDown(with event: NSEvent) {
+            if let onRegionClick {
+                let point = convert(event.locationInWindow, from: nil)
+                // The mouth first: the eyes' rect, grown to a click target, can reach down to it.
+                for region in [FaceRegion.mouth, .eyes, .brows] where weights[region] != nil {
+                    if let rect = displayRect(for: region), rect.insetBy(dx: -4, dy: -3).contains(point) {
+                        onRegionClick(region)
+                        return
+                    }
+                }
+            }
             guard let onClick else {
                 super.mouseDown(with: event)
                 return
@@ -166,7 +195,7 @@ extension CameraPreviewView {
 
         override func resetCursorRects() {
             super.resetCursorRects()
-            if onClick != nil {
+            if onClick != nil || onRegionClick != nil {
                 addCursorRect(bounds, cursor: .pointingHand)
             }
         }
@@ -234,7 +263,7 @@ extension CameraPreviewView {
             defer { CATransaction.commit() }
 
             // Pointing at a mirror that opens the editor lifts the glows a little.
-            let lift: CGFloat = isPointerInside && onClick != nil ? 0.12 : 0
+            let lift: CGFloat = isPointerInside && (onClick != nil || onRegionClick != nil) ? 0.12 : 0
             for region in PreviewHostView.regions {
                 guard let shape = overlays[region] else { continue }
                 guard let weight = weights[region], let rect = displayRect(for: region) else {
@@ -242,7 +271,12 @@ extension CameraPreviewView {
                     shape.path = nil
                     continue
                 }
-                if weight <= 0.05 {
+                if region == highlighted {
+                    shape.fillColor = PreviewHostView.signalFill
+                    shape.strokeColor = PreviewHostView.signal
+                    shape.lineWidth = 2
+                    shape.lineDashPattern = nil
+                } else if weight <= 0.05 {
                     shape.fillColor = nil
                     shape.strokeColor = PreviewHostView.ignoredStroke
                     shape.lineWidth = 1

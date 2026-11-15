@@ -11,7 +11,29 @@ private let modelLog = Logger(subsystem: "com.mememe.app", category: "app")
 
 // MARK: - Panel state
 
-enum PanelMode: Equatable { case prompt, warming, live, text, image, moreLike, cameraOff, cameraBusy }
+/// `idle`: the panel opens on search with the camera off; the other camera modes only while face search is on (⌘F).
+enum PanelMode: Equatable { case idle, prompt, warming, live, text, image, moreLike, cameraOff, cameraBusy }
+
+/// A list over the panel: the source menu (beside the search field) or the actions for the selected result (⌘K).
+enum PanelMenu: Equatable { case sources, actions }
+
+/// What the actions menu (⌘K) can do with the selected result.
+enum PickAction: String, CaseIterable, Equatable {
+    case copy, copyLink, copyMarkdown, toggleFavorite, moreLikeThis, showInFinder, openInBrowser
+}
+
+/// One row of a menu over the panel.
+struct MenuRow: Identifiable, Equatable {
+    let id: String
+    let title: String
+    /// An SF Symbol, or a letter on a small square (GIPHY's sources).
+    let symbol: String?
+    let letter: String?
+    let keys: [String]
+    let isChecked: Bool
+    /// A line goes above it.
+    let startsGroup: Bool
+}
 
 enum HintAction: Equatable { case backToFace, keepImage, turnOnCamera, useCamera }
 
@@ -41,13 +63,15 @@ enum DropOutcome { case kept(IndexBatch), stickers(StickerBatch), nothing }
 
 /// Hint copy (exact strings from DESIGN.md).
 private enum HintCopy {
+    static let idleTitle = "Search with your face"
+    static let idleSubtitle = "⌘F turns on the camera."
     static let promptTitle = "Make a face."
     static let promptSubtitle = "That’s the search. There’s no button to press."
     static let warmingTitle = "Starting camera…"
-    static let warmingSubtitle = "Your recent picks are ready below."
-    static let liveTitle = "Make a face or a pose. Results follow it."
+    static let warmingSubtitle = "Your recent picks are ready."
+    static let liveTitle = "Make a face or a pose."
     /// Under the big mirror until a face is caught.
-    static let liveSubtitle = "Small changes count: a wink, one brow."
+    static let liveSubtitle = "Hold it and results follow. Small changes count."
     /// While a face is held toward the search, under the big mirror.
     static let holdingTitle = "Hold it…"
     static let holdingSubtitle = "Then it searches."
@@ -57,7 +81,7 @@ private enum HintCopy {
     static let noFaceSubtitle = "Try more light, or just type."
     static let textTitle = "Searching by words"
     /// Also shown when a face token is kept (DESIGN.md): the camera then only feeds the dimmed mirror.
-    static let textSubtitle = "The camera is off while you type."
+    static let textSubtitle = "The camera waits while you type."
     static let imageTitle = "Searching with your image"
     static let imageSubtitle = "It isn’t saved unless you keep it."
     static let keepAction = "Keep it"
@@ -113,68 +137,74 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
 enum Pick: Equatable {
     case meme(LibraryItem)
     case gif(WebGIF)
+    /// One of GIPHY's stickers (the GIPHY Stickers source): animated, on transparent.
+    case giphySticker(WebGIF)
     case template(MemeTemplate)
 
     var title: String {
         switch self {
         case let .meme(item): return item.displayName
-        case let .gif(gif): return gif.title
+        case let .gif(gif), let .giphySticker(gif): return gif.title
         case let .template(template): return template.name
+        }
+    }
+
+    /// What ↵ copies, for the bottom bar: "Copy GIF", "Copy Sticker", "Copy Image".
+    var copyNoun: String {
+        switch self {
+        case let .meme(item):
+            if item.isSticker { return "Sticker" }
+            return item.isAnimated ? "GIF" : "Image"
+        case .gif: return "GIF"
+        case .giphySticker: return "Sticker"
+        case .template: return "Image"
+        }
+    }
+
+    /// Where it is from, for its tile's small badge: GIPHY, the classic memes, or yours.
+    var isFromGiphy: Bool {
+        switch self {
+        case .gif, .giphySticker: return true
+        case .meme, .template: return false
         }
     }
 }
 
-/// What the panel's two rows of tiles hold for the tab showing.
-struct TileLayout: Equatable {
-    /// Row by row, `columns` slots each; nil for an empty slot. Each row fills from the left.
-    let tiles: [Pick?]
+/// What the grid shows for the source and search: every pick in order, `columns` to a row, under one title.
+struct PickerLayout: Equatable {
+    let picks: [Pick]
+    let columns: Int
     /// The rows' tiles for keyboard focus.
     let rows: TileRows
-    /// A row's empty slots wait for something on its way (GIPHY's search, Imgflip's list).
-    let loading: [Bool]
-    /// What a row with nothing in it says ("GIPHY isn’t answering right now.").
-    let messages: [String?]
-    /// The rows holding GIPHY's GIFs: their credit shows under the tiles.
-    let giphyRows: Set<Int>
-    /// Kinds mix (For You): GIFs of yours carry a "GIF" tag.
-    let marksTypes: Bool
-    /// Each row's title over its tiles ("Recent in Messages", "Frequent"); nil for none. Only while the mirror is big.
-    let titles: [String?]
-    /// The rows whose tiles show how often they were sent ("14×"): the Frequent row.
-    let countRows: Set<Int>
+    /// More is on its way (GIPHY's search, Imgflip's list): placeholder tiles follow the picks.
+    let isLoading: Bool
+    /// What the grid says when it shows nothing ("GIPHY isn’t answering right now.").
+    let message: String?
+    /// GIPHY's GIFs or stickers are among the picks: its credit shows.
+    let showsGiphy: Bool
+    /// Over the grid: "Recent", "Matching your face", "Results for “sad”".
+    let title: String
 
-    init(top: [Pick], bottom: [Pick], columns: Int, loading: [Bool], messages: [String?], giphyRows: Set<Int>,
-         marksTypes: Bool, titles: [String?] = [nil, nil], countRows: Set<Int> = []) {
-        let top = Array(top.prefix(columns))
-        let bottom = Array(bottom.prefix(columns))
-        var tiles: [Pick?] = top.map { Optional($0) }
-        tiles += [Pick?](repeating: nil, count: columns - top.count)
-        tiles += bottom.map { Optional($0) }
-        tiles += [Pick?](repeating: nil, count: columns - bottom.count)
-        self.tiles = tiles
-        self.rows = TileRows(columns: columns, counts: [top.count, bottom.count])
-        self.loading = loading
-        self.messages = messages
-        self.giphyRows = giphyRows
-        self.marksTypes = marksTypes
-        self.titles = titles
-        self.countRows = countRows
+    init(picks: [Pick], columns: Int, isLoading: Bool, message: String?, title: String) {
+        let columns = max(1, columns)
+        self.picks = picks
+        self.columns = columns
+        var counts: [Int] = []
+        var remaining = picks.count
+        while remaining > 0 {
+            counts.append(min(columns, remaining))
+            remaining -= columns
+        }
+        rows = TileRows(columns: columns, counts: counts)
+        self.isLoading = isLoading
+        self.message = picks.isEmpty && !isLoading ? message : nil
+        showsGiphy = picks.contains { $0.isFromGiphy }
+        self.title = title
     }
-
-    func title(ofRow row: Int) -> String? {
-        titles.indices.contains(row) ? titles[row] : nil
-    }
-
-    var showsGiphy: Bool { !giphyRows.isEmpty }
 
     func pick(at slot: Int) -> Pick? {
-        guard slot >= 0, slot < tiles.count else { return nil }
-        return tiles[slot]
-    }
-
-    /// The first `columns` of `picks` on top, the next `columns` under them.
-    static func split(_ picks: [Pick], columns: Int) -> (top: [Pick], bottom: [Pick]) {
-        (Array(picks.prefix(columns)), Array(picks.dropFirst(columns).prefix(columns)))
+        guard slot >= 0, slot < picks.count else { return nil }
+        return picks[slot]
     }
 }
 
@@ -223,20 +253,43 @@ private struct DescribedPhrase {
             if mode != .live, faceEdit != nil { endFaceEdit() }
         }
     }
-    /// Your things for the tab showing, best first (≤ Theme.resultLimit): all of them in For You, else the tab's kind.
+    /// Your things for the source showing, best first (≤ Theme.resultLimit): every kind in All Sources, else the
+    /// source's.
     @Published private(set) var results: [RankedResult] = []
-    /// The tab showing: For You (your things mixed on top, GIPHY's GIFs under them) each time the panel opens.
-    @Published private(set) var tab: ResultTab = .forYou
+    /// Where results come from: All Sources each time the panel opens.
+    @Published private(set) var source: PickerSource = .all
+    /// The camera searches with your face (⌘F, the button at the bottom left). Off each time the panel opens: it opens
+    /// on search.
+    @Published private(set) var faceSearchOn = false
+    /// The part of your face the search leans on (a click on it in the camera); nil: the automatic weights.
+    @Published private(set) var leanRegion: FaceRegion?
+    /// The menu over the panel, if one is open.
+    @Published private(set) var menu: PanelMenu?
+    /// What is typed into the open menu's filter field.
+    @Published var menuQuery: String = "" {
+        didSet {
+            if menuQuery != oldValue, menuSelection != 0 { menuSelection = 0 }
+        }
+    }
+    /// The highlighted row of the open menu (↑ ↓, ↵ runs it).
+    @Published private(set) var menuSelection = 0
+    /// GIPHY's stickers for `giphyQuery` (the GIPHY Stickers source), in GIPHY's order.
+    @Published private(set) var stickerResults: [WebGIF] = []
+    @Published private(set) var isStickersLoading = false
+    @Published private(set) var stickersUnavailable = false
     /// You have memes of your own (meme or maybe tier): until then the mirror's column offers "Find my memes".
     @Published private(set) var hasMemes: Bool = false
     @Published private(set) var newResultIDs: Set<UUID> = []          // just arrived, for 600 ms
-    /// A slot of the two rows of tiles (`layout`), row by row from 0; -1 for none (a typed, image or more-like search
-    /// that found nothing of yours).
+    /// A slot of the grid (`layout`), row by row from 0; -1 for none.
     @Published var focusedIndex: Int = 0
     /// GIPHY's results for `giphyQuery` (the face's mood, or typed words) in GIPHY's order, never ranked or mixed with
-    /// your memes: the page the tab shows (`giphySlots` of them).
+    /// your memes: the page the grid shows (`giphySlots` of them).
     @Published private(set) var giphyResults: [WebGIF] = []
-    @Published private(set) var giphyQuery: WebQuery?
+    @Published private(set) var giphyQuery: WebQuery? {
+        didSet {
+            if giphyQuery != oldValue { showGiphyStickers() }
+        }
+    }
     @Published private(set) var isGiphyLoading: Bool = false
     /// The row's search failed or GIPHY refused it.
     @Published private(set) var giphyUnavailable: Bool = false
@@ -286,7 +339,7 @@ private struct DescribedPhrase {
     @Published var isDraggingTile: Bool = false
     /// The capture view replaces the panel's contents: a big filtered mirror and a shutter.
     @Published private(set) var isCaptureOpen: Bool = false
-    /// Your things you saved (the star on a tile; the Saved tab).
+    /// Your things you saved (the star on a tile; the Favorites source).
     @Published private(set) var savedIDs: Set<UUID> = []
     /// What the camera reads in the face being held while the mirror is big ("Brows up", 0...5), strongest first;
     /// empty otherwise.
@@ -299,6 +352,8 @@ private struct DescribedPhrase {
     let capture: CaptureModel
     let indexer: LibraryIndexer
     let web: WebDiscover
+    /// GIPHY's stickers, searched for the same words as its GIFs while the GIPHY Stickers source shows.
+    let webStickers: WebDiscover
     let templates: MemeTemplates
     let friends: FriendService
     /// Update checks and the one-click install; disabled when the bundle has no feed URL (local builds, tests).
@@ -341,13 +396,18 @@ private struct DescribedPhrase {
     private var tracker: PeakHoldTracker
     private var previousBundleID: String?
     private var shownAt: TimeInterval = 0
+    /// When face search was turned on: typing right after that stops it instead of keeping the face.
+    private var faceOnAt: TimeInterval = 0
+    private var stickerQuery: WebQuery?
+    private var stickerTask: Task<Void, Never>?
+    private var stickerGeneration = 0
     private var liveSince: TimeInterval?
     private var faceMissing = false
     /// When the face came back while "Can't see your face" shows.
     private var faceBackSince: TimeInterval?
     private var userInteracted = false
     private var useCameraDespiteOtherApp = false
-    /// Published: whether the mirror is big (`mirrorIsLarge`) follows it.
+    /// Published: the grid's title follows it.
     @Published private var resultSource: ResultSource = .recent
     private var currentWeights: FeatureWeights = .uniform
     private var faceTokenSample: ExpressionSample?
@@ -380,7 +440,7 @@ private struct DescribedPhrase {
     private var giphyTask: Task<Void, Never>?
     private var giphyGeneration = 0
     private var giphyWordsTask: Task<Void, Never>?
-    /// Every GIF GIPHY gave for `giphyQuery`, in its order; the tab shows `giphyPage`'s `giphySlots` of them.
+    /// Every GIF GIPHY gave for `giphyQuery`, in its order; the grid shows `giphyPage`'s `giphySlots` of them.
     private var giphyFound: [WebGIF] = []
     /// Which of `giphyFound` the row shows (`WebDiscover.page`): a new face caught with the same mood turns to the
     /// next ones. 0 for each new query and each time the panel opens.
@@ -410,8 +470,8 @@ private struct DescribedPhrase {
 
     private var limit: Int { Theme.resultLimit }
 
-    /// Classic memes picked at a time: enough for both rows of the Memes tab.
-    static let templatePickSize = Theme.slotCount
+    /// Classic memes picked at a time (a page: the same face caught again turns to the next).
+    static let templatePickSize = 10
 
     convenience init(store: LibraryStore) {
         self.init(store: store, webCacheRoot: nil)
@@ -432,6 +492,11 @@ private struct DescribedPhrase {
         self.capture = CaptureModel(camera: camera)
         self.indexer = LibraryIndexer(store: store)
         self.web = WebDiscover(store: store, cacheRoot: webCacheRoot)
+        self.webStickers = WebDiscover(
+            store: store,
+            cacheRoot: webCacheRoot.map { $0.deletingLastPathComponent().appendingPathComponent("WebStickers", isDirectory: true) },
+            kind: .stickers
+        )
         self.templates = MemeTemplates(
             store: store,
             cacheRoot: webCacheRoot.map { $0.deletingLastPathComponent().appendingPathComponent("Templates", isDirectory: true) }
@@ -538,17 +603,16 @@ private struct DescribedPhrase {
         isPanelVisible = true
         shownAt = CACurrentMediaTime()
         resetForNewSession()
+        // The panel opens on search: the camera waits for ⌘F.
         enterCameraMode()
         showRecentResults()
-        if requestsCameraAccessOnShow && camera.authorization == .notDetermined {
-            scheduleCameraAccessRequest(after: AppModel.cameraPromptDelay)
-        }
         refreshFooter()
         refreshHint()
     }
 
     func panelDidHide() {
         isPanelVisible = false
+        closeMenu()
         closeCapture(backToMemes: false)
         cancelSessionTasks()
         camera.stop()
@@ -570,30 +634,325 @@ private struct DescribedPhrase {
         pick(atSlot: focusedIndex)
     }
 
-    /// Tab and "More like this" look for memes like the focused one (not like a GIPHY GIF).
+    /// "More like this" looks for memes like the focused one (not like a GIPHY GIF).
     var canMoreLikeFocused: Bool {
         if case .meme? = focusedPick { return true }
         return false
     }
 
-    /// What the two rows of tiles hold for the tab showing.
-    var layout: TileLayout {
+    /// What the grid shows for the source and search.
+    var layout: PickerLayout {
         makeLayout()
     }
 
-    /// Shows `newTab`: your things for it, ranked again for the search showing, and GIPHY's page sized for it; the
-    /// focus goes to its first tile.
-    func selectTab(_ newTab: ResultTab) {
-        guard tab != newTab else { return }
-        tab = newTab
+    /// Shows `newSource`: your things for it, ranked again for the search showing, or the web's; the focus goes to its
+    /// first tile.
+    func selectSource(_ newSource: PickerSource) {
+        guard source != newSource else { return }
+        source = newSource
         userInteracted = false
         refreshCurrentResults()
-        showGiphyPage()
+        if newSource.showsGiphyGIFs, giphyQuery == nil {
+            showGiphy(for: .mood(.reaction))
+        }
+        showGiphyStickers()
+        normalizeFocus()
     }
 
-    /// Tab and Shift-Tab: the next or the previous tab, wrapping around.
-    func cycleTab(by offset: Int) {
-        selectTab(tab.cycled(by: offset))
+    /// Tab and Shift-Tab: the next or the previous source, wrapping around.
+    func cycleSource(by offset: Int) {
+        selectSource(source.cycled(by: offset))
+    }
+
+    /// The bottom bar's main action: "Copy GIF", "Copy Sticker", "Copy Image".
+    var copyLabel: String {
+        "Copy " + (focusedPick?.copyNoun ?? "")
+    }
+
+    // MARK: - Face search
+
+    /// The camera's column shows beside the grid: face search is on, or an image is being searched with.
+    var showsFaceColumn: Bool {
+        faceSearchOn || mode == .image || mode == .moreLike
+    }
+
+    /// ⌘F and the button at the bottom left: the camera turns on and your face becomes the search (camera access is
+    /// asked for the first time), or it turns off and the panel goes back to search.
+    func toggleFaceSearch() {
+        setFaceSearch(!faceSearchOn)
+    }
+
+    func setFaceSearch(_ on: Bool) {
+        guard on != faceSearchOn else { return }
+        closeMenu()
+        if on {
+            faceSearchOn = true
+            faceOnAt = CACurrentMediaTime()
+            clearTextState()
+            resetQueryImage()
+            tracker.reset()
+            earlyMood.reset()
+            enterCameraMode()
+            if camera.authorization == .notDetermined && requestsCameraAccessOnShow {
+                scheduleCameraAccessRequest(after: 0)
+            }
+            showRecentResults()
+        } else {
+            faceSearchOn = false
+            if leanRegion != nil { leanRegion = nil }
+            closeCapture(backToMemes: false)
+            endFaceEdit()
+            tracker.reset()
+            earlyMood.reset()
+            cancelDescribing()
+            if holdProgress != 0 { holdProgress = 0 }
+            if !faceReading.isEmpty { faceReading = [] }
+            if showsFaceToken { showsFaceToken = false }
+            faceTokenSample = nil
+            if mode == .text {
+                camera.stop()
+                runTextSearch()
+            } else {
+                enterCameraMode()
+                // GIPHY and the classic memes go back to what the panel opened with.
+                showGiphy(for: .mood(.reaction))
+                showTemplates(for: .mood(.reaction))
+                showRecentResults()
+            }
+        }
+        refreshHint()
+    }
+
+    /// The grid shows what your face found (not your recent picks, words or an image): its parts can be leaned on.
+    var showsFaceResults: Bool {
+        resultSource == .expression
+    }
+
+    /// A click on your brows, eyes or mouth (in the camera, or on its meter): the search leans on that part, so it
+    /// counts most and the search's word is read from it. The same part again goes back to the whole face.
+    func leanOn(_ region: FaceRegion) {
+        guard faceSearchOn else { return }
+        leanRegion = leanRegion == region ? nil : region
+        if resultSource == .expression && faceEdit == nil {
+            runExpressionSearch(animate: false)
+        }
+        refreshHint()
+    }
+
+    // MARK: - Menus
+
+    /// ⌘P and the source button: the source menu; ⌘K and Actions: what can be done with the selected result. The
+    /// same menu again closes it.
+    func toggleMenu(_ which: PanelMenu) {
+        if menu == which {
+            closeMenu()
+            return
+        }
+        if which == .actions && focusedPick == nil { return }
+        menuQuery = ""
+        menuSelection = which == .sources ? max(0, sourceRows.firstIndex { $0.isChecked } ?? 0) : 0
+        menu = which
+    }
+
+    func closeMenu() {
+        guard menu != nil else { return }
+        menu = nil
+        menuQuery = ""
+        menuSelection = 0
+    }
+
+    /// The open menu's rows, filtered by what is typed into it.
+    var menuRows: [MenuRow] {
+        let rows: [MenuRow]
+        switch menu {
+        case .sources?: rows = sourceRows
+        case .actions?: rows = actionRows
+        case nil: return []
+        }
+        let query = menuQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !query.isEmpty else { return rows }
+        return rows.filter { $0.title.lowercased().contains(query) }.map { row in
+            MenuRow(id: row.id, title: row.title, symbol: row.symbol, letter: row.letter, keys: row.keys,
+                    isChecked: row.isChecked, startsGroup: false)
+        }
+    }
+
+    /// ↑ ↓ in an open menu.
+    func moveMenuSelection(by offset: Int) {
+        let count = menuRows.count
+        guard count > 0 else { return }
+        let next = min(max(0, menuSelection + offset), count - 1)
+        if next != menuSelection { menuSelection = next }
+    }
+
+    func hoverMenuRow(_ index: Int) {
+        guard index >= 0, index < menuRows.count, index != menuSelection else { return }
+        menuSelection = index
+    }
+
+    /// ↵ in an open menu, or a click on a row.
+    func performMenuRow(at index: Int? = nil) {
+        let rows = menuRows
+        let chosen = index ?? menuSelection
+        guard chosen >= 0, chosen < rows.count, let which = menu else { return }
+        let id = rows[chosen].id
+        closeMenu()
+        switch which {
+        case .sources:
+            if let picked = PickerSource(rawValue: id) { selectSource(picked) }
+        case .actions:
+            if let action = PickAction(rawValue: id) { perform(action) }
+        }
+    }
+
+    private var sourceRows: [MenuRow] {
+        var previousGroup: Int?
+        return PickerSource.allCases.map { item in
+            let starts = previousGroup.map { $0 != item.group } ?? false
+            previousGroup = item.group
+            let letter: String?
+            switch item {
+            case .giphyGIFs, .giphyStickers: letter = "G"
+            default: letter = nil
+            }
+            return MenuRow(id: item.rawValue, title: item.title, symbol: letter == nil ? AppModel.symbol(for: item) : nil,
+                           letter: letter, keys: [], isChecked: item == source, startsGroup: starts)
+        }
+    }
+
+    /// The SF Symbol beside a source in the menu and on its button.
+    static func symbol(for source: PickerSource) -> String {
+        switch source {
+        case .all: return "square.grid.2x2"
+        case .favorites: return "star"
+        case .onMyMac: return "laptopcomputer"
+        case .myStickers: return "face.smiling"
+        case .giphyGIFs, .giphyStickers: return "play.rectangle"
+        case .classicMemes: return "text.below.photo"
+        }
+    }
+
+    /// The actions for the selected result, in groups: copying it; keeping it or finding more; where it lives.
+    var actions: [[PickAction]] {
+        guard let pick = focusedPick else { return [] }
+        switch pick {
+        case .meme:
+            var keep: [PickAction] = []
+            if canSave(pick) { keep.append(.toggleFavorite) }
+            keep.append(.moreLikeThis)
+            return [[.copy], keep, [.showInFinder]]
+        case .gif, .giphySticker, .template:
+            return [[.copy, .copyLink, .copyMarkdown], [.openInBrowser]]
+        }
+    }
+
+    private var actionRows: [MenuRow] {
+        guard let pick = focusedPick else { return [] }
+        var rows: [MenuRow] = []
+        for (groupIndex, group) in actions.enumerated() {
+            for (index, action) in group.enumerated() {
+                rows.append(MenuRow(id: action.rawValue, title: title(of: action, for: pick),
+                                    symbol: AppModel.symbol(for: action, saved: isSaved(pick)), letter: nil,
+                                    keys: AppModel.keys(for: action), isChecked: false,
+                                    startsGroup: groupIndex > 0 && index == 0))
+            }
+        }
+        return rows
+    }
+
+    private func title(of action: PickAction, for pick: Pick) -> String {
+        switch action {
+        case .copy: return "Copy " + pick.copyNoun
+        case .copyLink: return "Copy Link"
+        case .copyMarkdown: return "Copy Markdown"
+        case .toggleFavorite: return isSaved(pick) ? "Remove from Favorites" : "Add to Favorites"
+        case .moreLikeThis: return "More Like This"
+        case .showInFinder: return "Show in Finder"
+        case .openInBrowser: return pick.isFromGiphy ? "Open on GIPHY" : "Open in Browser"
+        }
+    }
+
+    static func symbol(for action: PickAction, saved: Bool) -> String {
+        switch action {
+        case .copy: return "doc.on.doc"
+        case .copyLink: return "link"
+        case .copyMarkdown: return "chevron.left.forwardslash.chevron.right"
+        case .toggleFavorite: return saved ? "star.slash" : "star"
+        case .moreLikeThis: return "sparkles"
+        case .showInFinder: return "folder"
+        case .openInBrowser: return "globe"
+        }
+    }
+
+    /// The shortcut each action has while no menu is open (the panel controller routes them).
+    static func keys(for action: PickAction) -> [String] {
+        switch action {
+        case .copy: return ["↩"]
+        case .copyLink: return ["⇧", "⌘", "C"]
+        case .copyMarkdown: return ["⌥", "⌘", "C"]
+        case .toggleFavorite: return ["⌘", "S"]
+        case .moreLikeThis: return ["⌘", "M"]
+        case .showInFinder: return ["⇧", "⌘", "R"]
+        case .openInBrowser: return ["⌘", "O"]
+        }
+    }
+
+    /// Runs `action` on the selected result; one it doesn't offer does nothing.
+    func perform(_ action: PickAction) {
+        guard let pick = focusedPick, actions.joined().contains(action) else { return }
+        switch action {
+        case .copy:
+            commit(index: focusedIndex)
+        case .copyLink:
+            guard let link = AppModel.link(for: pick) else { return }
+            copyText(link.absoluteString, notice: "Copied the link · ⌘V")
+        case .copyMarkdown:
+            guard let markdown = AppModel.markdown(for: pick) else { return }
+            copyText(markdown, notice: "Copied as Markdown · ⌘V")
+        case .toggleFavorite:
+            toggleSaved(pick)
+        case .moreLikeThis:
+            moreLikeFocused()
+        case .showInFinder:
+            guard case let .meme(item) = pick else { return }
+            onRequestClose?()
+            NSWorkspace.shared.activateFileViewerSelecting([item.fileURL])
+        case .openInBrowser:
+            guard let link = AppModel.link(for: pick) else { return }
+            onRequestClose?()
+            NSWorkspace.shared.open(link)
+        }
+    }
+
+    /// The page a web result lives on (GIPHY's page, else the file), for Copy Link and Open in Browser.
+    static func link(for pick: Pick) -> URL? {
+        switch pick {
+        case let .gif(gif), let .giphySticker(gif): return gif.pageURL ?? gif.fullURL
+        case let .template(template): return template.url
+        case .meme: return nil
+        }
+    }
+
+    /// `![title](media)`: the image itself, so a Markdown editor shows it.
+    static func markdown(for pick: Pick) -> String? {
+        let media: URL
+        switch pick {
+        case let .gif(gif), let .giphySticker(gif): media = gif.fullURL
+        case let .template(template): media = template.url
+        case .meme: return nil
+        }
+        let title = pick.title.replacingOccurrences(of: "]", with: "").replacingOccurrences(of: "[", with: "")
+        return "![\(title)](\(media.absoluteString))"
+    }
+
+    /// Puts `text` on the clipboard, closes the panel and says so.
+    private func copyText(_ text: String, notice: String) {
+        commitToken += 1
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+        if isPanelVisible { onRequestClose?() }
+        HUDController.shared.show(notice)
     }
 
     func commit(index: Int) {
@@ -616,7 +975,7 @@ private struct DescribedPhrase {
 
     /// Number keys pick any tile, 1–9 in order, row by row.
     func commitNumbered(index: Int) {
-        guard index >= 0, index < Theme.slotCount else { return }
+        guard index >= 0, index < 9 else { return }
         commit(index: index)
     }
 
@@ -640,6 +999,10 @@ private struct DescribedPhrase {
     /// there were none.
     /// In the capture view it drops a capture in progress, else goes back to the memes.
     func handleEscape() -> Bool {
+        if menu != nil {
+            closeMenu()
+            return true
+        }
         if isCaptureOpen {
             if capture.isBusy {
                 capture.cancel()
@@ -656,7 +1019,12 @@ private struct DescribedPhrase {
         }
         let hadText = !queryText.isEmpty || mode == .text || naming != nil
         let hadQueryImage = mode == .image || mode == .moreLike
-        guard hadText || hadQueryImage else { return false }
+        guard hadText || hadQueryImage else {
+            // Then face search turns off; with nothing else on, Esc closes the panel.
+            guard faceSearchOn else { return false }
+            setFaceSearch(false)
+            return true
+        }
         clearTextState()
         returnToFace()
         return true
@@ -696,22 +1064,14 @@ private struct DescribedPhrase {
 
     // MARK: - Making a face
 
-    /// The camera is big (`Theme.largeMirrorSize`) while you make a face: the panel shows your recent and frequent
-    /// picks and the camera reads you or is starting. Once a face is caught it shrinks back and the tiles take over,
-    /// before you pick one.
-    var mirrorIsLarge: Bool {
-        resultSource == .recent && faceEdit == nil && !isCaptureOpen && !showSetupCard
-            && (mode == .live || mode == .warming || mode == .prompt)
-    }
-
-    /// Tiles per row: 4 beside the big mirror, else 5.
+    /// Tiles per row: 4 beside the camera's column, else 5.
     var gridColumns: Int {
-        mirrorIsLarge ? Theme.largeMirrorColumns : Theme.columns
+        showsFaceColumn ? Theme.faceColumns : Theme.columns
     }
 
-    /// A face is being held toward the first search: "Reading your face" lists what the camera reads.
+    /// A face is being held toward the first search: the camera's glow shows what it reads.
     var isReadingFace: Bool {
-        mirrorIsLarge && mode == .live && holdProgress >= 0.05
+        faceSearchOn && resultSource == .recent && faceEdit == nil && mode == .live && holdProgress >= 0.05
     }
 
     /// The mirror's glow: what counts in the face search showing, else what is read in the face being held.
@@ -722,10 +1082,10 @@ private struct DescribedPhrase {
 
     /// What the search field says while empty: it always invites typing.
     var searchPlaceholder: String {
-        if readout != nil { return "Type to refine" }
+        if readout != nil { return "Add words to refine…" }
         switch mode {
-        case .live, .warming, .prompt: return "Type to search, or make a face"
-        default: return "Type to search"
+        case .live, .warming: return "Make a face, or type to search…"
+        default: return "Search GIFs, stickers and memes…"
         }
     }
 
@@ -771,7 +1131,7 @@ private struct DescribedPhrase {
         return savedIDs.contains(item.id)
     }
 
-    /// The star on a tile (and ⌘S on the focused one): saves it to the Saved tab, or takes it out.
+    /// The star on a tile (and ⌘S on the focused one): saves it to Favorites, or takes it out.
     func toggleSaved(_ pick: Pick) {
         guard canSave(pick), case let .meme(item) = pick else { return }
         var recents = store.recents
@@ -779,7 +1139,7 @@ private struct DescribedPhrase {
         store.recents = recents
         savedIDs = Set(recents.saved)
         saveSoon()
-        if tab == .saved {
+        if source == .favorites {
             refreshCurrentResults()
         }
     }
@@ -1026,7 +1386,9 @@ private struct DescribedPhrase {
         case let .meme(item)?:
             return Clipboard.dragItemProvider(for: item, fileURL: item.fileURL)
         case let .gif(gif)?:
-            return giphyDragProvider(for: gif)
+            return giphyDragProvider(for: gif, from: web)
+        case let .giphySticker(gif)?:
+            return giphyDragProvider(for: gif, from: webStickers)
         case let .template(template)?:
             return templateDragProvider(for: template)
         case nil:
@@ -1408,6 +1770,12 @@ private struct DescribedPhrase {
     /// Picks the camera-driven mode (in use elsewhere → busy, undecided → prompt, denied → off, else warming)
     /// and starts the camera when it may run.
     private func enterCameraMode() {
+        // Search first: the camera runs only while face search is on.
+        guard faceSearchOn else {
+            camera.stop()
+            if mode != .idle { mode = .idle }
+            return
+        }
         camera.refreshAuthorization()
         if camera.authorization == .authorized && camera.isRunning {
             setLive()
@@ -1498,21 +1866,18 @@ private struct DescribedPhrase {
         if !shownWeights.isEmpty { shownWeights = [:] }
         searchGeneration += 1
         let ranker = Ranker(baseline: tracker.baseline)
-        // The Saved tab: what you saved, newest first.
-        let recentIDs = tab == .saved ? store.recents.saved : store.recents.recent(appBundleID: previousBundleID)
+        // Favorites: what you saved, newest first.
+        let recentIDs = source == .favorites ? store.recents.saved : store.recents.recent(appBundleID: previousBundleID)
         let ranked = ranker.rank(
-            tabItems,
+            sourceItems,
             query: .recent(appBundleID: previousBundleID),
             people: store.people,
             recents: recentIDs,
             limit: limit
         )
         setResults(ranked, animateNew: animateNew, resetFocus: resetFocus)
-        // GIPHY's "reaction" GIFs when you have no memes yet, or when no face can be read (no camera, denied, in use,
-        // not yet allowed) to ask GIPHY about.
-        let readsFaces = mode != .cameraOff && mode != .cameraBusy && mode != .prompt
-        let noMemes = !store.items.contains { $0.kind != .web && $0.tier == .meme }
-        if (noMemes || !readsFaces) && giphyQuery == nil {
+        // GIPHY's "reaction" GIFs under your recent picks, until a face or words pick others.
+        if giphyQuery == nil {
             showGiphy(for: .mood(.reaction))
         }
         if templateQuery == nil {
@@ -1543,8 +1908,12 @@ private struct DescribedPhrase {
         }
         resultSource = .expression
         let previousWord = searchReadout?.word
+        // Leaning on a part: the word is read from it alone, and it counts most below.
+        let lean = edit == nil ? leanRegion : nil
+        let wordSample = lean.map { FaceLean.sample(sample, leaningOn: $0, baseline: tracker.baseline) } ?? sample
         let mood = edit?.mood(baseline: tracker.baseline)
-            ?? MoodClassifier.mood(for: sample.face, pose: sample.pose, shape: sample.shape, baseline: tracker.baseline)
+            ?? MoodClassifier.mood(for: wordSample.face, pose: wordSample.pose, shape: wordSample.shape,
+                                   baseline: tracker.baseline)
         let badge = PoseBadge.of(sample, baseline: tracker.baseline)
         if heldPose != badge { heldPose = badge }
         let describedPose = PoseDescription.of(sample, baseline: tracker.baseline)
@@ -1575,7 +1944,8 @@ private struct DescribedPhrase {
             weights = edit.featureWeights(baseline: tracker.baseline)
         } else {
             let deviation = sample.face.map { tracker.baseline.deviation(of: $0) } ?? [:]
-            weights = FeatureWeights.automatic(deviation: deviation, poseStrength: sample.pose?.gestureStrength ?? 0)
+            let automatic = FeatureWeights.automatic(deviation: deviation, poseStrength: sample.pose?.gestureStrength ?? 0)
+            weights = lean.map { FaceLean.weights(automatic, leaningOn: $0) } ?? automatic
         }
         currentWeights = weights
         let shown: [FaceRegion: Double] = sample.face == nil
@@ -1586,8 +1956,8 @@ private struct DescribedPhrase {
 
         let ranker = Ranker(baseline: tracker.baseline)
         let phraseWords = poseWords.map { [$0.phrase] } ?? []
-        let ranked = ranker.rank(tabItems, query: .expression(sample, weights: weights, words: phraseWords),
-                                 people: store.people, limit: limit, capsFriends: tab != .stickers)
+        let ranked = ranker.rank(sourceItems, query: .expression(sample, weights: weights, words: phraseWords),
+                                 people: store.people, limit: limit, capsFriends: source != .myStickers)
         setResults(ranked, animateNew: animate, resetFocus: true)
         // A drag in progress: the web rows follow the word you let go on.
         guard settled else { return }
@@ -1671,9 +2041,9 @@ private struct DescribedPhrase {
                 // Your memes were ranked by the rule's phrase; the model's words may name others.
                 self.searchGeneration += 1
                 let ranker = Ranker(baseline: self.tracker.baseline)
-                let ranked = ranker.rank(self.tabItems, query: .expression(sample, weights: self.currentWeights, words: [phrase]),
+                let ranked = ranker.rank(self.sourceItems, query: .expression(sample, weights: self.currentWeights, words: [phrase]),
                                          people: self.store.people, limit: self.limit,
-                                         capsFriends: self.tab != .stickers)
+                                         capsFriends: self.source != .myStickers)
                 self.setResults(ranked, animateNew: animate, resetFocus: false)
             }
             let query = WebQuery.described(from: phrase) ?? .mood(mood)
@@ -1695,7 +2065,7 @@ private struct DescribedPhrase {
 
     /// Shows GIPHY's results for `query` in the GIPHY row: at once when searched in the last 10 minutes, else when
     /// the search answers. The same query already showing (or loading) is left alone, unless `turningPage` (a new face
-    /// caught with the same mood): then the tab shows the next `giphySlots` of GIPHY's results, wrapping around.
+    /// caught with the same mood): then the grid shows the next `giphySlots` of GIPHY's results, wrapping around.
     /// After waiting for a pose's name (`awaitGiphyName`), words that came out the same as the row's show its GIFs
     /// again, turned the same way.
     private func showGiphy(for query: WebQuery, turningPage: Bool = false) {
@@ -1827,6 +2197,59 @@ private struct DescribedPhrase {
         }
     }
 
+    // MARK: - GIPHY's stickers
+
+    /// GIPHY's stickers for the words GIPHY's GIFs go by (its reactions before a face or words), while the GIPHY
+    /// Stickers source shows. The same query already showing (or loading) is left alone.
+    private func showGiphyStickers() {
+        guard showsGiphyRow, source.showsGiphyStickers else { return }
+        let query = giphyQuery ?? .mood(.reaction)
+        if query == stickerQuery && (isStickersLoading || !stickerResults.isEmpty) { return }
+        stickerGeneration += 1
+        let generation = stickerGeneration
+        stickerTask?.cancel()
+        stickerTask = nil
+        stickerQuery = query
+        if stickersUnavailable { stickersUnavailable = false }
+        if let cached = webStickers.cachedGIFs(for: query) {
+            if isStickersLoading { isStickersLoading = false }
+            setStickerResults(cached)
+            return
+        }
+        setStickerResults([])
+        isStickersLoading = true
+        stickerTask = Task { [weak self] in
+            guard let self else { return }
+            let found = await self.webStickers.gifs(for: query)
+            guard !Task.isCancelled, generation == self.stickerGeneration else { return }
+            self.isStickersLoading = false
+            self.stickerTask = nil
+            if let found {
+                self.setStickerResults(found)
+            } else {
+                self.stickersUnavailable = true
+            }
+        }
+    }
+
+    private func setStickerResults(_ stickers: [WebGIF]) {
+        if stickerResults != stickers { stickerResults = stickers }
+        normalizeFocus()
+        if let first = stickers.first, source.showsGiphyStickers {
+            webStickers.prefetchForCopy([first])
+        }
+    }
+
+    private func clearStickers() {
+        stickerGeneration += 1
+        stickerTask?.cancel()
+        stickerTask = nil
+        stickerQuery = nil
+        if !stickerResults.isEmpty { stickerResults = [] }
+        if isStickersLoading { isStickersLoading = false }
+        if stickersUnavailable { stickersUnavailable = false }
+    }
+
     // MARK: - Classic memes row
 
     /// Shows the templates for `query` (picked on the Mac from Imgflip's list): at once from the list kept from
@@ -1932,110 +2355,111 @@ private struct DescribedPhrase {
 
     // MARK: - Tiles
 
-    /// How many of GIPHY's GIFs the tab shows: a row in For You (and in GIFs, under GIFs of yours), both rows in GIFs
-    /// when it has none of yours. Stickers and Memes show none, but GIPHY's search goes on under them, so the GIFs are
-    /// there when you switch back.
-    private var giphySlots: Int {
-        tab == .gifs && results.isEmpty ? 2 * gridColumns : gridColumns
-    }
+    /// How many of GIPHY's GIFs the grid shows: all of a search's (WebDiscover asks for 24).
+    private var giphySlots: Int { 24 }
 
-    /// What each slot holds for the tab showing, row by row. For You: your things mixed with the classic memes on top
-    /// (`ForYouMix`), GIPHY's GIFs under them (without GIPHY, more of yours and of the classic memes). GIFs: GIFs of
-    /// yours on top when there are some, GIPHY's in their own row or both. Stickers: yours. Memes: yours, then the
-    /// classic memes. GIPHY's GIFs never share a row with yours.
-    private func makeLayout() -> TileLayout {
+    /// What the grid shows, in order. All Sources: on open, your recent picks, then GIPHY's reactions and the popular
+    /// classic memes; for a search, a first row mixing your best matches with the classic memes (`ForYouMix`), then
+    /// GIPHY's GIFs in GIPHY's order, then the rest of yours and of the classic memes. The other sources show their own.
+    private func makeLayout() -> PickerLayout {
         let columns = gridColumns
         let ownPicks = results.map { Pick.meme($0.item) }
-        var titles: [String?] = [nil, nil]
-        var countRows: Set<Int> = []
-        let templatePicks = templateResults.map { Pick.template($0) }
-        let gifPicks = giphyResults.map { Pick.gif($0) }
-        var top: [Pick] = []
-        var bottom: [Pick] = []
-        var loading = [false, false]
-        var messages: [String?] = [nil, nil]
-        var giphyRows: Set<Int> = []
-        switch tab {
-        case .forYou:
-            let mix = ForYouMix.row(own: results.map { TileKind($0.item) }, templates: templateResults.count,
-                                    slots: columns)
-            var usedOwn = Set<Int>()
-            var usedTemplates = Set<Int>()
-            for pick in mix {
-                switch pick {
-                case let .own(index):
-                    usedOwn.insert(index)
-                    top.append(ownPicks[index])
-                case let .template(index):
-                    usedTemplates.insert(index)
-                    top.append(templatePicks[index])
-                }
-            }
-            loading[0] = top.count < columns && isTemplatesLoading
-            messages[0] = top.isEmpty ? ownEmptyMessage : nil
-            // Just opened: what you sent most, under what you sent last.
-            var frequent: [LibraryItem] = []
+        let templatePicks = showsTemplateRow ? templateResults.map { Pick.template($0) } : []
+        let gifPicks = showsGiphyRow ? giphyResults.map { Pick.gif($0) } : []
+        var picks: [Pick] = []
+        var loading = false
+        var message: String?
+        switch source {
+        case .all:
             if resultSource == .recent {
-                var shownIDs = Set<UUID>()
-                for case let .meme(item) in top {
-                    shownIDs.insert(item.id)
+                picks = ownPicks + gifPicks + templatePicks
+            } else {
+                let mix = ForYouMix.row(own: results.map { TileKind($0.item) }, templates: templatePicks.count,
+                                        slots: columns)
+                var usedOwn = Set<Int>()
+                var usedTemplates = Set<Int>()
+                for pick in mix {
+                    switch pick {
+                    case let .own(index):
+                        usedOwn.insert(index)
+                        picks.append(ownPicks[index])
+                    case let .template(index):
+                        usedTemplates.insert(index)
+                        picks.append(templatePicks[index])
+                    }
                 }
-                frequent = FrequentPicks.pick(store.items, excluding: shownIDs, limit: columns)
+                picks += gifPicks
+                picks += ownPicks.indices.filter { !usedOwn.contains($0) }.map { ownPicks[$0] }
+                picks += templatePicks.indices.filter { !usedTemplates.contains($0) }.map { templatePicks[$0] }
             }
-            if mirrorIsLarge {
-                titles[0] = recentRowTitle
-            }
-            if !frequent.isEmpty {
-                bottom = frequent.map { Pick.meme($0) }
-                countRows = [1]
-                if mirrorIsLarge { titles[1] = "Frequent" }
-            } else if showsGiphyRow {
-                if mirrorIsLarge { titles[1] = "From GIPHY" }
-                bottom = Array(gifPicks.prefix(columns))
-                giphyRows = [1]
-                loading[1] = isGiphyLoading
-                messages[1] = gifPicks.isEmpty ? giphyEmptyMessage : nil
-            } else {
-                let moreOwn = ownPicks.indices.filter { !usedOwn.contains($0) }.map { ownPicks[$0] }
-                let moreTemplates = templatePicks.indices.filter { !usedTemplates.contains($0) }.map { templatePicks[$0] }
-                bottom = Array((moreOwn + moreTemplates).prefix(columns))
-            }
-        case .gifs:
+            loading = (showsGiphyRow && isGiphyLoading) || (showsTemplateRow && isTemplatesLoading)
+            message = ownEmptyMessage
+        case .favorites:
+            picks = ownPicks
+            message = savedEmptyMessage
+        case .onMyMac:
+            picks = ownPicks
+            message = ownEmptyMessage
+        case .myStickers:
+            picks = ownPicks
+            message = stickersEmptyMessage
+        case .giphyGIFs:
+            picks = gifPicks
+            loading = showsGiphyRow && isGiphyLoading
+            message = showsGiphyRow ? giphyEmptyMessage : AppModel.webOffMessage
+        case .giphyStickers:
+            picks = showsGiphyRow ? stickerResults.map { Pick.giphySticker($0) } : []
+            loading = showsGiphyRow && isStickersLoading
             if !showsGiphyRow {
-                (top, bottom) = TileLayout.split(ownPicks, columns: columns)
-                messages[0] = ownPicks.isEmpty ? "Turn on Web Discover in the menu for GIFs from GIPHY." : nil
-            } else if ownPicks.isEmpty {
-                (top, bottom) = TileLayout.split(gifPicks, columns: columns)
-                giphyRows = [0, 1]
-                loading = [isGiphyLoading, isGiphyLoading]
-                messages[0] = gifPicks.isEmpty ? giphyEmptyMessage : nil
+                message = AppModel.webOffMessage
+            } else if stickersUnavailable {
+                message = "GIPHY isn’t answering right now."
             } else {
-                top = Array(ownPicks.prefix(columns))
-                bottom = Array(gifPicks.prefix(columns))
-                giphyRows = [1]
-                loading[1] = isGiphyLoading
-                messages[1] = gifPicks.isEmpty ? giphyEmptyMessage : nil
+                message = "Nothing on GIPHY for this one."
             }
-        case .stickers:
-            (top, bottom) = TileLayout.split(ownPicks, columns: columns)
-            messages[0] = ownPicks.isEmpty ? stickersEmptyMessage : nil
-        case .memes:
-            (top, bottom) = TileLayout.split(ownPicks + templatePicks, columns: columns)
-            loading = [top.count < columns && isTemplatesLoading, bottom.count < columns && isTemplatesLoading]
-            messages[0] = top.isEmpty ? ownEmptyMessage : nil
-        case .saved:
-            (top, bottom) = TileLayout.split(ownPicks, columns: columns)
-            messages[0] = ownPicks.isEmpty ? savedEmptyMessage : nil
+        case .classicMemes:
+            picks = templatePicks
+            loading = showsTemplateRow && isTemplatesLoading
+            if !showsTemplateRow {
+                message = AppModel.webOffMessage
+            } else if templatesUnavailable {
+                message = "Imgflip isn’t answering right now."
+            } else {
+                message = templateQuery.map { "No classic memes for “\($0.label)”." } ?? "No classic memes."
+            }
         }
-        return TileLayout(top: top, bottom: bottom, columns: columns, loading: loading, messages: messages,
-                          giphyRows: giphyRows, marksTypes: tab == .forYou || tab == .saved, titles: titles,
-                          countRows: countRows)
+        return PickerLayout(picks: picks, columns: columns, isLoading: loading, message: message,
+                            title: sectionTitle)
     }
 
-    /// The top row's title beside the big mirror: what you sent last here ("Recent in Messages"), else your newest, or
-    /// the classic memes before you have any.
-    private var recentRowTitle: String {
-        guard !results.isEmpty else { return "Classic memes" }
+    private static let webOffMessage = "Turn on Web Discover in the menu for GIPHY and the classic memes."
+
+    /// Over the grid: what it shows.
+    private var sectionTitle: String {
+        switch resultSource {
+        case .recent:
+            switch source {
+            case .all, .onMyMac, .myStickers: return recentTitle
+            case .favorites: return "Favorites"
+            case .giphyGIFs, .giphyStickers: return "Reactions"
+            case .classicMemes: return "Popular"
+            }
+        case .expression:
+            if let word = readout?.word { return "Matching your face · \(word)" }
+            return "Matching your face"
+        case .text:
+            let words = queryText.trimmingCharacters(in: .whitespacesAndNewlines)
+            return words.isEmpty ? "Results" : "Results for “\(words)”"
+        case .image:
+            return "Like your image"
+        case .moreLike:
+            return "More like “\(moreLikeItem?.displayName ?? "this")”"
+        }
+    }
+
+    /// What you sent last here ("Recent in Messages"), else "Recent", or your newest before you sent anything.
+    private var recentTitle: String {
+        guard !results.isEmpty else { return source == .all ? "Popular" : "Recent" }
         let recent = store.recents.recent(appBundleID: previousBundleID)
         guard results.contains(where: { recent.contains($0.item.id) }) else { return "Your newest" }
         if let bundleID = previousBundleID, let name = previousAppName, !name.isEmpty,
@@ -2047,8 +2471,8 @@ private struct DescribedPhrase {
 
     private var savedEmptyMessage: String {
         savedIDs.isEmpty
-            ? "Nothing saved yet. Point at one of your memes and click Save."
-            : "Nothing you saved matches."
+            ? "No favorites yet. Select one of your memes and press ⌘S."
+            : "None of your favorites match."
     }
 
     /// What a row of yours that shows nothing says.
@@ -2083,14 +2507,7 @@ private struct DescribedPhrase {
     /// of yours starts on none when you have memes, so ↵ copies nothing; GIPHY's and the classic memes' tiles are an
     /// arrow away.
     private var startSlot: Int {
-        let rows = makeLayout().rows
-        switch resultSource {
-        case .recent, .expression:
-            return rows.firstSlot ?? 0
-        case .text, .image, .moreLike:
-            if results.isEmpty && hasMemes { return -1 }
-            return rows.firstSlot ?? 0
-        }
+        makeLayout().rows.firstSlot ?? 0
     }
 
     private func pick(atSlot slot: Int) -> Pick? {
@@ -2124,7 +2541,7 @@ private struct DescribedPhrase {
         let ranker = Ranker(baseline: tracker.baseline)
         let face = showsFaceToken ? faceTokenSample : nil
         let weights = showsFaceToken ? faceTokenWeights : FeatureWeights.uniform
-        let ranked = ranker.rank(tabItems, query: .text(raw, face: face, weights: weights), people: store.people, limit: limit)
+        let ranked = ranker.rank(sourceItems, query: .text(raw, face: face, weights: weights), people: store.people, limit: limit)
         setResults(ranked, animateNew: false, resetFocus: true)
         updateNamingPrompt(raw: raw, hasResults: !ranked.isEmpty)
         // GIPHY and the classic memes follow the words too (without filter words or your people's names). A name
@@ -2147,7 +2564,7 @@ private struct DescribedPhrase {
         // The query image itself (once kept) is not a result.
         let excludedIDs = Set(keptImageBatch?.addedIDs ?? [])
         let queryURL = queryImageURL?.standardizedFileURL
-        let pool = tabItems.filter { item in
+        let pool = sourceItems.filter { item in
             !excludedIDs.contains(item.id) && item.fileURL.standardizedFileURL != queryURL
         }
         let ranker = Ranker(baseline: tracker.baseline)
@@ -2165,7 +2582,7 @@ private struct DescribedPhrase {
         resultSource = .moreLike
         searchGeneration += 1
         let ranker = Ranker(baseline: tracker.baseline)
-        let ranked = ranker.rank(tabItems, query: .moreLike(item), people: store.people, limit: limit)
+        let ranked = ranker.rank(sourceItems, query: .moreLike(item), people: store.people, limit: limit)
         setResults(ranked, animateNew: false, resetFocus: true)
     }
 
@@ -2184,10 +2601,11 @@ private struct DescribedPhrase {
         }
     }
 
-    /// Your things the tab shows: the library without GIPHY's GIFs (they are never kept in it), of the tab's kind.
-    private var tabItems: [LibraryItem] {
+    /// Your things the source shows: the library without GIPHY's GIFs (they are never kept in it), of the source's
+    /// kinds (none for GIPHY's and the classic memes).
+    private var sourceItems: [LibraryItem] {
         store.items.filter { item in
-            item.kind != .web && tab.shows(TileKind(item)) && (tab != .saved || savedIDs.contains(item.id))
+            item.kind != .web && source.shows(TileKind(item)) && (source != .favorites || savedIDs.contains(item.id))
         }
     }
 
@@ -2207,10 +2625,6 @@ private struct DescribedPhrase {
         let visible = Set(limited.map { $0.id })
         if !newResultIDs.isSubset(of: visible) {
             newResultIDs = newResultIDs.intersection(visible)
-        }
-        if tab == .gifs {
-            // GIFs of yours decide whether GIPHY's fill one row or both.
-            showGiphyPage()
         }
         if resetFocus {
             userInteracted = false
@@ -2239,6 +2653,8 @@ private struct DescribedPhrase {
         switch focusedPick {
         case let .gif(gif)?:
             web.prefetchForCopy([gif])
+        case let .giphySticker(gif)?:
+            webStickers.prefetchForCopy([gif])
         case let .template(template)?:
             templates.prefetchForCopy(template)
         case .meme?, nil:
@@ -2292,7 +2708,7 @@ private struct DescribedPhrase {
     /// removable token.
     private func enterTextMode() {
         let began = textBeganAt ?? CACurrentMediaTime()
-        let typedRightAfterOpening = began - shownAt < AppModel.typingStopsCameraWindow
+        let typedRightAfterOpening = began - max(shownAt, faceOnAt) < AppModel.typingStopsCameraWindow
         resetQueryImage()
         if holdProgress != 0 { holdProgress = 0 }
         if !typedRightAfterOpening, let held = tracker.query,
@@ -2301,9 +2717,14 @@ private struct DescribedPhrase {
             faceTokenWeights = currentWeights
             showsFaceToken = true
         } else {
+            // Typing takes over: without a face caught, face search turns off.
             faceTokenSample = nil
             showsFaceToken = false
             camera.stop()
+            if faceSearchOn {
+                faceSearchOn = false
+                if leanRegion != nil { leanRegion = nil }
+            }
         }
         mode = .text
     }
@@ -2480,6 +2901,11 @@ private struct DescribedPhrase {
             let url = await web.prepareForCopy(gif)
             slowNotice.cancel()
             return url
+        case let .giphySticker(gif):
+            let slowNotice = AppModel.slowCopyNotice()
+            let url = await webStickers.prepareForCopy(gif)
+            slowNotice.cancel()
+            return url
         case let .template(template):
             let slowNotice = AppModel.slowCopyNotice()
             let url = await templates.prepareForCopy(template)
@@ -2503,7 +2929,7 @@ private struct DescribedPhrase {
         switch pick {
         case let .meme(item):
             return item
-        case let .gif(gif):
+        case let .gif(gif), let .giphySticker(gif):
             return LibraryItem(fileURL: fileURL, displayName: gif.title, kind: .web, source: "GIPHY", contentHash: "giphy:" + gif.id, isAnimated: true, remoteURL: gif.fullURL)
         case let .template(template):
             return LibraryItem(fileURL: fileURL, displayName: template.name, kind: .web, source: "Imgflip", contentHash: "imgflip:" + template.id, isAnimated: false, remoteURL: template.url)
@@ -2522,9 +2948,8 @@ private struct DescribedPhrase {
     }
 
     /// GIPHY tiles drag the full GIF, fetched when the receiving app asks for it, as "reaction.gif".
-    private func giphyDragProvider(for gif: WebGIF) -> NSItemProvider {
+    private func giphyDragProvider(for gif: WebGIF, from web: WebDiscover) -> NSItemProvider {
         let provider = NSItemProvider()
-        let web = self.web
         let fileName = "reaction.gif"
         provider.suggestedName = "reaction"
         // The load handler runs on a background queue when the receiving app asks for the file, so it is
@@ -2630,6 +3055,8 @@ private struct DescribedPhrase {
 
     private func computeHint() -> PanelHint {
         switch mode {
+        case .idle:
+            return PanelHint(title: HintCopy.idleTitle, subtitle: HintCopy.idleSubtitle, actionTitle: nil, action: nil)
         case .prompt:
             return PanelHint(title: HintCopy.promptTitle, subtitle: HintCopy.promptSubtitle, actionTitle: nil, action: nil)
         case .warming:
@@ -2652,11 +3079,7 @@ private struct DescribedPhrase {
                 return PanelHint(title: HintCopy.holdingTitle, subtitle: HintCopy.holdingSubtitle, actionTitle: nil,
                                  action: nil)
             }
-            if mirrorIsLarge {
-                return PanelHint(title: HintCopy.liveTitle, subtitle: HintCopy.liveSubtitle, actionTitle: nil,
-                                 action: nil)
-            }
-            return PanelHint(title: HintCopy.liveTitle, subtitle: nil, actionTitle: nil, action: nil)
+            return PanelHint(title: HintCopy.liveTitle, subtitle: HintCopy.liveSubtitle, actionTitle: nil, action: nil)
         case .text:
             return PanelHint(title: HintCopy.textTitle, subtitle: HintCopy.textSubtitle, actionTitle: nil, action: nil)
         case .image:
@@ -2699,8 +3122,12 @@ private struct DescribedPhrase {
         if holdProgress != 0 { holdProgress = 0 }
         if !newResultIDs.isEmpty { newResultIDs = [] }
         if showSetupCard { showSetupCard = false }
-        // Always open on For You, so ⌃⌘M then ↩ takes the best match of everything.
-        if tab != .forYou { tab = .forYou }
+        // Always open on search in All Sources, so ⌃⌘M then ↩ repeats your last pick.
+        if source != .all { source = .all }
+        if faceSearchOn { faceSearchOn = false }
+        if leanRegion != nil { leanRegion = nil }
+        closeMenu()
+        clearStickers()
         lastTextEditAt = 0
         liveSince = nil
         faceMissing = false
@@ -2722,6 +3149,9 @@ private struct DescribedPhrase {
         templateTask?.cancel()
         templateTask = nil
         templateGeneration += 1
+        stickerTask?.cancel()
+        stickerTask = nil
+        stickerGeneration += 1
         cancelDescribing()
         imageTask?.cancel()
         imageTask = nil

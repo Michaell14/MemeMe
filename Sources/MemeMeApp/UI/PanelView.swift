@@ -3,64 +3,67 @@ import MemeMeCore
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The drawer: it hangs from the notch, flush with the top of the screen. Its top band, the height of the menu bar,
-/// has an ear on each side of the notch: the query on the left (the word your face read, or what you type), the tabs
-/// on the right. Under it: your face in a circle on the left, and two rows of 5 tiles for the tab showing; GIPHY's
-/// credit under them while GIPHY's GIFs show; the face editor while you edit your face (the drawer grows down, so the
-/// tiles stay put); a footer only while there is something to act on.
+/// The panel: a search field across the top (the source menu at its right), the grid of results under it (the
+/// camera's column beside it while face search is on), and a bar along the bottom: "Search with your face" (⌘F) on the
+/// left; "Copy GIF ↩" and "Actions ⌘K" on the right. The source menu and the actions open over the panel. The face
+/// editor and a footer (memes being collected, an update) grow it downward.
 struct PanelView: View {
     @ObservedObject var model: AppModel
-    @ObservedObject var metrics: NotchMetrics
 
-    @FocusState private var searchFocused: Bool
+    private enum Field: Hashable { case search, menu }
+
+    @FocusState private var focus: Field?
     @State private var isDropTargeted = false
 
-    init(model: AppModel, metrics: NotchMetrics) {
+    init(model: AppModel) {
         _model = ObservedObject(wrappedValue: model)
-        _metrics = ObservedObject(wrappedValue: metrics)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ears
+            searchBar
+            Rectangle().fill(Theme.hairline).frame(height: 1)
             if model.isCaptureOpen {
                 CaptureView(model: model)
-                    .padding(.horizontal, 20)
-                    .padding(.top, 12)
-                    .padding(.bottom, 18)
+                    .padding(20)
             } else {
-                drawerBody
+                content
             }
+            Rectangle().fill(Theme.hairline).frame(height: 1)
+            bottomBar
         }
-        .padding(.horizontal, Theme.shoulder)
         .frame(width: Theme.panelWidth, alignment: .topLeading)
         .fixedSize(horizontal: false, vertical: true)
-        .background(DrawerShape().fill(Theme.background))
-        .clipShape(DrawerShape())
+        .background(Theme.panelBackground)
+        .overlay { menuLayer }
+        .clipShape(RoundedRectangle(cornerRadius: Theme.panelRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.panelRadius, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
+        )
         .onDrop(of: [.fileURL, .image], isTargeted: $isDropTargeted) { providers in
             handleDrop(providers)
         }
         .environment(\.colorScheme, .dark)
         .onAppear {
-            searchFocused = true
+            focus = .search
         }
         .onChange(of: model.isPanelVisible) { _, visible in
-            if visible {
-                searchFocused = true
-            }
+            if visible { focus = .search }
         }
         .onChange(of: model.isCaptureOpen) { _, open in
             // Back from the capture view: typing searches again.
-            if !open {
-                searchFocused = true
-            }
+            if !open { focus = .search }
+        }
+        .onChange(of: model.menu) { _, menu in
+            focus = menu == nil ? .search : .menu
         }
         .task(id: model.isPanelVisible) { @MainActor in
             // The panel becomes key just after it is shown; focus the field once it is.
             guard model.isPanelVisible else { return }
             try? await Task.sleep(nanoseconds: 60_000_000)
             if !Task.isCancelled && model.isPanelVisible {
-                searchFocused = true
+                focus = model.menu == nil ? .search : .menu
             }
         }
         .task(id: model.showSetupCard) { @MainActor in
@@ -68,39 +71,17 @@ struct PanelView: View {
             guard !model.showSetupCard, model.isPanelVisible else { return }
             try? await Task.sleep(nanoseconds: 60_000_000)
             if !Task.isCancelled && !model.showSetupCard && model.isPanelVisible {
-                searchFocused = true
+                focus = .search
             }
         }
     }
 
-    // MARK: Ears
+    // MARK: Search bar
 
-    /// The band beside the notch: the query in the left ear, the tabs in the right one. Neither reaches under the
-    /// notch (`metrics.notchWidth`; 0 on a screen without one, where the ears meet).
-    private var ears: some View {
-        let inner = Theme.panelWidth - 2 * Theme.shoulder
-        let earWidth = max(0, (inner - metrics.notchWidth) / 2)
-        return HStack(spacing: 0) {
-            if !model.isCaptureOpen {
-                queryField
-                    .frame(width: max(120, min(earWidth - 36, 300)), alignment: .leading)
-            }
-            Spacer(minLength: 0)
-            if !model.isCaptureOpen && !model.showSetupCard {
-                TabBar(model: model)
-            }
-        }
-        .padding(.leading, 20)
-        .padding(.trailing, 16)
-        .frame(height: metrics.bandHeight)
-    }
-
-    /// The query: always a search field. The magnifier and "Type to search, or make a face" say you can type. Once
-    /// the camera caught a face its word sits in the field as a token (dimmed while a new face is held toward replacing
-    /// it; × goes back to your recent picks) and the field says "Type to refine": typing keeps the face. While you type
-    /// with the face kept, the glyph is your face: click it to drop the face.
-    private var queryField: some View {
-        HStack(spacing: 6) {
+    /// The search field: what you type searches the source showing. Once the camera caught a face its word sits in the
+    /// field as a token (× drops it), and what you type refines it. The source menu sits at the right.
+    private var searchBar: some View {
+        HStack(spacing: 10) {
             queryGlyph
             if model.queryText.isEmpty, let readout = model.readout {
                 faceToken(readout)
@@ -108,7 +89,7 @@ struct PanelView: View {
             ZStack(alignment: .leading) {
                 if model.queryText.isEmpty {
                     Text(verbatim: model.searchPlaceholder)
-                        .font(.system(size: 13))
+                        .font(.system(size: 17))
                         .foregroundColor(Theme.placeholderText)
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -117,73 +98,19 @@ struct PanelView: View {
                 }
                 TextField("", text: $model.queryText)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 13))
+                    .font(.system(size: 17))
                     .foregroundColor(Theme.text)
-                    .focused($searchFocused)
-                    .accessibilityLabel("Search by typing, or drop or paste an image")
+                    .focused($focus, equals: .search)
+                    .accessibilityLabel("Search GIFs, stickers and memes, or drop or paste an image")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.leading, 2)
-        .padding(.trailing, 10)
-        .frame(height: 26)
-        .background(Capsule().fill(Theme.raised2))
-        .overlay(
-            Capsule().strokeBorder(model.queryText.isEmpty ? Color.clear : Theme.line, lineWidth: 1)
-        )
-    }
-
-    /// The word the camera's search went by, as a token in the field: where it came from (your face, your pose, or
-    /// sparkles when the on-device model named the pose), the word (an edit that changed it shows the old one struck
-    /// out), and × to say "not this face".
-    private func faceToken(_ readout: MoodReadout) -> some View {
-        let dismissable = model.canDismissCaughtFace
-        return HStack(spacing: 4) {
-            Image(systemName: readout.named ? "sparkles" : (readout.source == .face ? "face.smiling" : "figure.arms.open"))
-                .font(.system(size: 10, weight: .semibold))
-                .accessibilityHidden(true)
-            if let replaced = model.replacedWord {
-                Text(verbatim: replaced)
-                    .font(.system(size: 12, weight: .medium))
-                    .strikethrough(true, color: Theme.mutedText)
-                    .foregroundColor(Theme.mutedText)
-                    .lineLimit(1)
-                Image(systemName: "arrow.right")
-                    .font(.system(size: 8, weight: .semibold))
-                    .foregroundColor(Theme.mutedText)
-                    .accessibilityHidden(true)
-            }
-            Text(verbatim: readout.word)
-                .font(.system(size: 12, weight: .semibold))
-                .lineLimit(1)
-                .truncationMode(.tail)
-            if dismissable {
-                Button {
-                    model.dismissCaughtFace()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 7, weight: .bold))
-                        .foregroundColor(Theme.mutedText)
-                        .frame(width: 14, height: 14)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help("Not this face: back to your recent picks")
-                .accessibilityLabel("Not this face")
+            if !model.isCaptureOpen {
+                sourceButton
             }
         }
-        .foregroundColor(Theme.text)
-        .padding(.leading, 6)
-        .padding(.trailing, dismissable ? 2 : 7)
-        .frame(height: 20)
-        .background(Capsule().fill(Theme.line))
-        .opacity(model.holdProgress >= 0.05 ? 0.45 : 1)
-        .animation(.easeOut(duration: 0.15), value: readout)
-        .animation(.easeOut(duration: 0.2), value: model.replacedWord)
-        .fixedSize(horizontal: false, vertical: true)
-        .layoutPriority(1)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(Text(verbatim: "Searching \(readout.word)"))
+        .padding(.leading, 18)
+        .padding(.trailing, 12)
+        .frame(height: Theme.searchBarHeight)
     }
 
     @ViewBuilder
@@ -192,81 +119,276 @@ struct PanelView: View {
             Button {
                 model.removeFaceToken()
             } label: {
-                glyphCircle("face.smiling", filled: true)
+                Image(systemName: "face.smiling.inverse")
+                    .font(.system(size: 16, weight: .regular))
+                    .foregroundColor(Theme.accent)
+                    .frame(width: 20, height: 20)
             }
             .buttonStyle(.plain)
             .help(model.faceTokenIsPose ? "Stop using your pose in this search" : "Stop using your face in this search")
             .accessibilityLabel(model.faceTokenIsPose ? "Stop using your pose in this search" : "Stop using your face in this search")
         } else {
-            glyphCircle("magnifyingglass", filled: false)
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 16, weight: .regular))
+                .foregroundColor(Theme.mutedText)
+                .frame(width: 20, height: 20)
                 .accessibilityHidden(true)
         }
     }
 
-    private func glyphCircle(_ symbol: String, filled: Bool) -> some View {
-        Image(systemName: symbol)
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundColor(filled ? Theme.onAccent : Theme.text)
-            .frame(width: 22, height: 22)
-            .background(Circle().fill(filled ? Theme.text : Theme.line))
+    /// The word the camera's search went by, as a token in the field: where it came from (your face, your pose, or
+    /// sparkles when the on-device model named the pose), the word (an edit that changed it shows the old one struck
+    /// out), and × to say "not this face".
+    private func faceToken(_ readout: MoodReadout) -> some View {
+        let dismissable = model.canDismissCaughtFace
+        return HStack(spacing: 5) {
+            Image(systemName: readout.named ? "sparkles" : (readout.source == .face ? "face.smiling" : "figure.arms.open"))
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(Theme.accent)
+                .accessibilityHidden(true)
+            if let replaced = model.replacedWord {
+                Text(verbatim: replaced)
+                    .font(.system(size: 13, weight: .medium))
+                    .strikethrough(true, color: Theme.mutedText)
+                    .foregroundColor(Theme.mutedText)
+                    .lineLimit(1)
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(Theme.mutedText)
+                    .accessibilityHidden(true)
+            }
+            Text(verbatim: readout.word)
+                .font(.system(size: 13, weight: .semibold))
+                .lineLimit(1)
+                .truncationMode(.tail)
+            if dismissable {
+                Button {
+                    model.dismissCaughtFace()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundColor(Theme.mutedText)
+                        .frame(width: 18, height: 18)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Not this face: back to your recent picks")
+                .accessibilityLabel("Not this face")
+            }
+        }
+        .foregroundColor(Theme.text)
+        .padding(.leading, 9)
+        .padding(.trailing, dismissable ? 3 : 10)
+        .frame(height: 28)
+        .background(Capsule().fill(Theme.raised2))
+        .overlay(Capsule().strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+        .opacity(model.holdProgress >= 0.05 ? 0.45 : 1)
+        .animation(.easeOut(duration: 0.15), value: readout)
+        .animation(.easeOut(duration: 0.2), value: model.replacedWord)
+        .fixedSize()
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text(verbatim: "Searching \(readout.word)"))
     }
 
-    // MARK: Body
+    /// The source showing, at the right of the search field; a click (or ⌘P) opens the source menu.
+    private var sourceButton: some View {
+        let isOpen = model.menu == .sources
+        return Button {
+            model.toggleMenu(.sources)
+        } label: {
+            HStack(spacing: 7) {
+                SourceGlyph(symbol: model.source.isGiphy ? nil : AppModel.symbol(for: model.source),
+                            letter: model.source.isGiphy ? "G" : nil, size: 18)
+                Text(verbatim: model.source.title)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(Theme.text)
+                    .lineLimit(1)
+                Image(systemName: isOpen ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundColor(Theme.mutedText)
+            }
+            .padding(.leading, 7)
+            .padding(.trailing, 9)
+            .frame(height: 32)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isOpen ? Theme.raised2 : Theme.raised)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.07), lineWidth: 1)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .fixedSize()
+        .help("Choose where results come from (⌘P)")
+        .accessibilityLabel(Text(verbatim: "Source: \(model.source.title)"))
+    }
 
-    private var drawerBody: some View {
-        VStack(alignment: .leading, spacing: 12) {
+    // MARK: Content
+
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 0) {
             if model.showSetupCard {
                 SetupCardView(model: model)
+                    .padding(.horizontal, Theme.gridPadding)
+                    .padding(.top, 14)
             }
             if !model.showSetupCard, let naming = model.naming, !naming.candidates.isEmpty {
                 NamingRow(prompt: naming) { personID in
                     model.nameUnknownFace(personID: personID)
                 }
+                .padding(.horizontal, Theme.gridPadding)
+                .padding(.top, 12)
             }
-            HStack(alignment: .top, spacing: 16) {
-                MirrorColumn(model: model)
-                VStack(alignment: .trailing, spacing: 8) {
-                    DrawerGrid(model: model)
-                        .overlay {
-                            if showsDrop {
-                                DropCard()
-                            }
-                        }
-                    giphyCredit
+            HStack(alignment: .top, spacing: 0) {
+                if model.showsFaceColumn {
+                    FaceColumn(model: model)
+                        .padding(.leading, Theme.gridPadding)
                 }
-                .opacity(model.showSetupCard ? 0.55 : 1)
+                PickerGrid(model: model)
+                    .padding(.horizontal, Theme.gridPadding)
+                    .overlay {
+                        if showsDrop {
+                            DropCard()
+                                .padding(.horizontal, Theme.gridPadding)
+                                .padding(.vertical, 12)
+                        }
+                    }
+                    .opacity(model.showSetupCard ? 0.55 : 1)
             }
+            .frame(height: Theme.contentHeight, alignment: .top)
             if model.faceEdit != nil {
-                Rectangle()
-                    .fill(Theme.raised2)
-                    .frame(height: 1)
+                Rectangle().fill(Theme.hairline).frame(height: 1)
                 FaceEditorView(model: model)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 14)
             }
             if model.footer != .hidden {
                 FooterView(model: model)
+                    .padding(.horizontal, Theme.gridPadding)
+                    .padding(.bottom, 12)
             }
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 12)
-        .padding(.bottom, 14)
-    }
-
-    /// GIPHY's credit, right under the tiles while GIPHY's GIFs show; the line keeps its height when they don't, so
-    /// switching tabs never resizes the drawer.
-    private var giphyCredit: some View {
-        ZStack(alignment: .trailing) {
-            Color.clear
-                .frame(height: 14)
-            if model.layout.showsGiphy {
-                PoweredByGiphyMark()
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
     /// An image dragged over the panel, not one of its own tiles on its way out.
     private var showsDrop: Bool {
         isDropTargeted && !model.isDraggingTile
+    }
+
+    // MARK: Bottom bar
+
+    private var bottomBar: some View {
+        HStack(spacing: 4) {
+            faceButton
+            Spacer(minLength: 8)
+            if model.focusedPick != nil && !model.isCaptureOpen {
+                Button {
+                    model.perform(.copy)
+                } label: {
+                    HStack(spacing: 8) {
+                        Text(verbatim: model.copyLabel)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(Theme.text)
+                        Keycap("↩")
+                    }
+                    .padding(.horizontal, 10)
+                    .frame(height: 34)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Copy it and go back to the chat. MemeMe never pastes for you.")
+                Rectangle().fill(Theme.line).frame(width: 1, height: 18)
+                Button {
+                    model.toggleMenu(.actions)
+                } label: {
+                    HStack(spacing: 8) {
+                        Text("Actions")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(Theme.mutedText)
+                        HStack(spacing: 3) {
+                            Keycap("⌘")
+                            Keycap("K")
+                        }
+                    }
+                    .padding(.horizontal, 10)
+                    .frame(height: 34)
+                    .background(
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .fill(model.menu == .actions ? Theme.raised2 : Color.clear)
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Actions")
+            }
+        }
+        .padding(.leading, 12)
+        .padding(.trailing, 10)
+        .frame(height: Theme.bottomBarHeight)
+        .background(Theme.barBackground)
+    }
+
+    /// Bottom left, MemeMe's own: the camera searches with your face (⌘F); again, it stops.
+    private var faceButton: some View {
+        let on = model.faceSearchOn
+        return Button {
+            model.toggleFaceSearch()
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "camera.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(on ? Theme.onAccent : Theme.text)
+                    .frame(width: 22, height: 22)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(on ? Theme.accent : Theme.raised2)
+                    )
+                Text(verbatim: on ? "Face search on" : "Search with your face")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(on ? Theme.accent : Theme.text)
+                HStack(spacing: 3) {
+                    Keycap("⌘")
+                    Keycap("F")
+                }
+            }
+            .padding(.leading, 6)
+            .padding(.trailing, 10)
+            .frame(height: 34)
+            .background(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(on ? Theme.accent.opacity(0.12) : Color.clear)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .strokeBorder(on ? Theme.accent.opacity(0.45) : Color.clear, lineWidth: 1)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(on ? "Stop searching with your face (⌘F)" : "Make a face to search, and click part of it to lean on it (⌘F)")
+        .accessibilityLabel(on ? "Face search on" : "Search with your face")
+        .accessibilityAddTraits(on ? .isSelected : [])
+    }
+
+    // MARK: Menus
+
+    @ViewBuilder
+    private var menuLayer: some View {
+        if let menu = model.menu {
+            ZStack(alignment: menu == .sources ? .topTrailing : .bottomTrailing) {
+                // A click anywhere else closes the menu.
+                Color.black.opacity(0.001)
+                    .onTapGesture { model.closeMenu() }
+                    .accessibilityHidden(true)
+                MenuPanel(model: model, menu: menu, focus: $focus, menuField: .menu)
+                    .padding(.trailing, 10)
+                    .padding(.top, menu == .sources ? 50 : 0)
+                    .padding(.bottom, menu == .actions ? Theme.bottomBarHeight + 6 : 0)
+            }
+        }
     }
 
     // MARK: Drop
@@ -448,55 +570,178 @@ private struct NamingFace: View {
     }
 }
 
-// MARK: - Tabs
+// MARK: - Menus
 
-/// The right ear: For You · GIFs · Stickers · Memes · ★ (Saved). Tab and Shift-Tab move along them; the panel opens
-/// on For You. Saved is a star alone, so the five fit beside the notch.
-private struct TabBar: View {
+/// A menu over the panel: the source menu (under the source button) or the actions for the selected result (over the
+/// Actions button). A filter field types into it; ↑ ↓ move, ↵ runs, Esc closes (the panel controller routes the keys).
+private struct MenuPanel<Field: Hashable>: View {
     @ObservedObject var model: AppModel
+    let menu: PanelMenu
+    var focus: FocusState<Field?>.Binding
+    let menuField: Field
 
     var body: some View {
-        HStack(spacing: 2) {
-            ForEach(ResultTab.allCases, id: \.self) { tab in
-                tabButton(tab)
+        let rows = model.menuRows
+        VStack(alignment: .leading, spacing: 0) {
+            if menu == .sources {
+                filterField(placeholder: "Filter sources…")
+                Rectangle().fill(Theme.hairline).frame(height: 1).padding(.bottom, 6)
+            } else if let title = model.focusedPick?.title, !title.isEmpty {
+                Text(verbatim: title)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(Theme.mutedText)
+                    .lineLimit(1)
+                    .padding(.horizontal, 14)
+                    .frame(height: 32, alignment: .leading)
+            }
+            ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                if row.startsGroup {
+                    Rectangle().fill(Theme.hairline).frame(height: 1)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 4)
+                }
+                rowView(row, index: index, selected: index == model.menuSelection)
+            }
+            if rows.isEmpty {
+                Text("No matches")
+                    .font(.system(size: 12))
+                    .foregroundColor(Theme.mutedText)
+                    .padding(.horizontal, 14)
+                    .frame(height: 30, alignment: .leading)
+            }
+            if menu == .actions {
+                Rectangle().fill(Theme.hairline).frame(height: 1).padding(.top, 6)
+                filterField(placeholder: "Search for actions…")
+            } else {
+                Color.clear.frame(height: 6)
             }
         }
-        .help("Tab: the next type")
+        .frame(width: menu == .sources ? 252 : 312, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Theme.menuBackground)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.55), radius: 22, x: 0, y: 14)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Type")
+        .accessibilityLabel(menu == .sources ? "Sources" : "Actions")
     }
 
-    private func tabButton(_ tab: ResultTab) -> some View {
-        let isSelected = model.tab == tab
-        return Button {
-            model.selectTab(tab)
+    private func filterField(placeholder: String) -> some View {
+        ZStack(alignment: .leading) {
+            if model.menuQuery.isEmpty {
+                Text(verbatim: placeholder)
+                    .font(.system(size: 13))
+                    .foregroundColor(Theme.placeholderText)
+                    .allowsHitTesting(false)
+            }
+            TextField("", text: $model.menuQuery)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13))
+                .foregroundColor(Theme.text)
+                .focused(focus, equals: menuField)
+                .accessibilityLabel(Text(verbatim: placeholder))
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 40)
+    }
+
+    private func rowView(_ row: MenuRow, index: Int, selected: Bool) -> some View {
+        Button {
+            model.performMenuRow(at: index)
         } label: {
-            tabLabel(tab, isSelected: isSelected)
-                .foregroundColor(isSelected ? Theme.text : Theme.mutedText)
-                .padding(.horizontal, tab == .saved ? 0 : 7)
-                .frame(minWidth: 22)
-                .frame(height: 22)
-                .background(
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .fill(isSelected ? Theme.raised2 : Color.clear)
-                )
-                .contentShape(Rectangle())
+            HStack(spacing: 10) {
+                if menu == .sources {
+                    SourceGlyph(symbol: row.symbol, letter: row.letter, size: 18)
+                } else if let symbol = row.symbol {
+                    Image(systemName: symbol)
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundColor(Theme.softTitle)
+                        .frame(width: 18)
+                }
+                Text(verbatim: row.title)
+                    .font(.system(size: 13))
+                    .foregroundColor(Theme.text)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                if row.isChecked {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(Theme.accent)
+                }
+                if !row.keys.isEmpty {
+                    HStack(spacing: 3) {
+                        ForEach(Array(row.keys.enumerated()), id: \.offset) { _, key in
+                            Keycap(key)
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 8)
+            .frame(height: menu == .sources ? 30 : 32)
+            .background(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(selected ? Theme.raised2 : Color.clear)
+            )
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(Text(verbatim: tab == .saved ? "Saved: what you starred (⌘S)" : tab.title))
-        .accessibilityLabel(Text(verbatim: tab.title))
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .padding(.horizontal, 6)
+        .onHover { inside in
+            if inside { model.hoverMenuRow(index) }
+        }
+        .accessibilityAddTraits(row.isChecked ? .isSelected : [])
+    }
+}
+
+/// A source's glyph: an SF Symbol on a small square, or a letter (GIPHY's).
+struct SourceGlyph: View {
+    let symbol: String?
+    let letter: String?
+    var size: CGFloat = 18
+
+    var body: some View {
+        Group {
+            if let letter {
+                Text(verbatim: letter)
+                    .font(.system(size: size * 0.55, weight: .heavy))
+                    .foregroundColor(Theme.text)
+                    .frame(width: size, height: size)
+                    .background(RoundedRectangle(cornerRadius: size * 0.28, style: .continuous).fill(Color.black))
+                    .overlay(RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.16), lineWidth: 1))
+            } else {
+                Image(systemName: symbol ?? "square.grid.2x2")
+                    .font(.system(size: size * 0.55, weight: .semibold))
+                    .foregroundColor(Theme.text)
+                    .frame(width: size, height: size)
+                    .background(RoundedRectangle(cornerRadius: size * 0.28, style: .continuous).fill(Theme.raised2))
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+/// One key of a shortcut: "⌘", "K", "↩".
+struct Keycap: View {
+    let key: String
+
+    init(_ key: String) {
+        self.key = key
     }
 
-    @ViewBuilder
-    private func tabLabel(_ tab: ResultTab, isSelected: Bool) -> some View {
-        if tab == .saved {
-            Image(systemName: isSelected ? "star.fill" : "star")
-                .font(.system(size: 11, weight: .medium))
-        } else {
-            Text(verbatim: tab.title)
-                .font(.system(size: 12, weight: .medium))
-                .lineLimit(1)
-        }
+    var body: some View {
+        Text(verbatim: key)
+            .font(.system(size: 11, weight: .medium))
+            .foregroundColor(Theme.softTitle)
+            .frame(minWidth: 20, minHeight: 20)
+            .padding(.horizontal, key.count > 1 ? 4 : 0)
+            .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(Theme.raised2))
+            .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(Theme.line, lineWidth: 1))
+            .accessibilityHidden(true)
     }
 }
