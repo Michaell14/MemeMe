@@ -2,33 +2,37 @@ import Foundation
 import XCTest
 @testable import MemeMeCore
 
-final class ResultTabTests: XCTestCase {
-    func testTabCyclesForwardAndBackWrappingAround() {
-        XCTAssertEqual(ResultTab.allCases, [.forYou, .gifs, .stickers, .memes, .saved])
-        XCTAssertEqual(ResultTab.forYou.cycled(by: 1), .gifs)
-        XCTAssertEqual(ResultTab.memes.cycled(by: 1), .saved)
-        XCTAssertEqual(ResultTab.saved.cycled(by: 1), .forYou)
-        XCTAssertEqual(ResultTab.forYou.cycled(by: -1), .saved)
-        XCTAssertEqual(ResultTab.stickers.cycled(by: -5), .stickers)
-        XCTAssertEqual(ResultTab.stickers.cycled(by: -6), .gifs)
-        XCTAssertEqual(ResultTab.saved.title, "Saved")
-        XCTAssertEqual(ResultTab.forYou.title, "For You")
-        XCTAssertEqual(ResultTab.gifs.title, "GIFs")
+final class PickerSourceTests: XCTestCase {
+    func testSourcesCycleForwardAndBackWrappingAround() {
+        XCTAssertEqual(PickerSource.allCases,
+                       [.all, .favorites, .onMyMac, .myStickers, .giphyGIFs, .giphyStickers, .classicMemes])
+        XCTAssertEqual(PickerSource.all.cycled(by: 1), .favorites)
+        XCTAssertEqual(PickerSource.classicMemes.cycled(by: 1), .all)
+        XCTAssertEqual(PickerSource.all.cycled(by: -1), .classicMemes)
+        XCTAssertEqual(PickerSource.onMyMac.cycled(by: -7), .onMyMac)
+        XCTAssertEqual(PickerSource.onMyMac.cycled(by: -8), .favorites)
+        XCTAssertEqual(PickerSource.all.title, "All Sources")
+        XCTAssertEqual(PickerSource.onMyMac.title, "On My Mac")
+        XCTAssertEqual(PickerSource.giphyGIFs.title, "GIPHY GIFs")
+        XCTAssertEqual(PickerSource.allCases.map(\.group), [0, 1, 1, 1, 2, 2, 3])
     }
 
-    func testEachTabShowsItsKindAndForYouShowsAll() {
+    func testEachSourceShowsItsOwnThings() {
         for kind in [TileKind.sticker, .gif, .meme] {
-            XCTAssertTrue(ResultTab.forYou.shows(kind))
+            XCTAssertTrue(PickerSource.all.shows(kind))
+            XCTAssertTrue(PickerSource.favorites.shows(kind), "Favorites shows every kind you starred")
+            XCTAssertFalse(PickerSource.giphyGIFs.shows(kind), "GIPHY's sources show only GIPHY's")
+            XCTAssertFalse(PickerSource.classicMemes.shows(kind))
         }
-        XCTAssertTrue(ResultTab.gifs.shows(.gif))
-        XCTAssertFalse(ResultTab.gifs.shows(.meme))
-        XCTAssertTrue(ResultTab.stickers.shows(.sticker))
-        XCTAssertFalse(ResultTab.stickers.shows(.gif))
-        XCTAssertTrue(ResultTab.memes.shows(.meme))
-        XCTAssertFalse(ResultTab.memes.shows(.sticker))
-        for kind in [TileKind.sticker, .gif, .meme] {
-            XCTAssertTrue(ResultTab.saved.shows(kind), "Saved shows every kind you saved")
-        }
+        XCTAssertTrue(PickerSource.onMyMac.shows(.meme))
+        XCTAssertTrue(PickerSource.onMyMac.shows(.gif), "your own GIFs are on your Mac, not in GIPHY GIFs")
+        XCTAssertFalse(PickerSource.onMyMac.shows(.sticker))
+        XCTAssertTrue(PickerSource.myStickers.shows(.sticker))
+        XCTAssertFalse(PickerSource.myStickers.shows(.meme))
+        XCTAssertEqual(PickerSource.allCases.filter(\.showsGiphyGIFs), [.all, .giphyGIFs])
+        XCTAssertEqual(PickerSource.allCases.filter(\.showsTemplates), [.all, .classicMemes])
+        XCTAssertEqual(PickerSource.allCases.filter(\.showsGiphyStickers), [.giphyStickers])
+        XCTAssertEqual(PickerSource.allCases.filter(\.showsOwn), [.all, .favorites, .onMyMac, .myStickers])
     }
 
     func testAnItemsKindIsStickerThenGIFThenMeme() {
@@ -38,7 +42,7 @@ final class ResultTabTests: XCTestCase {
         XCTAssertEqual(TileKind(makeItem()), .meme)
     }
 
-    // MARK: For You
+    // MARK: All Sources' first row
 
     func testYourBestMatchLeadsAndAClassicMemeEndsAFullRow() {
         let row = ForYouMix.row(own: [.meme, .sticker, .meme, .gif, .meme, .sticker], templates: 3, slots: 5)

@@ -11,7 +11,7 @@ private final class KeyablePanel: NSPanel {
     override var canBecomeKey: Bool { allowsKey }
     override var canBecomeMain: Bool { false }
 
-    /// The drawer hangs from the top of the screen, over the menu bar: keep it where it is put.
+    /// The panel stays where it is put (a tall face editor may reach low on a small screen).
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
         frameRect
     }
@@ -41,8 +41,6 @@ final class PanelController: NSObject {
     private let model: AppModel
     private let panel: KeyablePanel
     private let hostingView: NSHostingView<PanelView>
-    /// The menu bar's height and the notch's width on the screen the panel opens on.
-    private let metrics: NotchMetrics
 
     private var keyMonitor: Any?
     private var mouseMonitor: Any?
@@ -54,14 +52,15 @@ final class PanelController: NSObject {
     private var outsidePress: OutsidePress = .idle
     /// System uptime until which app switches are taken to come from answering a consent alert.
     private var consentAlertGraceUntil: TimeInterval = 0
-    /// Screen position of the panel's top edge and horizontal center while it is visible.
+    /// Screen position of the panel's top edge and horizontal center while it is visible: centered, a little below the
+    /// menu bar (it grows downward, so the search field never moves).
     private var anchorTop: CGFloat = 0
     private var anchorMidX: CGFloat = 0
     /// visibleFrame and frame of the screen the panel was opened on (the one with keyboard focus).
     private var anchorVisibleFrame: NSRect?
     private var anchorScreenFrame: NSRect?
 
-    private let fallbackHeight: CGFloat = 330
+    private let fallbackHeight: CGFloat = 500
     /// How long after answering a consent alert an app switch still counts as part of answering it.
     private let consentAlertGrace: TimeInterval = 1.5
     private let dragPollNanoseconds: UInt64 = 50_000_000
@@ -73,16 +72,14 @@ final class PanelController: NSObject {
 
     init(model: AppModel) {
         self.model = model
-        let initialFrame = NSRect(x: 0, y: 0, width: Theme.panelWidth, height: 330)
+        let initialFrame = NSRect(x: 0, y: 0, width: Theme.panelWidth, height: 500)
         panel = KeyablePanel(
             contentRect: initialFrame,
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: true
         )
-        let metrics = NotchMetrics()
-        self.metrics = metrics
-        hostingView = NSHostingView(rootView: PanelView(model: model, metrics: metrics))
+        hostingView = NSHostingView(rootView: PanelView(model: model))
         super.init()
         configurePanel(initialFrame: initialFrame)
 
@@ -124,15 +121,14 @@ final class PanelController: NSObject {
         model.panelWillShow(previousApp: previousApp)
 
         let screen = NSScreen.main ?? NSScreen.screens.first
-        // The ears fit around this screen's notch, in its menu bar's height.
-        metrics.update(for: screen)
         let size = contentSize()
         anchorVisibleFrame = screen?.visibleFrame
         anchorScreenFrame = screen?.frame
         if let screen {
-            // Flush with the top of the screen, centered on the notch (where a notch is, it is in the middle).
-            anchorMidX = screen.frame.midX
-            anchorTop = screen.frame.maxY
+            // Centered, its top a sixth of the way down the screen's usable area (where Spotlight sits).
+            let visible = screen.visibleFrame
+            anchorMidX = visible.midX
+            anchorTop = visible.maxY - max(24, (visible.height * 0.16).rounded())
         } else {
             anchorMidX = size.width / 2
             anchorTop = size.height
@@ -173,7 +169,7 @@ final class PanelController: NSObject {
 
     private func configurePanel(initialFrame: NSRect) {
         panel.isFloatingPanel = true
-        // Over the menu bar: the drawer's top band covers it beside the notch while the panel is open.
+        // Over every app's windows, like Spotlight.
         panel.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 2)
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
         panel.hidesOnDeactivate = false
@@ -449,6 +445,12 @@ final class PanelController: NSObject {
         static let e: UInt16 = 14
         static let z: UInt16 = 6
         static let s: UInt16 = 1
+        static let f: UInt16 = 3
+        static let k: UInt16 = 40
+        static let p: UInt16 = 35
+        static let m: UInt16 = 46
+        static let o: UInt16 = 31
+        static let r: UInt16 = 15
         static let left: UInt16 = 123
         static let right: UInt16 = 124
         static let down: UInt16 = 125
@@ -473,8 +475,47 @@ final class PanelController: NSObject {
         if model.isCaptureOpen {
             return handleCaptureKeyDown(event, hasNoCommandLikeModifiers: hasNoCommandLikeModifiers)
         }
+        if model.menu != nil {
+            return handleMenuKeyDown(event, flags: flags)
+        }
+        let commandOnly = hasCommand && flags.intersection([.control, .option, .shift]).isEmpty
 
         switch event.keyCode {
+        case KeyCode.k where commandOnly:
+            // ⌘K: what can be done with the selected result.
+            model.toggleMenu(.actions)
+            return nil
+
+        case KeyCode.p where commandOnly:
+            // ⌘P: where results come from.
+            model.toggleMenu(.sources)
+            return nil
+
+        case KeyCode.f where commandOnly:
+            // ⌘F: search with your face, or stop.
+            model.toggleFaceSearch()
+            return nil
+
+        case KeyCode.m where commandOnly:
+            model.perform(.moreLikeThis)
+            return nil
+
+        case KeyCode.o where commandOnly:
+            model.perform(.openInBrowser)
+            return nil
+
+        case KeyCode.r where hasCommand && flags.intersection([.control, .option, .shift]) == .shift:
+            model.perform(.showInFinder)
+            return nil
+
+        case KeyCode.c where hasCommand && flags.intersection([.control, .option, .shift]) == .shift:
+            model.perform(.copyLink)
+            return nil
+
+        case KeyCode.c where hasCommand && flags.intersection([.control, .option, .shift]) == .option:
+            model.perform(.copyMarkdown)
+            return nil
+
         case KeyCode.escape:
             if !model.handleEscape() {
                 hide()
@@ -512,9 +553,9 @@ final class PanelController: NSObject {
             return nil
 
         case KeyCode.tab:
-            // Tab and Shift-Tab move along the tabs (For You · GIFs · Stickers · Memes).
+            // Tab and Shift-Tab move along the sources (All Sources · Favorites · On My Mac · …).
             guard hasNoCommandLikeModifiers else { return event }
-            model.cycleTab(by: hasShift ? -1 : 1)
+            model.cycleSource(by: hasShift ? -1 : 1)
             return nil
 
         case KeyCode.v where hasCommand && flags.intersection([.control, .option]).isEmpty:
@@ -538,7 +579,7 @@ final class PanelController: NSObject {
             return nil
 
         case KeyCode.s where hasCommand && flags.intersection([.control, .option, .shift]).isEmpty:
-            // ⌘S: save the focused tile to the Saved tab, or take it out.
+            // ⌘S: add the focused tile to Favorites, or take it out.
             model.toggleSaveFocused()
             return nil
 
@@ -548,14 +589,50 @@ final class PanelController: NSObject {
             return nil
 
         default:
-            // A digit is what the key types on the active layout, not where it sits: AZERTY types
-            // & é " ' ( § è ! ç à on the unshifted top row (its digits need Shift), Czech types + ě š č ř ž…
-            guard hasNoCommandLikeModifiers, let digit = PanelController.typedDigit(of: event) else { return event }
-            // Digits never type: 1–9 (main row or keypad) pick, 0 does nothing.
+            // ⌘1–⌘9 pick a tile, row by row. A digit is what the key types on the active layout, not where it sits
+            // (AZERTY's need Shift). Plain digits type: names have them.
+            guard hasCommand, flags.intersection([.control, .option]).isEmpty,
+                  let digit = PanelController.typedDigit(of: event) else { return event }
             if digit >= 1 {
                 model.commitNumbered(index: digit - 1)
             }
             return nil
+        }
+    }
+
+    /// While a menu is open: ↑ ↓ move, ↵ runs the highlighted row, Esc (or its own shortcut again) closes it; other
+    /// keys type into its filter field.
+    private func handleMenuKeyDown(_ event: NSEvent, flags: NSEvent.ModifierFlags) -> NSEvent? {
+        let commandOnly = flags.contains(.command) && flags.intersection([.control, .option, .shift]).isEmpty
+        switch event.keyCode {
+        case KeyCode.escape:
+            model.closeMenu()
+            return nil
+        case KeyCode.returnKey, KeyCode.enter:
+            model.performMenuRow()
+            return nil
+        case KeyCode.up, KeyCode.down:
+            model.moveMenuSelection(by: event.keyCode == KeyCode.up ? -1 : 1)
+            return nil
+        case KeyCode.tab:
+            model.moveMenuSelection(by: flags.contains(.shift) ? -1 : 1)
+            return nil
+        case KeyCode.k where commandOnly:
+            model.toggleMenu(.actions)
+            return nil
+        case KeyCode.p where commandOnly:
+            model.toggleMenu(.sources)
+            return nil
+        case KeyCode.v where commandOnly:
+            return performTextCommand(event, action: #selector(NSText.paste(_:)))
+        case KeyCode.c where commandOnly:
+            return performTextCommand(event, action: #selector(NSText.copy(_:)))
+        case KeyCode.x where commandOnly:
+            return performTextCommand(event, action: #selector(NSText.cut(_:)))
+        case KeyCode.a where commandOnly:
+            return performTextCommand(event, action: #selector(NSText.selectAll(_:)))
+        default:
+            return event
         }
     }
 

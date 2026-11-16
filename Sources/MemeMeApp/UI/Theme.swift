@@ -3,16 +3,23 @@ import SwiftUI
 /// Notch Black (docs/DESIGN.md › Design system): the drawer's colors and metrics. One black surface that matches the
 /// notch, one signal color for "this one" and "done", the Mac's own type.
 enum Theme {
-    /// 12 pt shoulders on each side of the drawer's 712 pt: 20 + mirror 104 + 16 + 5 tiles of 104 8 pt apart + 20.
-    static let panelWidth: CGFloat = 736
-    /// The inverted corners where the drawer meets the top of the screen.
+    /// The panel: a search field over the grid, a bar under it (Raycast-like, floating under the menu bar).
+    static let panelWidth: CGFloat = 760
+    static let panelRadius: CGFloat = 16
+    static let searchBarHeight: CGFloat = 56
+    static let bottomBarHeight: CGFloat = 52
+    /// The grid's area (and the camera's column beside it): two rows and a peek at the third.
+    static let contentHeight: CGFloat = 391
+    /// The camera's column, 16 in from the panel's edge.
+    static let faceColumnWidth: CGFloat = 212
+    static let faceMirrorSize: CGFloat = 168
+    /// The grid's side padding and spacing.
+    static let gridPadding: CGFloat = 16
+    static let gridSpacing: CGFloat = 12
+    static let gridRowSpacing: CGFloat = 14
+    /// The HUD's drawer still hangs from the notch: its shoulders and bottom corners.
     static let shoulder: CGFloat = 12
     static let panelCornerRadius: CGFloat = 24
-    static let tileSize: CGFloat = 104
-    static let mirrorSize: CGFloat = 104
-    /// The mirror while you make a face (`AppModel.mirrorIsLarge`): 20 + 216 + 16 + 4 tiles of 104 8 pt apart + 20.
-    static let largeMirrorSize: CGFloat = 216
-    static let largeMirrorColumns: Int = 4
     /// The face editor's drawing of your face (200 points: one point per unit of `FaceSketch`).
     static let editorFaceSize: CGFloat = 200
 
@@ -31,6 +38,20 @@ enum Theme {
     static let text2: Color = rgb(0x8E8E93)
     /// This one, or done (the focus ring, the ↩ chip, the Copied check). Nothing else.
     static let signal: Color = rgb(0xFF9A5C)
+    /// The panel's surface: a hair lighter than the notch, so it reads as a window.
+    static let panelBackground: Color = rgb(0x161618)
+    /// The bottom bar.
+    static let barBackground: Color = rgb(0x1A1A1C)
+    /// Menus over the panel (sources, actions).
+    static let menuBackground: Color = rgb(0x1F1F21)
+    /// Hairlines and the panel's edge.
+    static let hairline: Color = Color.white.opacity(0.08)
+    /// A tile before its picture loads.
+    static let tileBackground: Color = rgb(0x1F1F22)
+    /// A result's name under its tile, unless it is the focused one.
+    static let softTitle: Color = rgb(0xAEAEB2)
+    /// A tile's resting edge.
+    static let tileEdge: Color = Color.white.opacity(0.06)
 
     // MARK: The names the views use, on Notch Black
 
@@ -44,11 +65,11 @@ enum Theme {
     /// "Done" is the signal color too.
     static let green: Color = signal
 
-    /// Two rows of 5 tiles.
+    /// Tiles per row; 4 beside the camera's column.
     static let columns: Int = 5
-    static let rows: Int = 2
-    static let slotCount: Int = columns * rows
-    static var resultLimit: Int { slotCount }
+    static let faceColumns: Int = 4
+    /// Your things shown at most for a search: six rows.
+    static let resultLimit: Int = 30
 
     // Secondary tones used by the panel, popover and HUD.
     static let separator: Color = raised2

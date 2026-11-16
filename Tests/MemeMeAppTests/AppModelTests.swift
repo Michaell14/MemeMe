@@ -172,7 +172,7 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(results.map { $0.section }, ["March 2026", "January 2026"])
         XCTAssertFalse(results.contains { $0.item.id == items.unrelated.id })
         XCTAssertEqual(hint.title, "Searching by words")
-        XCTAssertEqual(hint.subtitle, "The camera is off while you type.")
+        XCTAssertEqual(hint.subtitle, "The camera waits while you type.")
         XCTAssertEqual(focusedIndex, 0)
         XCTAssertFalse(showsFaceToken, "Typing right after opening stops the camera instead of keeping a face token")
         XCTAssertNil(naming)
@@ -314,7 +314,7 @@ final class AppModelTests: XCTestCase {
     }
 
     @MainActor
-    func testTabsShowOneKindAndThePanelOpensOnForYou() throws {
+    func testSourcesShowTheirOwnAndThePanelOpensOnSearchInAllSources() throws {
         let sandbox = try TestSandbox()
         defer { sandbox.remove() }
         let items = fixtures(in: sandbox)
@@ -335,33 +335,69 @@ final class AppModelTests: XCTestCase {
             model.panelDidHide()
             model.saveNow()
         }
-        XCTAssertEqual(model.tab, .forYou, "the panel opens on For You")
+        XCTAssertEqual(model.source, .all, "the panel opens on All Sources")
+        XCTAssertEqual(model.mode, .idle, "and on search: the camera waits for ⌘F")
+        XCTAssertFalse(model.faceSearchOn)
+        XCTAssertFalse(model.showsFaceColumn)
+        XCTAssertEqual(model.gridColumns, 5)
         XCTAssertEqual(Set(model.results.map { $0.item.id }), [items.march.id, items.unrelated.id, sticker.id],
-                       "For You mixes every kind of your things")
+                       "All Sources mixes every kind of your things")
 
-        model.cycleTab(by: 2)
-        XCTAssertEqual(model.tab, .stickers)
+        model.cycleSource(by: 3)
+        XCTAssertEqual(model.source, .myStickers)
         XCTAssertEqual(model.results.map { $0.item.id }, [sticker.id])
-        XCTAssertEqual(model.focusedPick, .meme(sticker), "the focus goes to the tab's first tile")
+        XCTAssertEqual(model.focusedPick, .meme(sticker), "the focus goes to the source's first tile")
         XCTAssertEqual(model.layout.pick(at: 0), .meme(sticker))
         XCTAssertNil(model.layout.pick(at: 1))
+        XCTAssertEqual(model.copyLabel, "Copy Sticker")
 
-        model.selectTab(.memes)
+        model.selectSource(.onMyMac)
         XCTAssertEqual(Set(model.results.map { $0.item.id }), [items.march.id, items.unrelated.id],
-                       "Memes shows still images, not stickers")
+                       "On My Mac shows your images, not stickers")
 
-        model.cycleTab(by: 1)
-        XCTAssertEqual(model.tab, .saved)
-        XCTAssertTrue(model.results.isEmpty, "nothing saved yet")
-        model.cycleTab(by: 1)
-        XCTAssertEqual(model.tab, .forYou, "Tab wraps around")
+        model.selectSource(.favorites)
+        XCTAssertTrue(model.results.isEmpty, "no favorites yet")
+        model.cycleSource(by: -2)
+        XCTAssertEqual(model.source, .classicMemes, "Shift-Tab wraps around")
 
-        model.selectTab(.gifs)
-        XCTAssertTrue(model.results.isEmpty, "no GIFs of your own")
-        XCTAssertNil(model.focusedPick)
+        model.selectSource(.giphyGIFs)
+        XCTAssertTrue(model.results.isEmpty, "GIPHY GIFs shows none of yours")
         model.panelDidHide()
         model.panelWillShow(previousApp: nil)
-        XCTAssertEqual(model.tab, .forYou, "and the panel opens on For You again")
+        XCTAssertEqual(model.source, .all, "and the panel opens on All Sources again")
+    }
+
+    @MainActor
+    func testTheMenusListSourcesAndActions() throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.remove() }
+        let items = fixtures(in: sandbox)
+        let model = try makeModel(in: sandbox, items: [items.march, items.unrelated])
+
+        model.panelWillShow(previousApp: nil)
+        defer {
+            model.panelDidHide()
+            model.saveNow()
+        }
+        model.toggleMenu(.sources)
+        XCTAssertEqual(model.menu, .sources)
+        XCTAssertEqual(model.menuRows.map(\.title), PickerSource.allCases.map(\.title))
+        XCTAssertEqual(model.menuRows.first?.isChecked, true, "All Sources is checked")
+        XCTAssertEqual(model.menuRows.filter(\.startsGroup).count, 3, "a line between each group")
+        model.menuQuery = "mac"
+        XCTAssertEqual(model.menuRows.map(\.title), ["On My Mac"])
+        model.performMenuRow()
+        XCTAssertNil(model.menu, "picking a source closes the menu")
+        XCTAssertEqual(model.source, .onMyMac)
+
+        XCTAssertNotNil(model.focusedPick)
+        model.toggleMenu(.actions)
+        XCTAssertEqual(model.menu, .actions)
+        XCTAssertEqual(model.actions.joined().first, .copy)
+        XCTAssertTrue(model.actions.joined().contains(.showInFinder), "your own files show in Finder")
+        XCTAssertFalse(model.actions.joined().contains(.copyLink), "they have no link")
+        XCTAssertTrue(model.handleEscape(), "Esc closes the menu first")
+        XCTAssertNil(model.menu)
     }
 
     @MainActor

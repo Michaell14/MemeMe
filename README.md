@@ -1,10 +1,10 @@
 # MemeMe
 
-A tiny macOS menu-bar app for reaction images. In any chat, press **⌃⌘M**, make a face, and pick a reaction. It is copied to the clipboard and you are back in the chat. Paste it with ⌘V. MemeMe never pastes or sends anything for you.
+A tiny macOS menu-bar app for reaction images. In any chat, press **⌃⌘M**, type or make a face, and pick a reaction. It is copied to the clipboard and you are back in the chat. Paste it with ⌘V. MemeMe never pastes or sends anything for you.
 
-- **Your face is the search box.** Hold an expression for a moment and results follow it, then grab the face itself to refine the search (push a feature further, resize what counts, or draw on it): memes you already have on your Mac and friend stickers you made, plus (optionally) GIPHY reactions for the mood your face shows. The panel hangs from the notch: **For You** mixes them, **GIFs**, **Stickers** and **Memes** show one kind each.
-- **One commit.** ↵, a number key 1–9, or a click copies the result and closes the panel.
-- **Small.** Swift and Apple frameworks only, no third-party packages, no bundled ML models. The camera runs only while the panel is open.
+- **Search first, your face to refine.** The panel opens on a search field with your recent picks under it. Type to search, or press **⌘F** and hold an expression: results follow it. Click your brows, eyes or mouth to lean the search on that part, or grab the face itself to refine it further (push a feature, resize what counts, draw on it). Results come from memes you already have on your Mac, stickers you made, and (optionally) GIPHY and the classic memes; the source menu beside the search field shows **All Sources** or one of them.
+- **One commit.** ↵, ⌘1–⌘9, or a click copies the result and closes the panel. **Actions (⌘K)** copy a link or Markdown, add to Favorites, find more like it, or show it in Finder.
+- **Small.** Swift and Apple frameworks only, no third-party packages, no bundled ML models. The camera runs only while face search is on.
 
 Requires macOS 14 (Sonoma) or later, on Apple silicon or Intel.
 
@@ -82,19 +82,23 @@ Every change to the app on the default branch is released automatically. When `S
 | | |
 |---|---|
 | ⌃⌘M | Open or close the panel (in any app, no permission needed) |
-| Make a face | Hold it for about 0.3 s; a different face needs about 0.6 s (the ring fills), or 0.3 s if you relax your face in between. Small changes count: stick your tongue out, wink, raise one eyebrow, purse your lips, smirk or roll your eyes, and the search goes by "tongue out", "wink", "raised eyebrow", "duck face", "smirk" or "eye roll". The same word caught again shows the next GIFs and classic memes |
+| ⌘F, or **Search with your face** at the bottom left | Turns the camera on (again turns it off). Then make a face: hold it for about 0.3 s; a different face needs about 0.6 s (the ring fills), or 0.3 s if you relax your face in between. Small changes count: stick your tongue out, wink, raise one eyebrow, purse your lips, smirk or roll your eyes, and the search goes by "tongue out", "wink", "raised eyebrow", "duck face", "smirk" or "eye roll". The same word caught again shows the next GIFs and classic memes |
 | Strike a pose | Arms up, a T-pose, a flex, a dab, hands on hips, arms crossed, one arm up, a wave (palm open to the camera), a bow, hands on your head, a facepalm, a shrug, clapping, a thumbs up, peace, pointing: memes with that pose come first, GIPHY and the classic memes are searched for it, and the word beside the notch names the pose. Any other finger pattern (horns, hang loose, finger guns) counts as a hand sign too, except while a hand rests in front of you holding a phone or a mug. A pose with no word of its own (one arm flexed, horns, a hand on your chin) is named in a few words on your Mac ("flexing", "rock on", "thinking") and searched by them: by Apple's on-device model on macOS 26 with Apple Intelligence on (sparkles beside the word), else by MemeMe's own rules. Step back so your arms (and hips) are in view, and hold each pose for a second |
+| Click your brows, eyes or mouth | Lean the search on that part: it counts most, and the search's word is read from it. Again goes back to the whole face |
 | Space | Use the current face now, even a neutral one (only while the search field is empty) |
 | ⇧Space or the camera button on the mirror | Send yourself: tap the shutter (or Space) for a photo, hold it for a GIF of up to 3 s; ← → pick a filter (looks: Noir, Comic, 8-bit, Deep fried; on your face: Dog, Cat, Bunny, Rainbow, Flowers, Heart eyes, Deal with it, Devil, Angel, Crown, Bug eyes, Clown, Mustache, Pig). It's copied, ready to paste; **Save as sticker** on the notice keeps your face as a sticker |
-| ↵, 1–9, click | Copy the focused, numbered or clicked result and close (1–9: the tiles in order, row by row) |
-| Arrow keys | Move the focus across the two rows of tiles |
+| ↵, ⌘1–⌘9, click | Copy the focused, numbered or clicked result and close (⌘1–⌘9: the tiles in order, row by row) |
+| Arrow keys | Move the focus through the grid |
+| ⌘K | Actions for the selected result: Copy, Copy Link (⇧⌘C), Copy Markdown (⌥⌘C), Add to Favorites (⌘S), More Like This (⌘M), Show in Finder (⇧⌘R), Open on GIPHY (⌘O) |
+| ⌘P, or the source button | Where results come from: All Sources, Favorites, On My Mac, My Stickers, GIPHY GIFs, GIPHY Stickers, Classic Memes |
 | Typing | Search by words: text in images, labels, file names, sources, friends' names. Filter words: `mine`, `gif`, `sticker`, a friend's name. GIPHY's GIFs and the classic memes follow the words too ("sad", "guy looking back") |
 | ⌘V or drop an image on the panel | Search with that image. It is not saved unless you click **Keep it** |
-| Tab / Shift-Tab | The next / previous tab: For You · GIFs · Stickers · Memes · ★ Saved (the panel opens on For You) |
-| ⌘S, or Save on a tile you point at | Save one of your things to the Saved tab (again takes it out). GIPHY's GIFs and the classic memes can't be kept |
+| Tab / Shift-Tab | The next / previous source (the panel opens on All Sources) |
+| ⌘S, or ☆ on a tile you point at | Add one of your things to Favorites (again takes it out). GIPHY's GIFs and the classic memes can't be kept |
 | Right-click one of your memes | More like this; Esc goes back to your face |
 | ⌘E, the sliders button or a click on the mirror | Edit the face the camera caught. Your brows, eyes and mouth glow by how much each counts. Drag a round dot to push a feature further (a brow, an eyelid, a pupil, a mouth corner, the lower lip, or the dot above the head to tilt it). Drag a ring's square out or in, pinch on a part, or use − and +, to change how much that part counts (0 ignores it). With the pen, circle a part to make it count most, scribble one out to ignore it, or draw tears to search for "crying". Your memes re-rank as you go and GIPHY follows once you let go. ⌘Z undoes, Reset goes back to the caught face, Esc goes back to your face |
-| Esc | First clears text, focus, image or more-like; a second Esc closes |
+| Esc | First closes a menu, then clears text, image or more-like, then turns face search off; then it closes |
+| ⌃⌘S, or ✂ in the panel | Cut a sticker out of anything on your screen: click a subject (⇧-click adds, ⌥-click removes) or drag a box around it, name it, then **Save** it to My Stickers or **Copy** it. Apple's subject lifting finds it, on your Mac |
 | Drag a tile into a chat | Drops it into the message box and closes the panel; the clipboard is left alone |
 
 **The menu-bar icon** has the settings: folders to collect from, pausing collection, Web Discover, the GIPHY key, what to do with photos of people, grouping friends' faces, forgetting your resting face, Open at Login, and showing the library in Finder.
@@ -103,11 +107,12 @@ Every change to the app on the default branch is released automatically. When `S
 
 ## Permissions and privacy
 
-- **Camera.** On only while the panel is open, and it stops when the panel closes. For the search, frames are analyzed on your Mac with Apple's Vision framework and then discarded. Nothing is uploaded. **Send yourself** is the exception you ask for: the photo or GIF you take (and, for a GIF, its best frame) is written to a temporary file in `~/Library/Caches/MemeMe/Clipboard` so you can paste it, and deleted within the hour once it is no longer on the clipboard. A picture of you is kept only if you click **Save as sticker**: it is stored with your memes in `~/Library/Application Support/MemeMe/Stickers`. **Undo** on the "Saved" notice removes it; later, delete its file from that folder (menu → Show Library in Finder) and MemeMe forgets it the next time the panel opens. MemeMe turns off macOS's gesture Reactions for itself by default (on macOS 14.4 and later), so a thumbs up or peace sign doesn't add balloons or fireworks to your search or your captures. Apart from that, MemeMe keeps only your "resting face": a handful of numbers (no image) that it learns from calm frames, so it can tell how much your face moved. **Forget My Resting Face** in the menu resets it.
+- **Camera.** On only while face search is on (⌘F), and it stops when the panel closes. For the search, frames are analyzed on your Mac with Apple's Vision framework and then discarded. Nothing is uploaded. **Send yourself** is the exception you ask for: the photo or GIF you take (and, for a GIF, its best frame) is written to a temporary file in `~/Library/Caches/MemeMe/Clipboard` so you can paste it, and deleted within the hour once it is no longer on the clipboard. A picture of you is kept only if you click **Save as sticker**: it is stored with your memes in `~/Library/Application Support/MemeMe/Stickers`. **Undo** on the "Saved" notice removes it; later, delete its file from that folder (menu → Show Library in Finder) and MemeMe forgets it the next time the panel opens. MemeMe turns off macOS's gesture Reactions for itself by default (on macOS 14.4 and later), so a thumbs up or peace sign doesn't add balloons or fireworks to your search or your captures. Apart from that, MemeMe keeps only your "resting face": a handful of numbers (no image) that it learns from calm frames, so it can tell how much your face moved. **Forget My Resting Face** in the menu resets it.
 - **Folders.** After **Find my memes** (or from the menu), MemeMe indexes images in Downloads, Desktop and your screenshot folder. macOS asks once per folder. Files are never copied or moved: the index stores features, a compact image fingerprint and the text found in each image (about 4 KB per meme). Personal photos and chat screenshots are sorted out and keep no face data or text. Only images you hand in yourself (dropped on the icon, or **Keep it**) are copied, into `~/Library/Application Support/MemeMe/Kept`.
+- **Screen Recording.** Asked for the first time you cut a sticker from the screen (⌃⌘S). The screenshot is taken only then, read on your Mac, never written to disk or sent, and gone when the cut closes; only the sticker you save is kept, in `~/Library/Application Support/MemeMe/Stickers`.
 - **No Accessibility access, ever.** MemeMe only writes to the clipboard. You paste.
 - **Network.** Only with Web Discover on:
-  - **GIPHY** (with a key set): the one mood word for your face (for example "shocked reaction" or "tongue out") goes to GIPHY, sometimes a moment before you finish making the face. For a pose with no word of its own, 1–3 words naming it go instead (for example "flexing" or "rock on"), made on your Mac by MemeMe's own rules or by Apple's on-device model; the description of your arms, hands and face that the model reads never leaves your Mac, and neither does any frame. What you type in the search field goes too, once you pause typing, without filter words (`mine`, `gif`, `sticker`) or the names of your people. GIPHY's results show in their own row, in GIPHY's order, and are kept in memory for 10 minutes. Their images load from GIPHY with ordinary web caching; a GIF you copy or drag is downloaded to a temporary file that is deleted within the hour. Nothing from GIPHY goes into your library.
+  - **GIPHY** (with a key set): the one mood word for your face (for example "shocked reaction" or "tongue out") goes to GIPHY, sometimes a moment before you finish making the face. For a pose with no word of its own, 1–3 words naming it go instead (for example "flexing" or "rock on"), made on your Mac by MemeMe's own rules or by Apple's on-device model; the description of your arms, hands and face that the model reads never leaves your Mac, and neither does any frame. What you type in the search field goes too, once you pause typing, without filter words (`mine`, `gif`, `sticker`) or the names of your people. GIPHY's results show together, in GIPHY's order, and are kept in memory for 10 minutes. Their images load from GIPHY with ordinary web caching; a GIF you copy or drag is downloaded to a temporary file that is deleted within the hour. Nothing from GIPHY goes into your library.
   - **Imgflip** (no key): once a day MemeMe fetches Imgflip's public list of popular meme templates (the request carries nothing about you) and keeps it in `~/Library/Caches/MemeMe/Templates`. Which templates fit your face, your pose or your words is worked out on your Mac, so none of them is sent to Imgflip; the images of the templates picked then load from Imgflip (with ordinary web caching), so Imgflip sees which ones were shown; one you copy or drag goes to a temporary file deleted within the hour.
 - **Update checks.** Release builds fetch `latest.json` from GitHub Releases every 6 hours. The request carries nothing about you or your library. The new DMG is downloaded only after you click **Update**.
 - **Friend stickers.** Grouping stickers by person is opt-in. Face matching compares a sticker's face only with stickers you made, and the data never leaves your Mac.
@@ -116,7 +121,7 @@ Every change to the app on the default branch is released automatically. When `S
 
 ## GIPHY API key
 
-Web Discover adds classic memes (Distracted Boyfriend, Drake, Surprised Pikachu…) from Imgflip's list of popular templates to For You and the Memes tab, and GIPHY reaction GIFs for the face you make (or the words you type) to For You's bottom row and the GIFs tab, credited "Powered by" with GIPHY's logo. It is on by default. The classic memes need no key; GIPHY's GIFs need an API key, and the menu item then reads **Web Discover (GIPHY): No API Key** (it still turns Web Discover, classic memes included, on and off).
+Web Discover adds classic memes (Distracted Boyfriend, Drake, Surprised Pikachu…) from Imgflip's list of popular templates, and GIPHY reaction GIFs and stickers for the face you make (or the words you type), to All Sources and their own sources, credited "Powered by" with GIPHY's logo. It is on by default. The classic memes need no key; GIPHY's GIFs need an API key, and the menu item then reads **Web Discover (GIPHY): No API Key** (it still turns Web Discover, classic memes included, on and off).
 
 1. Create an app at [developers.giphy.com](https://developers.giphy.com) (choose **API**) and copy its API key. A new key is a beta key: 100 calls per hour. MemeMe stays under 90 per rolling hour on each Mac and reuses a mood's results for 10 minutes, but GIPHY counts calls per key, so every copy of a release shares the built-in key's limit. That's fine for you and a few friends; before sharing MemeMe widely, use **Upgrade to Production** on the key in GIPHY's dashboard.
 2. Choose one way to provide it:
@@ -139,8 +144,8 @@ Sources/MemeMeCore/           Foundation-only logic, also builds on Linux
   FaceCues, FaceShapeMeasure    the face's details (tongue out, wink, one eyebrow, duck face, smirk, eye roll) from its landmarks
   PeakHoldTracker               turns camera frames into a stable query ("no shutter")
   FeatureWeights, Ranker        scoring for face, text, image, more-like and recent searches
-  EarlyMoodTrigger, TileRows     when a held face's mood is clear (early GIPHY search); keyboard focus across the rows
-  ResultTab                     the tabs (For You, GIFs, Stickers, Memes, Saved), what kind a thing is, For You's mix
+  EarlyMoodTrigger, TileRows     when a held face's mood is clear (early GIPHY search); keyboard focus across the grid
+  PickerSource, FaceLean        the sources (All Sources, Favorites, On My Mac, …), what kind a thing is, All Sources' first row; leaning on a part of the face
   Mood, MemeTemplateCatalog     face → mood word for GIPHY; the classic memes for a mood, words or a described pose
   PoseDescription               a pose with no word of its own in words: facts for the on-device model, a phrase by rule
   Classifier, LibraryItem,      library model, meme/maybe/skipped sorting, JSON store
@@ -153,10 +158,10 @@ Sources/MemeMeApp/            the macOS app (AppKit + SwiftUI)
   Camera/                       AVFoundation capture and the mirrored preview
   Vision/                       face landmarks → features, image analysis, thumbnails, naming poses with Apple's on-device model (PoseNamer)
   Library/                      folder watching and indexing
-  Web/                          GIPHY search and media for GIPHY's GIFs
+  Web/                          GIPHY search and media for GIPHY's GIFs and stickers
   Stickers/                     subject lifting into die-cut stickers, friend grouping
   System/                       clipboard, Low Power / network conditions
-  UI/                           the drawer (ears, tabs, mirror, two rows of tiles), footer, setup card, HUD, sticker popover
+  UI/                           the search panel (search bar, source menu, grid, camera column, actions, bottom bar), footer, setup card, HUD, sticker popover
   Update/                       update checks, download and verification, one-click install
 Tests/MemeMeCoreTests/        XCTest suite for the core
 VERSION                       the marketing version; the build number is the commit count

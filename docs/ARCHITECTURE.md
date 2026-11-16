@@ -24,7 +24,7 @@ Read `docs/DESIGN.md` for behavior and exact UI strings.
 | Core | `Sources/MemeMeCore/*.swift`, `Tests/MemeMeCoreTests/*.swift` |
 | Vision & camera | `Sources/MemeMeApp/Vision/FaceFeatureExtractor.swift`, `Vision/ImageAnalyzer.swift`, `Vision/ThumbnailCache.swift`, `Camera/CameraController.swift`, `Camera/CameraPreviewView.swift`, `Camera/CameraFilter.swift`, `Camera/CaptureRenderer.swift`, `Vision/PoseNamer.swift` |
 | Library, web, stickers | `Sources/MemeMeApp/Library/LibraryIndexer.swift`, `Library/FolderWatcher.swift`, `Web/GIFProvider.swift`, `Web/GiphyProvider.swift`, `Web/WebDiscover.swift`, `Web/MemeTemplates.swift`, `Stickers/StickerMaker.swift`, `Stickers/FriendService.swift`, `System/Clipboard.swift`, `System/SystemConditions.swift` |
-| Panel UI | `Sources/MemeMeApp/UI/PanelController.swift`, `UI/PanelView.swift`, `UI/MirrorColumn.swift`, `UI/DrawerGrid.swift`, `UI/Drawer.swift`, `UI/FooterView.swift`, `UI/SetupCardView.swift`, `UI/HUDController.swift`, `UI/StickerPopoverView.swift`, `UI/AnimatedImageView.swift`, `UI/CaptureView.swift`, `UI/Theme.swift` |
+| Panel UI | `Sources/MemeMeApp/UI/PanelController.swift`, `UI/PanelView.swift`, `UI/FaceColumn.swift`, `UI/PickerGrid.swift`, `UI/Drawer.swift`, `UI/FooterView.swift`, `UI/SetupCardView.swift`, `UI/HUDController.swift`, `UI/StickerPopoverView.swift`, `UI/AnimatedImageView.swift`, `UI/CaptureView.swift`, `UI/Theme.swift` |
 | App shell | `Sources/MemeMeApp/App/main.swift`, `App/AppDelegate.swift`, `App/AppModel.swift`, `App/CaptureModel.swift`, `App/HotKey.swift`, `App/StatusItemController.swift`, `App/StickerPopoverModel.swift`, `App/LoginItem.swift`, `Resources/Info.plist`, `scripts/build-app.sh`, `.github/workflows/ci.yml`, `README.md`, `.gitignore` |
 | Updates | `Sources/MemeMeApp/Update/UpdateChecker.swift`, `Update/UpdateInstaller.swift`, `Tests/MemeMeAppTests/UpdateCheckerTests.swift`, `Tests/MemeMeAppTests/UpdateInstallerTests.swift` |
 | Release | `VERSION`, `scripts/build-dmg.sh`, `scripts/dmg-settings.py`, `scripts/dmgbuild-requirements.txt`, `scripts/render-dmg-background.cjs`, `Resources/DMG/*`, `scripts/publish-release.sh`, `scripts/build-site.sh`, `site/index.html` |
@@ -638,27 +638,47 @@ public struct TileRows: Equatable, Sendable {
     public func move(from slot: Int, dx: Int, dy: Int) -> Int?   // arrow keys: along the row, or to the nearest row with tiles (column kept when it can); nil when there is nowhere to go
 }
 ```
-Keyboard focus over the panel's tiles: rows of `columns` slots numbered row by row from 0, each filled from the left; empty rows are skipped. The panel has two rows of 5 (of 4 beside the big mirror, `AppModel.gridColumns`).
+Keyboard focus over the panel's tiles: rows of `columns` slots numbered row by row from 0, each filled from the left; empty rows are skipped. The grid has rows of 5 (of 4 beside the camera's column, `AppModel.gridColumns`).
 
-### ResultTab.swift
+### PickerSource.swift
 
 ```swift
-public enum ResultTab: String, CaseIterable, Sendable {
-    case forYou, gifs, stickers, memes, saved
-    public var title: String { get }                 // "For You", "GIFs", "Stickers", "Memes", "Saved"
-    public func cycled(by offset: Int) -> ResultTab  // wrapping around (Tab, Shift-Tab)
-    public func shows(_ kind: TileKind) -> Bool      // every kind in For You and Saved (only what you saved), else its own
+public enum PickerSource: String, CaseIterable, Sendable {
+    case all, favorites, onMyMac, myStickers, giphyGIFs, giphyStickers, classicMemes
+    public var title: String { get }                    // "All Sources", "Favorites", "On My Mac", "My Stickers", "GIPHY GIFs", "GIPHY Stickers", "Classic Memes"
+    public var group: Int { get }                       // the menu's groups: 0 all; 1 yours; 2 GIPHY's; 3 classic memes
+    public func cycled(by offset: Int) -> PickerSource  // wrapping around (Tab, Shift-Tab)
+    public func shows(_ kind: TileKind) -> Bool         // every kind in all and favorites; onMyMac all but stickers; myStickers stickers; none on the web's
+    public var showsOwn: Bool { get }
+    public var isGiphy: Bool { get }
+    public var showsGiphyGIFs: Bool { get }             // all, giphyGIFs
+    public var showsGiphyStickers: Bool { get }         // giphyStickers
+    public var showsTemplates: Bool { get }             // all, classicMemes
 }
 public enum TileKind: Equatable, Sendable {
     case sticker, gif, meme
     public init(_ item: LibraryItem)                 // isSticker → sticker, else isAnimated → gif, else meme
 }
-public enum ForYouMix {
+public enum ForYouMix {                              // All Sources' first row for a search
     public enum Pick: Equatable, Sendable { case own(Int), template(Int) }
     public static func row(own: [TileKind], templates: Int, slots: Int) -> [Pick]
 }
 ```
 `ForYouMix.row` (binding): with `templates > 0`, `slots > 1` and at least `slots` of yours, one slot is kept for a classic meme (the last); your first `slots` minus that, in rank order; then for a sticker and then a meme missing from them, the best of that kind among `own` replaces the lowest-ranked chosen item (never the first) whose kind is chosen more than once, and the chosen are put back in rank order; classic memes (from index 0) fill the rest, up to `templates`.
+
+### FaceLean.swift
+
+```swift
+public enum FaceLean {                               // leaning the face search on one part (a click on it)
+    public static let leanedWeight: Double           // 3
+    public static let otherWeight: Double            // 0.5
+    public static func weights(_ base: FeatureWeights, leaningOn region: FaceRegion) -> FeatureWeights   // base.overriding: the part 3, the others 0.5; pose kept
+    public static func face(_ face: FaceFeatures, leaningOn region: FaceRegion, rest: FaceFeatures) -> FaceFeatures   // the part's values, rest's elsewhere (headTilt too)
+    public static func region(of cue: FaceCues.Cue) -> FaceRegion   // wink, eyeRoll → eyes; raisedBrow → brows; tongueOut, pucker, smirk → mouth
+    public static func shape(_ shape: FaceShape?, leaningOn region: FaceRegion, baseline: RestingBaseline) -> FaceShape?   // kept unless its clear cue is another part's
+    public static func sample(_ sample: ExpressionSample, leaningOn region: FaceRegion, baseline: RestingBaseline) -> ExpressionSample   // the word's sample; unchanged without a face
+}
+```
 
 ### MemeTemplateCatalog.swift
 
@@ -1346,7 +1366,7 @@ struct DrawerShape: Shape { var shoulder: CGFloat = Theme.shoulder; var cornerRa
     init(model: AppModel)
     var isVisible: Bool { get }
     func toggle()
-    func show()   // captures NSWorkspace.shared.frontmostApplication before showing; calls model.panelWillShow; measures the screen (NotchMetrics); non-activating NSPanel flush with the top of the screen, centered on it (the notch)
+    func show()   // captures NSWorkspace.shared.frontmostApplication before showing; calls model.panelWillShow; non-activating NSPanel centered on the screen's visible frame, its top 16 % of the way down (at least 24 pt)
     func hide()                         // orders out, calls model.panelDidHide, reactivates the previous app if it is no longer frontmost
 }
 ```
@@ -1355,35 +1375,54 @@ NSPanel subclass: `styleMask [.borderless, .nonactivatingPanel]`, `canBecomeKey 
 Key handling:
 - Esc → `if !model.handleEscape() { hide() }`
 - ↵ / Enter → `model.commitFocused()`
-- digits 1–9 as typed on the active keyboard layout (main row or keypad; Shift allowed, no ⌘/⌃/⌥; 0 is swallowed) → `model.commitNumbered(index: n - 1)` (any tile, row by row)
+- ⌘ + a digit 1–9 as typed on the active keyboard layout (Shift allowed, no ⌃/⌥; 0 is swallowed) → `model.commitNumbered(index: n - 1)` (any tile, row by row); plain digits type
+- ⌘K → `model.toggleMenu(.actions)`; ⌘P → `model.toggleMenu(.sources)`; ⌘F → `model.toggleFaceSearch()`; ⌘M, ⌘O, ⇧⌘R, ⇧⌘C, ⌥⌘C → `model.perform(.moreLikeThis / .openInBrowser / .showInFinder / .copyLink / .copyMarkdown)`
+- While `model.menu` is set: Esc → `model.closeMenu()`; ↵ → `model.performMenuRow()`; ↑/↓ and Tab/Shift-Tab → `model.moveMenuSelection(by:)`; ⌘K / ⌘P toggle; ⌘V/C/X/A edit its filter field; everything else types into it
 - ←/→ → `model.moveFocus(dx: ∓1, dy: 0)` only when `model.queryText` is empty; ↑/↓ → `model.moveFocus(dx: 0, dy: ∓1)`
 - Space with empty query → `model.snap()`; ⇧Space with empty query → `model.openCapture()` when `model.canOpenCapture`
 - In the capture view (`model.isCaptureOpen`): Esc → `model.handleEscape()` (cancels a capture in progress, else closes the view); Space down (not a repeat) → `model.capture.press(from: .space)`, Space up (whatever the modifiers) → `model.capture.release(from: .space)`; ↵ / Enter down → `press(from: .key)`, up → `release(from: .key)` (like Space, so the panel never closes while the key is down); ←/→ → `model.capture.cycleFilter(by: ∓1)`; other keys without ⌘/⌃/⌥ are swallowed
-- Tab → `model.cycleTab(by: 1)`; Shift-Tab → `model.cycleTab(by: -1)`
+- Tab → `model.cycleSource(by: 1)`; Shift-Tab → `model.cycleSource(by: -1)`
 - ⌘V → consume only if `model.pasteFromClipboard()` returns true
 - everything else passes through to the focused search field.
 
 ### UI/PanelView.swift and subviews
 
 ```swift
-struct PanelView: View { init(model: AppModel, metrics: NotchMetrics) }               // the drawer per DESIGN.md
-struct MirrorColumn: View { init(model: AppModel) }                                  // the round mirror (216 pt while model.mirrorIsLarge, else 104) (CameraPreviewView / silhouette / image / drop well), what the word was read from or the hint, Find my memes / Look in Documents…
-struct DrawerGrid: View { init(model: AppModel) }                                    // the two rows for model.layout, titled beside the big mirror; FaceReadingPanel in the top row's place while model.isReadingFace
-struct PickTile: View { init(pick: Pick, isFocused: Bool, marksType: Bool, model: AppModel) }   // one tile: your thing, a GIPHY GIF or a classic meme
+struct PanelView: View { init(model: AppModel) }                                    // the search panel per DESIGN.md
+struct FaceColumn: View { init(model: AppModel) }                                    // the camera's column while model.showsFaceColumn: the 168 pt mirror (CameraPreviewView with region clicks → model.leanOn / silhouette / image / drop well), the word or the hint, a meter per part
+struct PickerGrid: View { init(model: AppModel) }                                    // model.layout: its title, GIPHY's credit, the tiles in a ScrollView following model.focusedIndex
+struct PickerTile: View { init(pick: Pick, size: CGFloat, isFocused: Bool, marksType: Bool, model: AppModel) }   // a square tile, its name and source badge under it
 struct PoweredByGiphyMark: View                                                      // "Powered by" + GIPHY's logo
+struct SourceGlyph: View; struct Keycap: View                                        // a source's glyph; one key of a shortcut
 struct FooterView: View { @ObservedObject var model: AppModel }                     // only while footer != .hidden: indexing, added, update
 struct SetupCardView: View { @ObservedObject var model: AppModel }
 struct AnimatedImageView: NSViewRepresentable { init(url: URL); init(image: NSImage) }   // NSImageView with animates = true
-struct CaptureView: View { init(model: AppModel) }                                   // replaces the drawer's body while model.isCaptureOpen
+struct CaptureView: View { init(model: AppModel) }                                   // replaces the panel's content while model.isCaptureOpen
 ```
-- `PanelView`: a `VStack` 12 pt in from the window's sides (the shoulders), `Theme.panelWidth` wide, its height fitting, on `DrawerShape` filled with `Theme.background` and clipped to it. The ears (`metrics.bandHeight` tall, 20 pt in on the left, 16 on the right): the query field (at most 300 pt, and 36 pt short of the left ear's width, `(712 - metrics.notchWidth) / 2`) and, unless the setup card shows, the private `TabBar` (one plain button per `ResultTab`, `model.selectTab`). Neither shows in the capture view. The query field: a 22 pt glyph (a button calling `model.removeFaceToken()` while `model.showsFaceToken`), then `model.readout`'s word while the text is empty (45 % while `holdProgress ≥ 0.05`), else "Type to search", under a plain `TextField` bound to `$model.queryText`, focused on appear (`@FocusState`). The body (20 pt in, 12 pt top, 14 pt bottom): the setup card, the naming row, then the mirror column and, 16 pt to its right, `DrawerGrid` with `PoweredByGiphyMark` under it right-aligned while `model.layout.showsGiphy` (a 14 pt line either way), then the footer.
-- `PanelView` shows `CaptureView` instead of the body while `model.isCaptureOpen`; drops are ignored there and the search field gets the focus back when it closes.
-- `MirrorColumn` puts a 26 pt camera button (SF Symbol `camera.fill`) at the mirror's bottom right while `model.canOpenCapture`; the ring is `Theme.raised2`, the hold `Theme.text` (`trim` to `holdProgress`, from the top, live only), the pose caught `Theme.green` fading over 0.6 s when `model.poseCatches` changes.
-- `CaptureView`: a 300 × 300 stage (`CapturePreview`, an `NSView` whose layer contents are set straight from `camera.onCapturePreview`, aspect fill) with a white flash on each photo, a coral progress ring while recording and the shutter (a `DragGesture(minimumDistance: 0)`: press → `capture.press(from: .mouse)`, release → `capture.release(from: .mouse)`); beside it the title, the status line, the filter chips (4 columns) and "Back to memes"; the legend below.
-- Drops on the whole panel: `.onDrop(of: [.fileURL, .image], …)` → `model.search(withImageAt:)`. While a drag is over the panel (`isDropTargeted`, unless `model.isDraggingTile`) a dashed white `DropCard` covers the tiles ("Drop to search with it"). A tile's own drag (`TileDragEvents.dragDidBegin`) sets `isDraggingTile` until the button is up (300 ms longer when let go over the panel, so its own drop is ignored) or the panel hides; `handleDrop` refuses drops meanwhile.
-- `DrawerGrid`: for each slot of `model.layout`, a `PickTile` (`marksType` in `layout.marksTypes` rows that aren't `giphyRows`) with `.onHover { if $0 { model.hover(index:) } }`, `.onTapGesture { model.commit(index:) }`, `.onDrag { model.dragItemProvider(index:) ?? NSItemProvider() }` and, for your things, a context menu "More like this" (`model.hover(index:)`, then `model.moreLikeFocused()`); an empty slot is a `Theme.surface` square (55 % unless its row is `loading`). A row with no tiles that isn't loading shows its `messages` line over it.
-- `PickTile`: 104 pt, radius 10, on `Theme.surface`. Your things' thumbnails via `ThumbnailCache.shared` (a sticker aspect-fit 6 pt in, else aspect fill), the focused GIF of yours as `AnimatedImageView(url:)`; GIPHY GIFs load `model.web.still(for:)` and, while focused, `AnimatedImageView(image: await model.web.preview(for:))`; classic memes `model.templates.image(for:)`, aspect fit. Focused: a 2 pt `Theme.accent` ring 3 pt out (2 pt gap) and the ↩ chip (13 pt semibold `Theme.onAccent` on `Theme.accent`, radius 5, 6 pt in). With `marksType`, an animated thing of yours that isn't a sticker carries the "GIF" tag.
+- `PanelView`: `Theme.panelWidth` wide, its height fitting, on `Theme.panelBackground`, clipped to a radius-16 rounded rect with a 1 px white 10 % edge: the search bar (`Theme.searchBarHeight`: magnifier or the kept face's glyph, the face token, the field at 17 pt, the source button → `model.toggleMenu(.sources)`), a hairline, the content (setup card, naming row, then an `HStack` of `FaceColumn` while `model.showsFaceColumn` and `PickerGrid`, `Theme.contentHeight` tall; the face editor and the footer under it), a hairline, the bottom bar (`Theme.bottomBarHeight`: the face button → `model.toggleFaceSearch()`; with a focused pick, `model.copyLabel` + ↩ → `model.perform(.copy)` and Actions ⌘K → `model.toggleMenu(.actions)`). `model.menu` shows a `MenuPanel` over it (sources at the top right, actions above the bottom bar) with a filter field bound to `model.menuQuery`, focused while it is open, and a click-catcher behind it → `model.closeMenu()`.
+- `PanelView` shows `CaptureView` instead of the content while `model.isCaptureOpen`; drops are ignored there and the search field gets the focus back when it closes.
+- Drops on the whole panel: `.onDrop(of: [.fileURL, .image], …)` → `model.search(withImageAt:)`. While a drag is over the panel (`isDropTargeted`, unless `model.isDraggingTile`) a dashed white `DropCard` covers the grid.
+- `PickerGrid`: tiles `floor((width − (columns − 1) × 12) / columns)` square, the width 728 (516 beside the camera's column); rows 14 apart; while `layout.isLoading` placeholder tiles finish the last row and add one; with no picks, `layout.message`. Each tile: `.onHover` → `model.hover(index:)`, tap → `model.commit(index:)`, `.onDrag` → `model.dragItemProvider(index:)`, a context menu (More Like This, Add to / Remove from Favorites, Copy Link, Open on GIPHY / in Browser).
+- `PickerTile`: your things' thumbnails via `ThumbnailCache.shared` (a sticker aspect-fit 8 pt in, else aspect fill), the focused GIF of yours as `AnimatedImageView(url:)`; GIPHY's GIFs and stickers load `web.still(for:)` / `webStickers.still(for:)` and, while focused, the preview; classic memes `model.templates.image(for:)`, aspect fit. Focused: a 2 pt `Theme.accent` ring 3 pt out; hovered: lifted 2 pt.
 - `PoweredByGiphyMark`: "Powered by" + `Bundle.main.image(forResource: "GIPHYLogo")` (Resources/GIPHY/GIPHYLogo.png, copied by build-app.sh, 12 pt tall), else the words "Powered by GIPHY".
+
+### UI/ScreenCutController.swift, Stickers/ScreenSubjects.swift
+
+```swift
+@MainActor final class ScreenCutController { init(model: AppModel); var isOpen: Bool { get }; func start(); func close() }   // ⌃⌘S (AppDelegate) and model.onRequestScreenCut
+@MainActor final class ScreenCutModel: ObservableObject   // status, hovered / selection (ScreenPiece), dragBox, name; hover(at:), click(at:adding:removing:), drag(from:to:), endDrag(), save(), copy(), cancel()
+struct ScreenPiece { let rect: CGRect; let cutout: CGImage; let outline: CGImage; let isRectangle: Bool }   // rect normalized, origin top-left
+final class ScreenSubjects: @unchecked Sendable {         // heavy: off the main actor
+    init(image: CGImage)                                  // VNGenerateForegroundInstanceMaskRequest on the whole screenshot
+    static func capture(_ screen: NSScreen) async throws -> CGImage   // SCScreenshotManager, MemeMe's windows excluded, ≤ 2880 px
+    func instance(at point: CGPoint) -> Int?
+    func piece(forInstances: IndexSet) throws -> ScreenPiece
+    func piece(inBox: CGRect) throws -> ScreenPiece       // subject lifting on the box alone; the box itself without subjects
+    static func stickerPNG(of piece: ScreenPiece) throws -> Data      // StickerMaker.render (outline unless a rectangle) + encodePNG
+    static func suggestedName(for piece: ScreenPiece) -> String?      // VNClassifyImageRequest, confidence ≥ 0.3
+}
+```
+`FriendService.makeScreenSticker(png:name:sourceApp:)` writes the PNG to `store.stickersDirectory`, reads it with `ImageAnalyzer.analyze` and adds a `.mine` sticker (source "Screen"). Without Screen Recording access (`CGPreflightScreenCaptureAccess`), `start()` asks (`CGRequestScreenCaptureAccess`) and says so on the HUD.
 
 ### UI/HUDController.swift
 
@@ -1567,7 +1606,7 @@ A press held 0.35 s starts a clip (`camera.beginClip`); the release (or 3 s) end
 ### App/AppModel.swift
 
 ```swift
-enum PanelMode: Equatable { case prompt, warming, live, text, image, moreLike, cameraOff, cameraBusy }
+enum PanelMode: Equatable { case idle, prompt, warming, live, text, image, moreLike, cameraOff, cameraBusy }   // idle: on search, camera off (face search off)
 enum HintAction: Equatable { case backToFace, keepImage, turnOnCamera, useCamera }
 struct PanelHint: Equatable { var title: String; var subtitle: String?; var actionTitle: String?; var action: HintAction? }
 enum FooterState: Equatable { case hidden, indexing(count: Int), added(IndexBatch), update(UpdateManifest) }
@@ -1576,25 +1615,34 @@ struct NamingPrompt: Equatable { var name: String; var candidates: [NamingCandid
 struct MoodReadout: Equatable { enum Source: Equatable { case face, pose, faceAndPose }; let word: String; let source: Source; var named: Bool = false }   // named: the on-device model named the pose (sparkles)
 struct EditorNotice: Equatable { let text: String; let undoable: Bool }
 enum DropOutcome { case kept(IndexBatch), stickers(StickerBatch), nothing }
-enum Pick: Equatable { case meme(LibraryItem), gif(WebGIF), template(MemeTemplate); var title: String { get } }
-struct TileLayout: Equatable {
-    let tiles: [Pick?]                               // Theme.slotCount, row by row; each row fills from the left
-    let rows: TileRows                               // TileRows(columns: Theme.columns, counts: [top, bottom])
-    let loading: [Bool]                              // per row: its empty slots wait for GIPHY's search or Imgflip's list
-    let messages: [String?]                          // per row: what it says with nothing in it
-    let giphyRows: Set<Int>                          // the rows holding GIPHY's GIFs
-    let marksTypes: Bool                             // For You: GIFs of yours carry a "GIF" tag
-    init(top: [Pick], bottom: [Pick], columns: Int, loading: [Bool], messages: [String?], giphyRows: Set<Int>, marksTypes: Bool)
-    var showsGiphy: Bool { get }
+enum Pick: Equatable { case meme(LibraryItem), gif(WebGIF), giphySticker(WebGIF), template(MemeTemplate); var title: String { get }; var copyNoun: String { get }; var isFromGiphy: Bool { get } }
+enum PanelMenu: Equatable { case sources, actions }
+enum PickAction: String, CaseIterable, Equatable { case copy, copyLink, copyMarkdown, toggleFavorite, moreLikeThis, showInFinder, openInBrowser }
+struct MenuRow: Identifiable, Equatable { let id, title: String; let symbol, letter: String?; let keys: [String]; let isChecked, startsGroup: Bool }
+struct PickerLayout: Equatable {
+    let picks: [Pick]                                // in order, `columns` to a row
+    let columns: Int
+    let rows: TileRows
+    let isLoading: Bool                              // more is on its way: placeholder tiles follow
+    let message: String?                             // with no picks and nothing loading
+    let showsGiphy: Bool                             // GIPHY's credit
+    let title: String                                // over the grid
+    init(picks: [Pick], columns: Int, isLoading: Bool, message: String?, title: String)
     func pick(at slot: Int) -> Pick?
-    static func split(_ picks: [Pick], columns: Int) -> (top: [Pick], bottom: [Pick])
 }
 
 @MainActor final class AppModel: ObservableObject {
     @Published var queryText: String
     @Published private(set) var mode: PanelMode
-    @Published private(set) var results: [RankedResult]        // your things for the tab, best first, ≤ Theme.resultLimit (10)
-    @Published private(set) var tab: ResultTab                  // .forYou each time the panel opens
+    @Published private(set) var results: [RankedResult]        // your things for the source, best first, ≤ Theme.resultLimit (30)
+    @Published private(set) var source: PickerSource            // .all each time the panel opens
+    @Published private(set) var faceSearchOn: Bool              // ⌘F; false each time the panel opens
+    @Published private(set) var leanRegion: FaceRegion?         // the part the face search leans on
+    @Published private(set) var menu: PanelMenu?
+    @Published var menuQuery: String
+    @Published private(set) var menuSelection: Int
+    @Published private(set) var stickerResults: [WebGIF]        // GIPHY's stickers for giphyQuery (or reactions), while the GIPHY Stickers source shows
+    let webStickers: WebDiscover                                // kind .stickers
     @Published private(set) var hasMemes: Bool                  // own items of meme or maybe tier exist
     @Published private(set) var newResultIDs: Set<UUID>         // just arrived, for 600 ms
     @Published var focusedIndex: Int                             // a slot of `layout`, row by row from 0; -1 for none
@@ -1651,16 +1699,27 @@ struct TileLayout: Equatable {
     func panelDidHide()
 
     // Input (indices are slots of `layout`)
-    var layout: TileLayout { get }                   // what the two rows hold for the tab showing
+    var layout: PickerLayout { get }                 // what the grid shows for the source and search
     var focusedPick: Pick? { get }
     var canMoreLikeFocused: Bool { get }             // only for your memes
-    func selectTab(_ newTab: ResultTab)              // ranks your things for it again (refreshCurrentResults), pages GIPHY for it, focus to its first tile
-    func cycleTab(by offset: Int)                    // Tab, Shift-Tab
-    var mirrorIsLarge: Bool { get }                  // the Recent grid shows (nothing caught), no editor / capture / setup card, mode prompt, warming or live
-    var gridColumns: Int { get }                     // 4 while mirrorIsLarge, else 5
-    var isReadingFace: Bool { get }                  // mirrorIsLarge, live, holdProgress ≥ 0.05
+    func selectSource(_ newSource: PickerSource)     // ranks your things for it again (refreshCurrentResults), GIPHY's reactions when it shows GIPHY and nothing was searched, focus to its first tile
+    func cycleSource(by offset: Int)                 // Tab, Shift-Tab
+    var copyLabel: String { get }                    // "Copy " + focusedPick.copyNoun
+    var showsFaceColumn: Bool { get }                // faceSearchOn, or mode image / moreLike
+    func toggleFaceSearch(); func setFaceSearch(_ on: Bool)   // on: clears text and image, enterCameraMode (asks for camera access when undecided), recent; off: camera off, lean / editor / capture closed, mode idle (or text), GIPHY and classic memes back to reactions
+    var showsFaceResults: Bool { get }               // the grid shows the face's search
+    func leanOn(_ region: FaceRegion)                // toggles leanRegion and searches the face again
+    func toggleMenu(_ which: PanelMenu); func closeMenu()
+    var menuRows: [MenuRow] { get }                  // filtered by menuQuery (no group lines while filtering)
+    func moveMenuSelection(by offset: Int); func hoverMenuRow(_ index: Int); func performMenuRow(at index: Int? = nil)
+    var actions: [[PickAction]] { get }              // your things: [copy] [toggleFavorite (canSave), moreLikeThis] [showInFinder]; the web's: [copy, copyLink, copyMarkdown] [openInBrowser]
+    func perform(_ action: PickAction)               // only one `actions` offers
+    static func link(for pick: Pick) -> URL?         // a GIF's page (else its file), a template's image
+    static func markdown(for pick: Pick) -> String?  // ![title](media)
+    var gridColumns: Int { get }                     // 4 beside the camera's column, else 5
+    var isReadingFace: Bool { get }                  // face search on, the Recent grid, no editor, live, holdProgress ≥ 0.05
     var mirrorWeights: [FaceRegion: Double] { get }  // shownWeights, else HeldFaceReading.glow(of: faceReading) while reading
-    var searchPlaceholder: String { get }            // "Type to refine" with a readout; "Type to search, or make a face" while the camera can read you; else "Type to search"
+    var searchPlaceholder: String { get }            // "Add words to refine…" with a readout; "Make a face, or type to search…" while live or warming; else "Search GIFs, stickers and memes…"
     var canDismissCaughtFace: Bool { get }
     func dismissCaughtFace()                         // the × on the face token: tracker.reset(), GIPHY cleared, the popular classic memes, showRecentResults
     @Published private(set) var savedIDs: Set<UUID>  // store.recents.saved, read on each open
@@ -1727,8 +1786,8 @@ struct TileLayout: Equatable {
 ```
 Other internal helpers that exist outside the contract: `StickerBatchSources` (App/StickerPopoverModel.swift) and `TileDragEvents` (UI/PanelController.swift).
 Behavior summary (details in DESIGN.md):
-- **Tabs and the layout.** `results` holds your things for the tab showing (`tabItems`: the library without `.web` items, of `tab.shows(TileKind(item))`), ranked by every search with `limit` 10 (`capsFriends: tab != .stickers` for the face). `makeLayout()` (binding): For You: top = `ForYouMix.row(own: results' kinds, templates: templateResults.count, slots: 5)` as picks; bottom = `giphyResults` (5) while `showsGiphyRow`, else your things and the classic memes the top row didn't use, in order; `marksTypes`. GIFs: without `showsGiphyRow`, your GIFs in both rows; with no GIFs of yours, `giphyResults` (10) in both; else yours on top, GIPHY's 5 below. Stickers: yours in both. Memes: yours, then `templateResults`, in both. `loading`: a GIPHY row while `isGiphyLoading`; a row that takes classic memes and isn't full while `isTemplatesLoading`. `messages`: a row of yours with nothing: "No memes match “<words>”." (text mode), "No memes match." or "Your memes will show here." (no memes); GIPHY's: "GIPHY isn’t answering right now.", "Make a face or a pose for GIFs from GIPHY." (no query) or "Nothing on GIPHY for this one."; Stickers: "No stickers match." or "Drop a photo of a friend on the MemeMe icon to make a sticker."; GIFs without GIPHY: "Turn on Web Discover in the menu for GIFs from GIPHY.". `selectTab` sets `tab`, clears `userInteracted`, `refreshCurrentResults()`, `showGiphyPage()`; `resetForNewSession` puts `tab` back to `.forYou`. With the GIFs tab showing, `setResults` pages GIPHY again (GIFs of yours decide between 5 and 10).
-- `panelWillShow`: remember previous app + bundle id; reset query state; mode = `.cameraBusy` if `camera.isInUseByAnotherApplication`, `.prompt` if authorization is `.notDetermined`, `.cameraOff` if denied/restricted, else `.warming` (start camera); results = recent for that app (or the newest own memes); with no meme-tier things of yours at all, or when no face can be read (`.cameraOff`, `.cameraBusy`, `.prompt`), GIPHY shows `.mood(.reaction)`; the classic memes the most popular templates; footer per rules; on first run (`!settings.hasCompletedFirstRun`) request camera access 0.6 s after show (activate the app just for the prompt).
+- **Sources and the layout.** `results` holds your things for the source showing (`sourceItems`: the library without `.web` items, of `source.shows(TileKind(item))`, favorites only for Favorites), ranked by every search with `limit` 30 (`capsFriends: source != .myStickers` for the face). `makeLayout()` (binding): All Sources: on Recent, yours + GIPHY's page + the classic memes; for a search, `ForYouMix.row` (yours with the classic memes, `gridColumns` slots), then GIPHY's GIFs, then the rest of yours, then the rest of the classic memes; Favorites, On My Mac, My Stickers: yours; GIPHY GIFs: `giphyResults` (all 24 found); GIPHY Stickers: `stickerResults`; Classic Memes: `templateResults`. The title follows the search (`sectionTitle`). Leaning (`leanRegion`, no editor open): the mood is read from `FaceLean.sample`, the weights are `FaceLean.weights(automatic, leaningOn:)`.
+- `panelWillShow`: remember previous app + bundle id; reset query state (source `.all`, face search off, no lean, no menu); mode `.idle` (the camera stays off until ⌘F: `setFaceSearch(true)` then picks `.cameraBusy`, `.prompt` (asking for access), `.cameraOff` or `.warming` as `enterCameraMode` always did); results = recent for that app (or the newest own memes), then GIPHY's reactions and the popular classic memes.
 - `camera.onSample` → `tracker.ingest`; the mood of `tracker.candidate` (the expression being held; `MoodClassifier.mood(for:pose:shape:baseline:)` with the sample's shape, as for the query; nil for a clear gesture with no word of its own) goes through `EarlyMoodTrigger` (same mood for 0.2 s) → `web.warm(mood)`; publish `holdProgress`; on query change: mood → weights (`automatic(...)`; with the face editor open, `FaceEditSession.featureWeights` and the edited `sample`, and its `mood`) → `shownWeights` → your memes ranked at once (`store.items` without `.web`); the GIPHY row shows `web.cachedGIFs(for: .mood(mood))` at once, else placeholders until `await web.gifs(for:)` (its own task and generation), and the classic memes row `pickTemplates(for: .mood(mood), …)` from `templates.cachedList` at once, else after `await templates.templates()` (its own task and generation). Paging: the tracker catching a new query (or Space snapping one) runs the search with `newQuery`; when the mood is the one already showing, the rows turn instead of staying put: `giphyPage += 1` (when GIPHY's results are in and more than `giphySlots`; `giphyFound` keeps everything GIPHY gave for `giphyQuery`) and `templatePage += 1` (moods and described poses, not typed words; from the kept list). A new mood, or the rows being cleared when the panel opens, starts both at page 0; re-showing the same face (Esc, library changes, back to the face, the face editor) leaves them as they are. Image and more-like searches leave both rows alone. `normalizeFocus` keeps the focus on a tile: until the user moves it, `startSlot` (`layout.rows.firstSlot`, else 0) for Recent and the face, and -1 (none) for a typed, image or more-like search that finds nothing of yours while you have memes. After the user moves it, a focus whose tile went moves to the last tile of its row, else the first tile. The search's word goes to the readout (`MoodReadout`: `.pose` for a pose word or a pose without one and no face, `.faceAndPose` for a pose without one over a face, else `.face`; none for "reaction" without a pose; a pose without a word reads as the words naming it). `newResultIDs` for ids not shown before (cleared after 600 ms). The row's first GIF and a focused GIF prefetch their full GIF. No face for 1.5 s → hint "Can’t see your face". `camera.bodyWidth` feeds a `StandingBackDetector`; while it says standing back, that hint is "Reading your pose" instead.
 - A clear gesture with no word of its own (`PoseDescription.of(query, baseline:)` not nil) is searched by words instead of the face's mood. `describedWords(for:namer:)` gives the model's kept name (`named`), else the rule's phrase, and `waits` when `poseNamer.isAvailable` and the description was never asked. Your memes are ranked at once with `.expression(sample, weights:, words: [phrase])`. Settled words are kept for the query (`describedPhrase`, by its timestamp) and go to both rows at once as `WebQuery.described(from: phrase)` (`.mood(mood)` when that is nil), the classic memes with the face's mood as `fallback` (the same words with another fallback are a new templates query, from page 0); re-showing the same query (Esc, library changes, back to the face, the face editor) searches the same words and never asks again. Words that wait: the GIPHY row clears to placeholders (`awaitGiphyName`; `giphyFound` keeps what it had, so a name in the same words turns their page), the classic memes keep what they show (the face's mood's when nothing), and `describeTask` awaits `poseNamer.name(_:)` (at most `PoseNamer.timeout`). Its answer, else the rule's phrase, is used only for the same session with the panel visible, live, no capture view, an expression search and the same query (`tracker.query?.timestamp`): kept in `describedPhrase`, the readout (`named` when the model named it), your memes ranked again when the words aren't the rule's phrase, both rows `.described(phrase)` with `turningPage: newQuery`; otherwise the GIPHY row shows what it had (`stopAwaitingGiphyName`), and going back from the capture view searches the held query again (`closeCapture`), so the answer the namer kept shows. A new query, `cancelSessionTasks` and `resetForNewSession` cancel the wait (the namer still keeps its answer). The namer prewarms when the camera goes live (when `isAvailable`). A `.described` query isn't typed (`isTyped`): leaving typed words leaves it alone, and the classic memes row turns its pages like a mood's.
 - Text changes (debounced 80 ms) → text mode; camera stops if typing began within 1 s of show, otherwise `showsFaceToken = true`; naming prompt when `TextQuery.possibleName` is set, no results, and `friends.unnamedPeople` is non-empty. The typed terms (`TextQuery.parse(…).terms`: no filter words or people's names) → `WebQuery.words(from:)`: the classic memes row shows its templates at once; the GIPHY row shows GIPHY's results once typing has paused 0.6 s (any edit restarts the wait; at once when cached; while the naming prompt shows, nothing when `possibleName` isn't `MemeTemplateCatalog.isMemeWord` (mood words, mood labels, the table's search words, minus names such as "jordan" or "kermit"); a nil query leaves both rows alone). Until the user moves the focus, `normalizeFocus` keeps it on `startSlot` as the rows fill in. Empty text → back to live (restart camera if it was stopped); leaving typed words clears a GIPHY row showing them and puts the classic memes back to the popular ones (a described pose's words aren't typed and stay).

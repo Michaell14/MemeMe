@@ -2,23 +2,18 @@ import AppKit
 import MemeMeCore
 import SwiftUI
 
-/// Left column of the drawer's body: your face, live, in a circle, its parts glowing by how much they count; under it
-/// what the camera read it as ("your face", "your pose") and what counts most, else the hint; and, until you have
-/// memes, "Find my memes". The word itself goes up beside the notch, in the query field. While the face editor is open
-/// the mirror dims and the hint offers "Back to your face".
-/// The circle is 216 pt while you make a face (the panel just opened: small changes are easy to see, and the parts
-/// being read glow while you hold one) and 104 pt once a face is caught, so the tiles take over before you pick.
-struct MirrorColumn: View {
+/// The camera's column, beside the grid while face search is on (⌘F) or an image is searched with: your face, live, in a
+/// circle, its parts glowing by how much they count (the part the search leans on in the signal color); a click on a
+/// part leans the search on it. Under it the word the search goes by and what it was read from, else the hint; then a
+/// meter for each part, which leans on it too. While the face editor is open the mirror dims and the hint offers
+/// "Back to your face".
+struct FaceColumn: View {
     @ObservedObject var model: AppModel
 
     /// The ring's flash when a pose becomes the search: 1 the moment it is caught, fading out.
     @State private var catchFlash: Double = 0
-    /// "Look in Documents…" was clicked: gone at once, before the indexer reports the folder.
-    @State private var documentsAdded = false
 
-    private var size: CGFloat {
-        model.mirrorIsLarge ? Theme.largeMirrorSize : Theme.mirrorSize
-    }
+    private let size: CGFloat = Theme.faceMirrorSize
     /// The ring sits 2 pt outside the mirror and is 3 pt wide.
     private let ringInset: CGFloat = -3.5
 
@@ -27,16 +22,78 @@ struct MirrorColumn: View {
     }
 
     var body: some View {
-        VStack(alignment: .center, spacing: 12) {
+        VStack(alignment: .center, spacing: 14) {
             mirror
+                .padding(.top, 16)
             if model.faceEdit == nil, let readout = model.readout {
-                ReadoutCaption(readout: readout, detail: model.weightSummary)
+                ReadoutCaption(readout: readout, detail: leanCaption)
             } else {
                 hint
             }
-            libraryAction
+            if showsMeters {
+                meters
+            }
+            Spacer(minLength: 0)
         }
-        .frame(width: size, alignment: .top)
+        .frame(width: Theme.faceColumnWidth - Theme.gridPadding, alignment: .top)
+    }
+
+    /// Under the word: how to lean on a part, or which one the search leans on.
+    private var leanCaption: String {
+        if let region = model.leanRegion {
+            return "Leaning on your \(region.rawValue). Click again to undo."
+        }
+        return "Click part of your face to lean on it."
+    }
+
+    private var showsMeters: Bool {
+        model.mode == .live && model.faceEdit == nil && !model.mirrorWeights.isEmpty
+    }
+
+    // MARK: Meters
+
+    /// Brows, eyes and mouth, each with how much it counts (five steps); a click leans the search on it.
+    private var meters: some View {
+        VStack(spacing: 2) {
+            ForEach(FaceRegion.allCases, id: \.self) { region in
+                meterRow(region)
+            }
+        }
+        .frame(width: 176)
+    }
+
+    private func meterRow(_ region: FaceRegion) -> some View {
+        let leaned = model.leanRegion == region
+        let level = PartMeter.level(of: model.mirrorWeights[region] ?? 0)
+        return Button {
+            model.leanOn(region)
+        } label: {
+            HStack {
+                Text(verbatim: region.rawValue.capitalized)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(leaned ? Theme.text : Theme.softTitle)
+                Spacer(minLength: 8)
+                HStack(spacing: 3) {
+                    ForEach(0..<5, id: \.self) { step in
+                        RoundedRectangle(cornerRadius: 2.5, style: .continuous)
+                            .fill(step < level ? (leaned ? Theme.accent : Theme.text) : Theme.line)
+                            .frame(width: 15, height: 5)
+                    }
+                }
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 24)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(leaned ? Theme.raised2 : Color.clear)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!model.showsFaceResults)
+        .help(leaned ? "Stop leaning on your \(region.rawValue)" : "Lean the search on your \(region.rawValue)")
+        .accessibilityLabel(Text(verbatim: "\(region.rawValue.capitalized), \(level) of 5"
+            + (leaned ? ", leaned on" : "")))
     }
 
     // MARK: Mirror
@@ -99,7 +156,7 @@ struct MirrorColumn: View {
         }
     }
 
-    /// Opens the face editor (also ⌘E, or a click on your face). Above the mirror, like the camera button.
+    /// Opens the face editor (also ⌘E). Above the mirror, like the camera button.
     private var editButton: some View {
         Button {
             model.openFaceEditor()
@@ -107,18 +164,18 @@ struct MirrorColumn: View {
             Image(systemName: "slider.horizontal.3")
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundColor(Theme.text)
-                .frame(width: 26, height: 26)
+                .frame(width: 28, height: 28)
                 .background(Circle().fill(Theme.raised2))
-                .overlay(Circle().strokeBorder(Theme.ground, lineWidth: 2))
+                .overlay(Circle().strokeBorder(Theme.panelBackground, lineWidth: 2))
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
         .offset(x: -2, y: 2)
-        .help("Edit your face: push a feature further, or change how much it counts (⌘E)")
+        .help("Edit your face: push a feature further, or draw on it (⌘E)")
         .accessibilityLabel("Edit your face")
     }
 
-    /// Opens the capture view (also ⇧Space). Above the mirror, so its clicks never open the face editor.
+    /// Opens the capture view (also ⇧Space).
     private var captureButton: some View {
         Button {
             model.openCapture()
@@ -126,9 +183,9 @@ struct MirrorColumn: View {
             Image(systemName: "camera.fill")
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundColor(Theme.text)
-                .frame(width: 26, height: 26)
+                .frame(width: 28, height: 28)
                 .background(Circle().fill(Theme.raised2))
-                .overlay(Circle().strokeBorder(Theme.ground, lineWidth: 2))
+                .overlay(Circle().strokeBorder(Theme.panelBackground, lineWidth: 2))
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
@@ -143,15 +200,15 @@ struct MirrorColumn: View {
         case .live:
             if model.faceEdit != nil {
                 // The editor's face below is the search now; the camera only shows you.
-                LiveMirror(camera: model.camera, weights: [:], onClick: nil)
+                LiveMirror(camera: model.camera, weights: [:], highlighted: nil, onRegionClick: nil)
                     .opacity(0.35)
             } else {
-                LiveMirror(camera: model.camera, weights: model.mirrorWeights,
-                           onClick: model.canEditFace ? { model.openFaceEditor() } : nil)
+                LiveMirror(camera: model.camera, weights: model.mirrorWeights, highlighted: model.leanRegion,
+                           onRegionClick: model.showsFaceResults ? { model.leanOn($0) } : nil)
             }
         case .text:
             if model.showsFaceToken {
-                LiveMirror(camera: model.camera, weights: [:], onClick: nil)
+                LiveMirror(camera: model.camera, weights: [:], highlighted: nil, onRegionClick: nil)
                     .opacity(0.35)
             } else {
                 MirrorSilhouette(size: size)
@@ -160,7 +217,7 @@ struct MirrorColumn: View {
             QueryImageMirror(url: model.queryImageURL ?? model.moreLikeItem?.fileURL, size: size)
         case .cameraOff:
             DropWell(size: size)
-        case .prompt, .warming, .cameraBusy:
+        case .idle, .prompt, .warming, .cameraBusy:
             MirrorSilhouette(size: size)
         }
     }
@@ -170,7 +227,7 @@ struct MirrorColumn: View {
     private var hint: some View {
         VStack(alignment: .center, spacing: 4) {
             Text(model.hint.title)
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(Theme.text)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
@@ -192,56 +249,35 @@ struct MirrorColumn: View {
                 .padding(.top, 2)
             }
         }
-        .frame(width: size)
+        .frame(width: 180)
     }
 
     /// "Kept · Undo" reads as a confirmation.
     private var keptStyle: Bool {
         model.mode == .image && model.imageKept
     }
+}
 
-    // MARK: Library
-
-    /// "Find my memes" until you have memes (Downloads, Desktop and your screenshots; the menu has it too), or, when a
-    /// typed search found few and Documents isn't watched, "Look in Documents…".
-    @ViewBuilder
-    private var libraryAction: some View {
-        if showsLookInDocuments {
-            Button("Look in Documents…") {
-                guard let url = documentsURL else { return }
-                documentsAdded = true
-                model.indexer.addWatchedFolders([url])
-            }
-            .buttonStyle(PanelCapsuleButtonStyle(fontSize: 11, foreground: Theme.text))
-        } else if !model.hasMemes && model.offersFindMyMemes {
-            Button("Find my memes") {
-                model.findMyMemes()
-            }
-            .buttonStyle(PanelCapsuleButtonStyle(fontSize: 11, foreground: Theme.text))
-            .help("Collect the memes in Downloads, Desktop and your screenshots")
-        }
-    }
-
-    private var documentsURL: URL? {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?.standardizedFileURL
-    }
-
-    private var showsLookInDocuments: Bool {
-        guard model.mode == .text, !documentsAdded, model.results.count < Theme.columns,
-              let url = documentsURL else { return false }
-        return !model.indexer.isWatching(url)
+/// How much a part counts, as five steps: the automatic weights run 1...3 (a part leaned on, 3), the editor's 0...5.
+enum PartMeter {
+    static func level(of weight: Double) -> Int {
+        guard weight > 0.05 else { return 0 }
+        return min(5, max(1, Int((weight / FaceLean.leanedWeight * 5).rounded())))
     }
 }
 
-/// What the word beside the notch was read from ("your face", "your pose", "your face and pose"), under the mirror,
-/// and what counts most in it ("mostly your brows"): the mirror's glow in words.
-/// Sparkles when the on-device model named a pose with no word of its own; the rule's phrase shows the pose's figure.
+/// The word the search goes by, under the mirror, and what it was read from ("your face", "your pose", "face and
+/// pose"), then `detail`. Sparkles when the on-device model named a pose with no word of its own.
 private struct ReadoutCaption: View {
     let readout: MoodReadout
     var detail: String?
 
     var body: some View {
-        VStack(spacing: 2) {
+        VStack(spacing: 3) {
+            Text(verbatim: readout.word)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(Theme.text)
+                .lineLimit(1)
             HStack(spacing: 4) {
                 Image(systemName: symbolName)
                     .font(.system(size: 10))
@@ -253,14 +289,16 @@ private struct ReadoutCaption: View {
             .foregroundColor(Theme.mutedText)
             if let detail {
                 Text(verbatim: detail)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(Theme.text)
+                    .font(.system(size: 11))
+                    .foregroundColor(Theme.mutedText)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 2)
             }
         }
+        .frame(width: 180)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(verbatim: "Reading \(readout.word) from \(caption)" + (detail.map { ", \($0)" } ?? "")))
+        .accessibilityLabel(Text(verbatim: "Searching \(readout.word), read from \(caption)" + (detail.map { ". \($0)" } ?? "")))
     }
 
     private var symbolName: String {
@@ -279,23 +317,27 @@ private struct ReadoutCaption: View {
 
 // MARK: - Mirror contents
 
-/// The live camera, its parts glowing by `weights`. Observes the camera so the glows follow the face.
+/// The live camera, its parts glowing by `weights` (`highlighted` in the signal color). Observes the camera so the glows
+/// follow the face. A click on a glowing part calls `onRegionClick`.
 private struct LiveMirror: View {
     @ObservedObject var camera: CameraController
     let weights: [FaceRegion: Double]
-    let onClick: (() -> Void)?
+    let highlighted: FaceRegion?
+    let onRegionClick: ((FaceRegion) -> Void)?
 
     var body: some View {
         CameraPreviewView(
             session: camera.session,
             regionRects: weights.isEmpty ? [:] : camera.regionRects,
             weights: weights,
-            onClick: onClick
+            onClick: nil,
+            onRegionClick: onRegionClick,
+            highlighted: highlighted
         )
-        .allowsHitTesting(onClick != nil)
-        .accessibilityLabel(Text(verbatim: onClick == nil
+        .allowsHitTesting(onRegionClick != nil)
+        .accessibilityLabel(Text(verbatim: onRegionClick == nil
             ? "Your live camera, mirrored"
-            : "Your live camera, mirrored. Click to edit your face"))
+            : "Your live camera, mirrored. Click your brows, eyes or mouth to lean the search on it"))
     }
 }
 

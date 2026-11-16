@@ -176,7 +176,7 @@ enum StickerMaker {
     }
 
     /// Scales the cut-out to fit 512 px (outline included), pads it, and adds the white die-cut outline.
-    private static func render(cutout: CIImage, outline: Bool) throws -> CGImage {
+    static func render(cutout: CIImage, outline: Bool) throws -> CGImage {
         let extent = cutout.extent
         let longestSide = max(extent.width, extent.height)
         guard longestSide >= 1, extent.width.isFinite, extent.height.isFinite else { throw StickerError.emptyCutout }
@@ -234,7 +234,7 @@ enum StickerMaker {
         return rendered
     }
 
-    private static func encodePNG(_ image: CGImage) throws -> Data {
+    static func encodePNG(_ image: CGImage) throws -> Data {
         let output = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(output as CFMutableData, UTType.png.identifier as CFString, 1, nil) else {
             throw StickerError.encodingFailed
