@@ -531,8 +531,8 @@ private struct ScreenCutView: View {
                     .foregroundColor(Theme.text)
                     .padding(.horizontal, 10)
                     .frame(height: 30)
-                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.raised))
-                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Theme.hairline, lineWidth: 1))
+                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.glassFill))
+                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Theme.glassEdge, lineWidth: 1))
                     .focused($nameFocused)
                     .accessibilityLabel("Sticker name")
             }
@@ -574,7 +574,7 @@ private struct ScreenCutView: View {
                     .foregroundColor(Theme.text)
                     .padding(.horizontal, 12)
                     .frame(height: 34)
-                    .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Theme.raised2))
+                    .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Theme.glassFillStrong))
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -583,9 +583,8 @@ private struct ScreenCutView: View {
         }
         .padding(14)
         .frame(width: ScreenCutView.cardSize.width)
-        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Theme.panelBackground))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color.white.opacity(0.1), lineWidth: 1))
-        .shadow(color: .black.opacity(0.5), radius: 30, y: 16)
+        .glass(cornerRadius: 16, shadow: false)
+        .shadow(color: .black.opacity(0.4), radius: 30, y: 16)
         .onAppear { nameFocused = true }
     }
 

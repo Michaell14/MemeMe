@@ -32,13 +32,10 @@ struct PanelView: View {
         }
         .frame(width: Theme.panelWidth, alignment: .topLeading)
         .fixedSize(horizontal: false, vertical: true)
-        .background(Theme.panelBackground)
+        // Frosted glass over the desktop, under the menus (which are glass of their own).
+        .glass(cornerRadius: Theme.panelRadius, blending: .behindWindow, shadow: false)
         .overlay { menuLayer }
         .clipShape(RoundedRectangle(cornerRadius: Theme.panelRadius, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: Theme.panelRadius, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
-        )
         .onDrop(of: [.fileURL, .image], isTargeted: $isDropTargeted) { providers in
             handleDrop(providers)
         }
@@ -178,8 +175,8 @@ struct PanelView: View {
         .padding(.leading, 9)
         .padding(.trailing, dismissable ? 3 : 10)
         .frame(height: 28)
-        .background(Capsule().fill(Theme.raised2))
-        .overlay(Capsule().strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+        .background(Capsule().fill(Theme.keyFill))
+        .overlay(Capsule().strokeBorder(Theme.glassEdge, lineWidth: 1))
         .opacity(model.holdProgress >= 0.05 ? 0.45 : 1)
         .animation(.easeOut(duration: 0.15), value: readout)
         .animation(.easeOut(duration: 0.2), value: model.replacedWord)
@@ -210,11 +207,11 @@ struct PanelView: View {
             .frame(height: 32)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isOpen ? Theme.raised2 : Theme.raised)
+                    .fill(isOpen ? Theme.glassFillStrong : Theme.glassFill)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.07), lineWidth: 1)
+                    .strokeBorder(Theme.glassEdge, lineWidth: 1)
             )
             .contentShape(Rectangle())
         }
@@ -316,7 +313,7 @@ struct PanelView: View {
                     }
                     .buttonStyle(IslandButtonStyle())
                     .help("Copy it and go back to the chat. MemeMe never pastes for you.")
-                    Rectangle().fill(Theme.line).frame(width: 1, height: 16)
+                    Rectangle().fill(Theme.glassFillStrong).frame(width: 1, height: 16)
                     Button {
                         model.toggleMenu(.actions)
                     } label: {
@@ -359,7 +356,7 @@ struct PanelView: View {
                     .frame(width: 24, height: 24)
                     .background(
                         RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .fill(on ? Theme.accent : Theme.raised2)
+                            .fill(on ? Theme.accent : Theme.glassFillStrong)
                     )
                 Text(verbatim: on ? "Face search on" : "Search with your face")
                     .font(.system(size: 13, weight: .medium))
@@ -500,7 +497,7 @@ private struct NamingRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Theme.surface)
+                .fill(Theme.glassFill)
         )
     }
 
@@ -624,16 +621,8 @@ private struct MenuPanel<Field: Hashable>: View {
             }
         }
         .frame(width: menu == .sources ? 252 : 312, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Theme.menuBackground)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.55), radius: 22, x: 0, y: 14)
+        .glass(cornerRadius: 12, tint: Theme.menuTint, edge: Color.white.opacity(0.16))
+        .shadow(color: .black.opacity(0.4), radius: 22, x: 0, y: 14)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(menu == .sources ? "Sources" : "Actions")
     }
@@ -692,7 +681,7 @@ private struct MenuPanel<Field: Hashable>: View {
             .frame(height: menu == .sources ? 30 : 32)
             .background(
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(selected ? Theme.raised2 : Color.clear)
+                    .fill(selected ? Theme.glassFillStrong : Color.clear)
             )
             .contentShape(Rectangle())
         }
@@ -726,7 +715,7 @@ struct SourceGlyph: View {
                     .font(.system(size: size * 0.55, weight: .semibold))
                     .foregroundColor(Theme.text)
                     .frame(width: size, height: size)
-                    .background(RoundedRectangle(cornerRadius: size * 0.28, style: .continuous).fill(Theme.raised2))
+                    .background(RoundedRectangle(cornerRadius: size * 0.28, style: .continuous).fill(Theme.glassFillStrong))
             }
         }
         .accessibilityHidden(true)
@@ -747,31 +736,25 @@ struct Keycap: View {
             .foregroundColor(Theme.softTitle)
             .frame(minWidth: 20, minHeight: 20)
             .padding(.horizontal, key.count > 1 ? 4 : 0)
-            .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(Theme.raised2))
-            .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(Theme.line, lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(Theme.keyFill))
+            .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(Theme.glassEdge, lineWidth: 1))
             .accessibilityHidden(true)
     }
 }
 
 // MARK: - Islands
 
-/// A floating island along the panel's bottom edge: Raised, radius 12, a hairline edge and a soft shadow; its edge in
-/// the signal color while what it holds is on.
+/// A floating island along the panel's bottom edge: glass of its own over the panel (white 8 %, radius 16, a light
+/// edge); tinted and edged in the signal color while what it holds is on.
 private struct IslandModifier: ViewModifier {
     var highlighted = false
 
     func body(content: Content) -> some View {
         content
             .padding(4)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(highlighted ? Theme.accent.opacity(0.1) : Theme.raised)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(highlighted ? Theme.accent.opacity(0.5) : Color.white.opacity(0.08), lineWidth: 1)
-            )
-            .shadow(color: .black.opacity(0.35), radius: 10, x: 0, y: 4)
+            .glass(cornerRadius: 16,
+                   tint: highlighted ? Theme.islandOnTint : Theme.islandTint,
+                   edge: highlighted ? Theme.accent.opacity(0.6) : Theme.glassEdge)
     }
 }
 
@@ -804,8 +787,8 @@ private struct IslandButtonStyle: ButtonStyle {
         }
 
         private var fill: Color {
-            if configuration.isPressed { return Color.white.opacity(0.12) }
-            if selected || isHovered { return Color.white.opacity(0.07) }
+            if configuration.isPressed { return Color.white.opacity(0.16) }
+            if selected || isHovered { return Color.white.opacity(0.10) }
             return .clear
         }
     }
