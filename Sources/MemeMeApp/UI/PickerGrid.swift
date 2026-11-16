@@ -13,8 +13,8 @@ struct PickerGrid: View {
     @State private var documentsAdded = false
 
     private let headerHeight: CGFloat = 36
-    /// How far the focus ring (2 pt, 3 pt out) reaches past a tile: the scroll view reaches that far into the panel's
-    /// margin, so it isn't cut off.
+    /// How far the focus ring (2 pt, 3 pt out) and the hover lift reach past a tile: the tiles (and the title over
+    /// them) sit this far in from the scroll view's edges, which clip.
     private let ringRoom: CGFloat = 6
     private let titleHeight: CGFloat = 15
     private let titleSpacing: CGFloat = 7
@@ -26,7 +26,8 @@ struct PickerGrid: View {
     var body: some View {
         let layout = model.layout
         let width = gridWidth
-        let size = tileSize(width: width, columns: layout.columns)
+        // The tiles sit `ringRoom` in from the scroll view's edges, which clip: the ring and the hover lift fit.
+        let size = tileSize(width: width - 2 * ringRoom, columns: layout.columns)
         VStack(alignment: .leading, spacing: 0) {
             header(layout)
             if layout.picks.isEmpty && !layout.isLoading {
@@ -80,6 +81,7 @@ struct PickerGrid: View {
                 PoweredByGiphyMark()
             }
         }
+        .padding(.horizontal, ringRoom)
         .frame(height: headerHeight)
     }
 
@@ -117,7 +119,6 @@ struct PickerGrid: View {
                 .padding(.top, ringRoom + 2)
                 .padding(.bottom, 20)
             }
-            .padding(.horizontal, -ringRoom)
             .mask(
                 VStack(spacing: 0) {
                     Color.black
