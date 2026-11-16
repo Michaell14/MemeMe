@@ -116,15 +116,13 @@ struct PickerGrid: View {
                 // Room for the focus ring and the hover lift, which reach past a tile's edge.
                 .padding(.horizontal, gutter)
                 .padding(.top, 8)
-                .padding(.bottom, 20)
+                .padding(.bottom, 8)
             }
-            .mask(
-                VStack(spacing: 0) {
-                    Color.black
-                    LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
-                        .frame(height: 20)
-                }
-            )
+            // The islands float over the grid's bottom: the results run on under them to the panel's edge, and the
+            // last row (or the focused one) scrolls clear of them.
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                Color.clear.frame(height: Theme.bottomBarHeight)
+            }
             .onChange(of: model.focusedIndex) { _, focused in
                 guard focused >= 0 else { return }
                 withAnimation(.easeOut(duration: 0.15)) {

@@ -25,10 +25,11 @@ struct PanelView: View {
             if model.isCaptureOpen {
                 CaptureView(model: model)
                     .padding(20)
+                bottomBar
             } else {
+                // The islands float over the results, which run to the panel's bottom edge under them.
                 content
             }
-            bottomBar
         }
         .frame(width: Theme.panelWidth, alignment: .topLeading)
         .fixedSize(horizontal: false, vertical: true)
@@ -253,7 +254,8 @@ struct PanelView: View {
                     }
                     .opacity(model.showSetupCard ? 0.55 : 1)
             }
-            .frame(height: Theme.contentHeight, alignment: .top)
+            .frame(height: Theme.contentHeight + Theme.bottomBarHeight, alignment: .top)
+            .overlay(alignment: .bottom) { bottomBar }
             if model.faceEdit != nil {
                 Rectangle().fill(Theme.hairline).frame(height: 1)
                 FaceEditorView(model: model)
@@ -275,7 +277,8 @@ struct PanelView: View {
 
     // MARK: Bottom bar
 
-    /// Islands along the bottom, 16 pt from the panel's edges like everything else: your face and ✂ share the left one
+    /// Islands along the bottom, floating over the results (no strip behind them: the grid runs on under them), 16 pt
+    /// from the panel's edges like everything else: your face and ✂ share the left one
     /// (MemeMe's own), "Copy ↩ · Actions ⌘K" the right one. Their labels never change, so nothing moves as the pointer
     /// passes over the tiles (what will be copied shows on the tile itself).
     private var bottomBar: some View {
