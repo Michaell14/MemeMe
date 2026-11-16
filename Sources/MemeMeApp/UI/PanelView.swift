@@ -282,14 +282,14 @@ struct PanelView: View {
         HStack(spacing: 8) {
             HStack(spacing: 2) {
                 faceButton
-                Rectangle().fill(Theme.glassFillStrong).frame(width: 1, height: 18)
+                Rectangle().fill(Theme.glassFillStrong).frame(width: 1, height: 16)
                 Button {
                     model.requestScreenCut()
                 } label: {
                     Image(systemName: "scissors")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(Theme.softTitle)
-                        .frame(width: 36, height: 36)
+                        .frame(width: Theme.islandButtonHeight, height: Theme.islandButtonHeight)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(IslandButtonStyle())
@@ -307,18 +307,17 @@ struct PanelView: View {
                             Text("Copy")
                                 .font(.system(size: 13, weight: .semibold))
                                 .foregroundColor(Theme.text)
-                            Spacer(minLength: 0)
-                            Keycap("↩")
+                            Keycap("↩", filled: true)
                         }
-                        .padding(.leading, 12)
-                        .padding(.trailing, 7)
-                        .frame(width: 92, height: 36)
+                        .padding(.leading, 10)
+                        .padding(.trailing, 5)
+                        .frame(height: Theme.islandButtonHeight)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(IslandButtonStyle())
                     .help(Text(verbatim: "\(model.copyLabel) and go back to the chat. MemeMe never pastes for you."))
                     .accessibilityLabel(Text(verbatim: model.copyLabel))
-                    Rectangle().fill(Theme.glassFillStrong).frame(width: 1, height: 18)
+                    Rectangle().fill(Theme.glassFillStrong).frame(width: 1, height: 16)
                     Button {
                         model.toggleMenu(.actions)
                     } label: {
@@ -328,9 +327,9 @@ struct PanelView: View {
                                 .foregroundColor(Theme.softTitle)
                             Keycap("⌘K")
                         }
-                        .padding(.leading, 12)
-                        .padding(.trailing, 7)
-                        .frame(height: 36)
+                        .padding(.leading, 10)
+                        .padding(.trailing, 5)
+                        .frame(height: Theme.islandButtonHeight)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(IslandButtonStyle(selected: model.menu == .actions))
@@ -356,9 +355,9 @@ struct PanelView: View {
                 Image(systemName: "camera.fill")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(on ? Theme.onAccent : Theme.text)
-                    .frame(width: 24, height: 24)
+                    .frame(width: 22, height: 22)
                     .background(
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
                             .fill(on ? Theme.accent : Theme.glassFillStrong)
                     )
                 Text("Search with your face")
@@ -366,9 +365,9 @@ struct PanelView: View {
                     .foregroundColor(Theme.text)
                 Keycap("⌘F")
             }
-            .padding(.leading, 6)
-            .padding(.trailing, 7)
-            .frame(height: 36)
+            .padding(.leading, 4)
+            .padding(.trailing, 5)
+            .frame(height: Theme.islandButtonHeight)
             .contentShape(Rectangle())
         }
         .buttonStyle(IslandButtonStyle())
@@ -725,34 +724,38 @@ struct SourceGlyph: View {
 /// One key of a shortcut: "⌘", "K", "↩".
 struct Keycap: View {
     let key: String
+    /// Filled in the signal color: the key of the main action (↩ beside Copy).
+    let filled: Bool
 
-    init(_ key: String) {
+    init(_ key: String, filled: Bool = false) {
         self.key = key
+        self.filled = filled
     }
 
     var body: some View {
         Text(verbatim: key)
-            .font(.system(size: 11, weight: .medium))
-            .foregroundColor(Theme.softTitle)
+            .font(.system(size: 11, weight: filled ? .semibold : .medium))
+            .foregroundColor(filled ? Theme.onAccent : Theme.softTitle)
             .frame(minWidth: 20, minHeight: 20)
             .padding(.horizontal, key.count > 1 ? 4 : 0)
-            .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(Theme.keyFill))
-            .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(Theme.glassEdge, lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(filled ? Theme.accent : Theme.keyFill))
+            .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .strokeBorder(filled ? Color.clear : Theme.glassEdge, lineWidth: 1))
             .accessibilityHidden(true)
     }
 }
 
 // MARK: - Islands
 
-/// A floating island along the panel's bottom edge: glass of its own over the panel (white 8 %, radius 14, a light
+/// A floating island along the panel's bottom edge: glass of its own over the panel (white 8 %, radius 12, a light
 /// edge); tinted and edged in the signal color while what it holds is on.
 private struct IslandModifier: ViewModifier {
     var highlighted = false
 
     func body(content: Content) -> some View {
         content
-            .padding(4)
-            .glass(cornerRadius: 14,
+            .padding(3)
+            .glass(cornerRadius: 12,
                    tint: highlighted ? Theme.islandOnTint : Theme.islandTint,
                    edge: highlighted ? Theme.accent.opacity(0.6) : Theme.glassEdge)
     }
@@ -780,7 +783,7 @@ private struct IslandButtonStyle: ButtonStyle {
         var body: some View {
             configuration.label
                 .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
                         .fill(fill)
                 )
                 .onHover { isHovered = $0 }

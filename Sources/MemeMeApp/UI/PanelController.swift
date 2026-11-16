@@ -528,7 +528,9 @@ final class PanelController: NSObject {
             return nil
 
         case KeyCode.left, KeyCode.right:
-            guard hasNoCommandLikeModifiers, model.queryText.isEmpty else { return event }
+            // The results keep the arrows while you type, as ↑ ↓ do: ← → move through the grid at once. With ⌘, ⌥ or ⇧
+            // they still move (or select) in the search field.
+            guard flags.intersection([.command, .control, .option, .shift]).isEmpty else { return event }
             model.moveFocus(dx: event.keyCode == KeyCode.left ? -1 : 1, dy: 0)
             return nil
 
