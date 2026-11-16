@@ -750,8 +750,9 @@ struct Keycap: View {
 
 // MARK: - Islands
 
-/// A floating island along the panel's bottom edge: glass of its own over the panel (white 8 %, radius 12, a light
-/// edge); tinted and edged in the signal color while what it holds is on.
+/// A floating island along the panel's bottom edge: smoked glass of its own over the results (near-black at 72 % over
+/// the blur, a white 10 % edge, a deep shadow, radius 12), readable over any GIF; tinted and edged in the signal color
+/// while what it holds is on.
 private struct IslandModifier: ViewModifier {
     var highlighted = false
 
@@ -760,7 +761,9 @@ private struct IslandModifier: ViewModifier {
             .padding(3)
             .glass(cornerRadius: 12,
                    tint: highlighted ? Theme.islandOnTint : Theme.islandTint,
-                   edge: highlighted ? Theme.accent.opacity(0.6) : Theme.glassEdge)
+                   edge: highlighted ? Theme.accent.opacity(0.6) : Theme.islandEdge,
+                   shadow: false, highlight: false)
+            .shadow(color: .black.opacity(0.45), radius: 15, x: 0, y: 10)
     }
 }
 
@@ -793,8 +796,8 @@ private struct IslandButtonStyle: ButtonStyle {
         }
 
         private var fill: Color {
-            if configuration.isPressed { return Color.white.opacity(0.16) }
-            if selected || isHovered { return Color.white.opacity(0.10) }
+            if configuration.isPressed { return Color.white.opacity(0.14) }
+            if selected || isHovered { return Color.white.opacity(0.08) }
             return .clear
         }
     }
