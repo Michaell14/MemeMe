@@ -12,12 +12,12 @@ struct PickerGrid: View {
     /// "Look in Documents…" was clicked: gone at once, before the indexer reports the folder.
     @State private var documentsAdded = false
 
-    private let headerHeight: CGFloat = 36
-    /// How far the focus ring and its glow, and the hover lift and its shadow, reach past a tile: the tiles (and the title over
-    /// them) sit this far in from the scroll view's edges, which clip.
-    private let ringRoom: CGFloat = 10
-    private let titleHeight: CGFloat = 15
-    private let titleSpacing: CGFloat = 7
+    private let headerHeight: CGFloat = 24
+    /// The panel's one gutter: the title and the tiles sit this far in from the grid's scroll view, whose edges clip, so
+    /// the focus ring, its glow and the hover lift always fit.
+    private let gutter: CGFloat = Theme.gridPadding
+    private let titleHeight: CGFloat = 16
+    private let titleSpacing: CGFloat = 8
 
     init(model: AppModel) {
         _model = ObservedObject(wrappedValue: model)
@@ -26,8 +26,8 @@ struct PickerGrid: View {
     var body: some View {
         let layout = model.layout
         let width = gridWidth
-        // The tiles sit `ringRoom` in from the scroll view's edges, which clip: the ring and the hover lift fit.
-        let size = tileSize(width: width - 2 * ringRoom, columns: layout.columns)
+        // The tiles sit a gutter in from the scroll view's edges, which clip: the ring, its glow and the hover lift fit.
+        let size = tileSize(width: width - 2 * gutter, columns: layout.columns)
         VStack(alignment: .leading, spacing: 0) {
             header(layout)
             if layout.picks.isEmpty && !layout.isLoading {
@@ -41,10 +41,9 @@ struct PickerGrid: View {
         .accessibilityLabel(Text(verbatim: layout.title))
     }
 
-    /// The grid's width: the panel's, less the camera's column while it shows.
+    /// The grid's width, gutters included: the panel's, less the camera's column while it shows.
     private var gridWidth: CGFloat {
-        let full = Theme.panelWidth - 2 * Theme.gridPadding
-        return model.showsFaceColumn ? full - Theme.faceColumnWidth : full
+        model.showsFaceColumn ? Theme.panelWidth - Theme.faceColumnWidth : Theme.panelWidth
     }
 
     private func tileSize(width: CGFloat, columns: Int) -> CGFloat {
@@ -81,7 +80,7 @@ struct PickerGrid: View {
                 PoweredByGiphyMark()
             }
         }
-        .padding(.horizontal, ringRoom)
+        .padding(.horizontal, gutter)
         .frame(height: headerHeight)
     }
 
@@ -115,8 +114,8 @@ struct PickerGrid: View {
                     }
                 }
                 // Room for the focus ring and the hover lift, which reach past a tile's edge.
-                .padding(.horizontal, ringRoom)
-                .padding(.top, ringRoom + 2)
+                .padding(.horizontal, gutter)
+                .padding(.top, 8)
                 .padding(.bottom, 20)
             }
             .mask(
@@ -279,7 +278,7 @@ struct PickerTile: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
+        VStack(alignment: .leading, spacing: 8) {
             art
             HStack(spacing: 6) {
                 SourceBadge(pick: pick)
@@ -289,7 +288,7 @@ struct PickerTile: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
-            .frame(width: size, height: 15, alignment: .leading)
+            .frame(width: size, height: 16, alignment: .leading)
         }
         .onHover { inside in
             isHovered = inside
