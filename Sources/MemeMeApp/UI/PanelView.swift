@@ -22,14 +22,12 @@ struct PanelView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             searchBar
-            Rectangle().fill(Theme.hairline).frame(height: 1)
             if model.isCaptureOpen {
                 CaptureView(model: model)
                     .padding(20)
             } else {
                 content
             }
-            Rectangle().fill(Theme.hairline).frame(height: 1)
             bottomBar
         }
         .frame(width: Theme.panelWidth, alignment: .topLeading)
@@ -280,67 +278,72 @@ struct PanelView: View {
 
     // MARK: Bottom bar
 
+    /// Islands along the bottom, on the panel itself (no bar): your face and ✂ on the left, MemeMe's own; what ↵ does
+    /// and the actions on the right.
     private var bottomBar: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 8) {
             faceButton
+                .island(highlighted: model.faceSearchOn)
             Button {
                 model.requestScreenCut()
             } label: {
                 Image(systemName: "scissors")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(Theme.mutedText)
-                    .frame(width: 34, height: 34)
+                    .foregroundColor(Theme.softTitle)
+                    .frame(width: 32, height: 32)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(IslandButtonStyle())
+            .island()
             .help("Cut a sticker out of your screen (⌃⌘S)")
             .accessibilityLabel("Cut a sticker out of your screen")
             Spacer(minLength: 8)
             if model.focusedPick != nil && !model.isCaptureOpen {
-                Button {
-                    model.perform(.copy)
-                } label: {
-                    HStack(spacing: 8) {
-                        Text(verbatim: model.copyLabel)
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundColor(Theme.text)
-                        Keycap("↩")
-                    }
-                    .padding(.horizontal, 10)
-                    .frame(height: 34)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help("Copy it and go back to the chat. MemeMe never pastes for you.")
-                Rectangle().fill(Theme.line).frame(width: 1, height: 18)
-                Button {
-                    model.toggleMenu(.actions)
-                } label: {
-                    HStack(spacing: 8) {
-                        Text("Actions")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(Theme.mutedText)
-                        HStack(spacing: 3) {
-                            Keycap("⌘")
-                            Keycap("K")
+                HStack(spacing: 2) {
+                    Button {
+                        model.perform(.copy)
+                    } label: {
+                        HStack(spacing: 8) {
+                            Text(verbatim: model.copyLabel)
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(Theme.text)
+                            Keycap("↩")
                         }
+                        .padding(.leading, 10)
+                        .padding(.trailing, 6)
+                        .frame(height: 32)
+                        .contentShape(Rectangle())
                     }
-                    .padding(.horizontal, 10)
-                    .frame(height: 34)
-                    .background(
-                        RoundedRectangle(cornerRadius: 9, style: .continuous)
-                            .fill(model.menu == .actions ? Theme.raised2 : Color.clear)
-                    )
-                    .contentShape(Rectangle())
+                    .buttonStyle(IslandButtonStyle())
+                    .help("Copy it and go back to the chat. MemeMe never pastes for you.")
+                    Rectangle().fill(Theme.line).frame(width: 1, height: 16)
+                    Button {
+                        model.toggleMenu(.actions)
+                    } label: {
+                        HStack(spacing: 8) {
+                            Text("Actions")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(Theme.softTitle)
+                            HStack(spacing: 3) {
+                                Keycap("⌘")
+                                Keycap("K")
+                            }
+                        }
+                        .padding(.leading, 10)
+                        .padding(.trailing, 6)
+                        .frame(height: 32)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(IslandButtonStyle(selected: model.menu == .actions))
+                    .accessibilityLabel("Actions")
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Actions")
+                .island()
             }
         }
-        .padding(.leading, 12)
-        .padding(.trailing, 10)
+        .padding(.horizontal, 12)
+        .padding(.top, 6)
+        .padding(.bottom, 12)
         .frame(height: Theme.bottomBarHeight)
-        .background(Theme.barBackground)
     }
 
     /// Bottom left, MemeMe's own: the camera searches with your face (⌘F); again, it stops.
@@ -353,9 +356,9 @@ struct PanelView: View {
                 Image(systemName: "camera.fill")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(on ? Theme.onAccent : Theme.text)
-                    .frame(width: 22, height: 22)
+                    .frame(width: 24, height: 24)
                     .background(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
                             .fill(on ? Theme.accent : Theme.raised2)
                     )
                 Text(verbatim: on ? "Face search on" : "Search with your face")
@@ -366,20 +369,12 @@ struct PanelView: View {
                     Keycap("F")
                 }
             }
-            .padding(.leading, 6)
-            .padding(.trailing, 10)
-            .frame(height: 34)
-            .background(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(on ? Theme.accent.opacity(0.12) : Color.clear)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .strokeBorder(on ? Theme.accent.opacity(0.45) : Color.clear, lineWidth: 1)
-            )
+            .padding(.leading, 4)
+            .padding(.trailing, 6)
+            .frame(height: 32)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(IslandButtonStyle())
         .help(on ? "Stop searching with your face (⌘F)" : "Make a face to search, and click part of it to lean on it (⌘F)")
         .accessibilityLabel(on ? "Face search on" : "Search with your face")
         .accessibilityAddTraits(on ? .isSelected : [])
@@ -755,5 +750,63 @@ struct Keycap: View {
             .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(Theme.raised2))
             .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(Theme.line, lineWidth: 1))
             .accessibilityHidden(true)
+    }
+}
+
+// MARK: - Islands
+
+/// A floating island along the panel's bottom edge: Raised, radius 12, a hairline edge and a soft shadow; its edge in
+/// the signal color while what it holds is on.
+private struct IslandModifier: ViewModifier {
+    var highlighted = false
+
+    func body(content: Content) -> some View {
+        content
+            .padding(4)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(highlighted ? Theme.accent.opacity(0.1) : Theme.raised)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(highlighted ? Theme.accent.opacity(0.5) : Color.white.opacity(0.08), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.35), radius: 10, x: 0, y: 4)
+    }
+}
+
+extension View {
+    fileprivate func island(highlighted: Bool = false) -> some View {
+        modifier(IslandModifier(highlighted: highlighted))
+    }
+}
+
+/// A button inside an island: lit while pointed at or pressed.
+private struct IslandButtonStyle: ButtonStyle {
+    var selected = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        IslandButtonBody(configuration: configuration, selected: selected)
+    }
+
+    private struct IslandButtonBody: View {
+        let configuration: ButtonStyleConfiguration
+        let selected: Bool
+        @State private var isHovered = false
+
+        var body: some View {
+            configuration.label
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(fill)
+                )
+                .onHover { isHovered = $0 }
+        }
+
+        private var fill: Color {
+            if configuration.isPressed { return Color.white.opacity(0.12) }
+            if selected || isHovered { return Color.white.opacity(0.07) }
+            return .clear
+        }
     }
 }

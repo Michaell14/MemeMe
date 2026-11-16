@@ -13,6 +13,9 @@ struct PickerGrid: View {
     @State private var documentsAdded = false
 
     private let headerHeight: CGFloat = 36
+    /// How far the focus ring (2 pt, 3 pt out) reaches past a tile: the scroll view reaches that far into the panel's
+    /// margin, so it isn't cut off.
+    private let ringRoom: CGFloat = 6
     private let titleHeight: CGFloat = 15
     private let titleSpacing: CGFloat = 7
 
@@ -109,9 +112,19 @@ struct PickerGrid: View {
                         .id(row)
                     }
                 }
-                .padding(.top, 4)
-                .padding(.bottom, 16)
+                // Room for the focus ring and the hover lift, which reach past a tile's edge.
+                .padding(.horizontal, ringRoom)
+                .padding(.top, ringRoom + 2)
+                .padding(.bottom, 20)
             }
+            .padding(.horizontal, -ringRoom)
+            .mask(
+                VStack(spacing: 0) {
+                    Color.black
+                    LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
+                        .frame(height: 20)
+                }
+            )
             .onChange(of: model.focusedIndex) { _, focused in
                 guard focused >= 0 else { return }
                 withAnimation(.easeOut(duration: 0.15)) {

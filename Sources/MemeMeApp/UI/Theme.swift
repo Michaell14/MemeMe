@@ -3,13 +3,13 @@ import SwiftUI
 /// Notch Black (docs/DESIGN.md › Design system): the drawer's colors and metrics. One black surface that matches the
 /// notch, one signal color for "this one" and "done", the Mac's own type.
 enum Theme {
-    /// The panel: a search field over the grid, a bar under it (Raycast-like, floating under the menu bar).
+    /// The panel: a search field over the grid, islands along its bottom (floating under the menu bar).
     static let panelWidth: CGFloat = 760
     static let panelRadius: CGFloat = 16
     static let searchBarHeight: CGFloat = 56
-    static let bottomBarHeight: CGFloat = 52
+    static let bottomBarHeight: CGFloat = 62
     /// The grid's area (and the camera's column beside it): two rows and a peek at the third.
-    static let contentHeight: CGFloat = 391
+    static let contentHeight: CGFloat = 384
     /// The camera's column, 16 in from the panel's edge.
     static let faceColumnWidth: CGFloat = 212
     static let faceMirrorSize: CGFloat = 168
@@ -40,8 +40,6 @@ enum Theme {
     static let signal: Color = rgb(0xFF9A5C)
     /// The panel's surface: a hair lighter than the notch, so it reads as a window.
     static let panelBackground: Color = rgb(0x161618)
-    /// The bottom bar.
-    static let barBackground: Color = rgb(0x1A1A1C)
     /// Menus over the panel (sources, actions).
     static let menuBackground: Color = rgb(0x1F1F21)
     /// Hairlines and the panel's edge.
