@@ -1378,7 +1378,7 @@ Key handling:
 - ⌘ + a digit 1–9 as typed on the active keyboard layout (Shift allowed, no ⌃/⌥; 0 is swallowed) → `model.commitNumbered(index: n - 1)` (any tile, row by row); plain digits type
 - ⌘K → `model.toggleMenu(.actions)`; ⌘P → `model.toggleMenu(.sources)`; ⌘F → `model.toggleFaceSearch()`; ⌘M, ⌘O, ⇧⌘R, ⇧⌘C, ⌥⌘C → `model.perform(.moreLikeThis / .openInBrowser / .showInFinder / .copyLink / .copyMarkdown)`
 - While `model.menu` is set: Esc → `model.closeMenu()`; ↵ → `model.performMenuRow()`; ↑/↓ and Tab/Shift-Tab → `model.moveMenuSelection(by:)`; ⌘K / ⌘P toggle; ⌘V/C/X/A edit its filter field; everything else types into it
-- ←/→ → `model.moveFocus(dx: ∓1, dy: 0)` only when `model.queryText` is empty; ↑/↓ → `model.moveFocus(dx: 0, dy: ∓1)`
+- ←/→ without ⌘ ⌃ ⌥ ⇧ → `model.moveFocus(dx: ∓1, dy: 0)`, also while typing (with them the event goes to the field); ↑/↓ → `model.moveFocus(dx: 0, dy: ∓1)`
 - Space with empty query → `model.snap()`; ⇧Space with empty query → `model.openCapture()` when `model.canOpenCapture`
 - In the capture view (`model.isCaptureOpen`): Esc → `model.handleEscape()` (cancels a capture in progress, else closes the view); Space down (not a repeat) → `model.capture.press(from: .space)`, Space up (whatever the modifiers) → `model.capture.release(from: .space)`; ↵ / Enter down → `press(from: .key)`, up → `release(from: .key)` (like Space, so the panel never closes while the key is down); ←/→ → `model.capture.cycleFilter(by: ∓1)`; other keys without ⌘/⌃/⌥ are swallowed
 - Tab → `model.cycleSource(by: 1)`; Shift-Tab → `model.cycleSource(by: -1)`

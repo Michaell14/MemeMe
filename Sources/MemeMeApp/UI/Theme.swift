@@ -7,9 +7,11 @@ enum Theme {
     static let panelWidth: CGFloat = 760
     static let panelRadius: CGFloat = 16
     static let searchBarHeight: CGFloat = 56
-    static let bottomBarHeight: CGFloat = 68
+    static let bottomBarHeight: CGFloat = 60
+    /// Buttons in the bottom islands (the islands are 3 pt more on each side: 36 pt tall).
+    static let islandButtonHeight: CGFloat = 30
     /// The grid's area (and the camera's column beside it): two rows and a peek at the third.
-    static let contentHeight: CGFloat = 384
+    static let contentHeight: CGFloat = 392
     /// The camera's column, 16 in from the panel's edge.
     static let faceColumnWidth: CGFloat = 212
     static let faceMirrorSize: CGFloat = 168
