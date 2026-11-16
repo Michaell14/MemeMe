@@ -159,11 +159,11 @@ Holding a face is still how a search starts; the editor only refines a face that
 
 ## App icon
 
-A winking smiley die-cut sticker, its corner peeling, on an orange tile (the website's logo chip, `#FF9A5C` to a deeper orange), with two small sparkles; macOS grid (824 px tile on a 1024 canvas). The face is the website's smiley made bold: an ink pill eye, a wink, an open grin with a coral tongue. The 16, 32 and 64 px sizes are drawn upright with features on whole pixels, and the 16 px one without the peel. Sources: `Resources/AppIcon`. It shows in Finder, Launchpad, the DMG window, System Settings and notices; the menu bar keeps its template icon.
+A white speech bubble with a wink in it on an orange tile (`#FF9A5C` to a deeper orange); macOS grid (824 px tile on a 1024 canvas). The bubble's tail leaves its bottom-left; the wink is ink (`#161B2E`): a pill eye, a closed eye drawn as an arch, and a smile. The 32 and 64 px sizes use a bigger tile and heavier lines, and the 16 px one is drawn pixel by pixel. Sources: `Resources/AppIcon`. It shows in Finder, Launchpad, the DMG window, System Settings and notices; the menu bar keeps its template icon.
 
 ## Menu-bar icon
 
-- Template icon, drawn in code on an 18 pt grid: a viewfinder (four rounded corner brackets, 1.4 pt lines) around a winking face (the app icon's pill eye, wink and open grin). Clicking shows the menu.
+- Template icon, drawn in code on an 18 pt grid: the app icon's speech bubble in outline (1.4 pt lines, corners rounded 3 pt) with its wink inside (the pill eye, the closed eye, the smile). While an update is available a small dot sits on the bubble's top-right corner. Clicking shows the menu.
 - **Drop target:** dragging files or images onto the icon keeps them. Photos of people (not animated, little text, faces ≥ 6 % of the image height) become **stickers** (per the "Photos with people" setting, default automatic); everything else is kept as a meme. With "Ask Each Time", one alert per drop: title "Make stickers from “IMG_2207”?" (or "Make stickers from 3 photos?"), text "MemeMe cuts out each person. Everything stays on this Mac.", buttons [Make Stickers] [Keep as Photo] (plural "Keep as Photos").
 - After a drop, a popover under the icon:
   - Stickers: header "Made 3 stickers" + "Undo all"; the first time ever, an inline question "Group stickers by person?" / "MemeMe matches faces only against stickers you made. Face data stays on this Mac." [Yes, group them] [Not now]; a row of die-cut stickers (checkerboard background), each with a name label: "Maya ✓" (confident match), "Jordan?" + [Yes, that’s Jordan] (likely), or "New face"; a × on each to remove (+ to restore); footer "Keep as photo only".

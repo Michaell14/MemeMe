@@ -86,62 +86,64 @@ import SwiftUI
         dropView?.toolTip = button.toolTip
     }
 
-    /// A viewfinder: four corner brackets around a winking face (the app icon's pill eye, wink and open grin),
-    /// on an 18 pt grid, y down. Badged, a small dot takes the top-right bracket's place; one template image,
-    /// so the menu bar tints the face and the dot alike.
+    /// A speech bubble with a wink in it (the app icon's pill eye, closed eye and smile), outlined on an 18 pt grid,
+    /// y down. Badged, a small dot sits on the bubble's top-right corner with a clear ring around it; one template
+    /// image, so the menu bar tints the bubble and the dot alike.
     private static func statusImage(badged: Bool) -> NSImage {
         let side: CGFloat = 18
         let line: CGFloat = 1.4
         let image = NSImage(size: NSSize(width: side, height: side), flipped: true) { rect in
             NSColor.black.set()
 
-            // Brackets: 3.9 pt legs from each corner, rounded 2.5 pt.
-            let inset: CGFloat = 1.7, leg: CGFloat = 3.9, radius: CGFloat = 2.5
-            var corners: [(x: CGFloat, y: CGFloat, dx: CGFloat, dy: CGFloat)] = [
-                (inset, inset, 1, 1), (side - inset, side - inset, -1, -1), (inset, side - inset, 1, -1),
-            ]
-            if !badged { corners.append((side - inset, inset, -1, 1)) }
-            let brackets = NSBezierPath()
-            for corner in corners {
-                brackets.move(to: NSPoint(x: corner.x, y: corner.y + corner.dy * leg))
-                brackets.appendArc(from: NSPoint(x: corner.x, y: corner.y),
-                                   to: NSPoint(x: corner.x + corner.dx * leg, y: corner.y), radius: radius)
-                brackets.line(to: NSPoint(x: corner.x + corner.dx * leg, y: corner.y))
-            }
-            brackets.lineWidth = line
-            brackets.lineCapStyle = .round
-            brackets.stroke()
+            // The bubble: corners rounded 3 pt, the tail leaving the bottom edge and curling back into the left side.
+            let left: CGFloat = 1.7, right: CGFloat = 16.3, top: CGFloat = 2.3, bottom: CGFloat = 12.6, radius: CGFloat = 3
+            let bubble = NSBezierPath()
+            bubble.move(to: NSPoint(x: left + radius, y: top))
+            bubble.appendArc(from: NSPoint(x: right, y: top), to: NSPoint(x: right, y: bottom), radius: radius)
+            bubble.appendArc(from: NSPoint(x: right, y: bottom), to: NSPoint(x: left, y: bottom), radius: radius)
+            bubble.line(to: NSPoint(x: 6.8, y: bottom))
+            bubble.curve(to: NSPoint(x: 2.4, y: 16),
+                         controlPoint1: NSPoint(x: 5.9, y: 14.1), controlPoint2: NSPoint(x: 4.4, y: 15.4))
+            bubble.curve(to: NSPoint(x: 2.5, y: 12.2),
+                         controlPoint1: NSPoint(x: 3.1, y: 14.9), controlPoint2: NSPoint(x: 3.0, y: 13.6))
+            bubble.curve(to: NSPoint(x: left, y: 9.6),
+                         controlPoint1: NSPoint(x: 1.95, y: 11.5), controlPoint2: NSPoint(x: left, y: 10.6))
+            bubble.appendArc(from: NSPoint(x: left, y: top), to: NSPoint(x: right, y: top), radius: radius)
+            bubble.close()
+            bubble.lineWidth = line
+            bubble.lineCapStyle = .round
+            bubble.lineJoinStyle = .round
+            bubble.stroke()
 
             // The open eye.
-            NSBezierPath(roundedRect: NSRect(x: 5.76, y: 5.42, width: 1.52, height: 2.56), xRadius: 0.76, yRadius: 0.76).fill()
+            NSBezierPath(roundedRect: NSRect(x: 5.4, y: 5.0, width: 1.5, height: 2.5), xRadius: 0.75, yRadius: 0.75).fill()
 
             // The wink: an arch.
             let wink = NSBezierPath()
-            wink.move(to: NSPoint(x: 9.72, y: 6.9))
-            wink.curve(to: NSPoint(x: 12.25, y: 6.9),
-                       controlPoint1: NSPoint(x: 10.56, y: 5.91), controlPoint2: NSPoint(x: 11.41, y: 5.91))
-            wink.lineWidth = line
+            wink.move(to: NSPoint(x: 10.5, y: 6.6))
+            wink.curve(to: NSPoint(x: 12.9, y: 6.6),
+                       controlPoint1: NSPoint(x: 11.3, y: 5.67), controlPoint2: NSPoint(x: 12.1, y: 5.67))
+            wink.lineWidth = 1.3
             wink.lineCapStyle = .round
             wink.stroke()
 
-            // The grin: a slightly dipped top over a round bottom.
-            let grin = NSBezierPath()
-            grin.move(to: NSPoint(x: 5.4, y: 9.1))
-            grin.curve(to: NSPoint(x: 11.96, y: 9.1),
-                       controlPoint1: NSPoint(x: 7.59, y: 9.51), controlPoint2: NSPoint(x: 9.77, y: 9.51))
-            grin.curve(to: NSPoint(x: 8.68, y: 12.54),
-                       controlPoint1: NSPoint(x: 11.74, y: 11.89), controlPoint2: NSPoint(x: 10.21, y: 12.54))
-            grin.curve(to: NSPoint(x: 5.4, y: 9.1),
-                       controlPoint1: NSPoint(x: 7.15, y: 12.54), controlPoint2: NSPoint(x: 5.62, y: 11.89))
-            grin.close()
-            grin.lineWidth = 0.5
-            grin.lineJoinStyle = .round
-            grin.fill()
-            grin.stroke()
+            // The smile.
+            let smile = NSBezierPath()
+            smile.move(to: NSPoint(x: 5.6, y: 8.9))
+            smile.curve(to: NSPoint(x: 12.4, y: 8.9),
+                        controlPoint1: NSPoint(x: 7.87, y: 10.43), controlPoint2: NSPoint(x: 10.13, y: 10.43))
+            smile.lineWidth = 1.3
+            smile.lineCapStyle = .round
+            smile.stroke()
 
             if badged {
-                let diameter = (side * 0.34).rounded()
-                NSBezierPath(ovalIn: NSRect(x: rect.maxX - diameter, y: rect.minY, width: diameter, height: diameter)).fill()
+                // Clear a ring around the dot so it doesn't merge with the bubble's corner.
+                let center = NSPoint(x: rect.maxX - 2.8, y: rect.minY + 2.8)
+                let ring: CGFloat = 3.8, dot: CGFloat = 2.6
+                NSGraphicsContext.current?.compositingOperation = .clear
+                NSBezierPath(ovalIn: NSRect(x: center.x - ring, y: center.y - ring, width: ring * 2, height: ring * 2)).fill()
+                NSGraphicsContext.current?.compositingOperation = .sourceOver
+                NSBezierPath(ovalIn: NSRect(x: center.x - dot, y: center.y - dot, width: dot * 2, height: dot * 2)).fill()
             }
             return true
         }
