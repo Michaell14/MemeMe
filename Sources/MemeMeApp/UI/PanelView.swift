@@ -750,7 +750,7 @@ struct Keycap: View {
 
 // MARK: - Islands
 
-/// A floating island along the panel's bottom edge: smoked glass of its own over the results (near-black at 72 % over
+/// A floating island along the panel's bottom edge: smoked glass of its own over the results (near-black at 60 % over
 /// the blur, a white 10 % edge, a deep shadow, radius 12), readable over any GIF; tinted and edged in the signal color
 /// while what it holds is on.
 private struct IslandModifier: ViewModifier {
