@@ -22,14 +22,8 @@ struct PanelView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             searchBar
-            if model.isCaptureOpen {
-                CaptureView(model: model)
-                    .padding(20)
-                bottomBar
-            } else {
-                // The islands float over the results, which run to the panel's bottom edge under them.
-                content
-            }
+            // The islands float over the results, which run to the panel's bottom edge under them.
+            content
         }
         .frame(width: Theme.panelWidth, alignment: .topLeading)
         .fixedSize(horizontal: false, vertical: true)
@@ -46,10 +40,6 @@ struct PanelView: View {
         }
         .onChange(of: model.isPanelVisible) { _, visible in
             if visible { focus = .search }
-        }
-        .onChange(of: model.isCaptureOpen) { _, open in
-            // Back from the capture view: typing searches again.
-            if !open { focus = .search }
         }
         .onChange(of: model.menu) { _, menu in
             focus = menu == nil ? .search : .menu
@@ -100,9 +90,7 @@ struct PanelView: View {
                     .accessibilityLabel("Search GIFs, stickers and memes, or drop or paste an image")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            if !model.isCaptureOpen {
-                sourceButton
-            }
+            sourceButton
         }
         .padding(.horizontal, Theme.gridPadding)
         .frame(height: Theme.searchBarHeight)
@@ -255,7 +243,16 @@ struct PanelView: View {
                     .opacity(model.showSetupCard ? 0.55 : 1)
             }
             .frame(height: Theme.contentHeight + Theme.bottomBarHeight, alignment: .top)
-            .overlay(alignment: .bottom) { bottomBar }
+            .overlay(alignment: .bottom) {
+                VStack(spacing: 8) {
+                    if let notice = model.clipNotice {
+                        ClipNoticeView(model: model, notice: notice)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                    bottomBar
+                }
+                .animation(.spring(response: 0.3, dampingFraction: 0.85), value: model.clipNotice)
+            }
             if model.faceEdit != nil {
                 Rectangle().fill(Theme.hairline).frame(height: 1)
                 FaceEditorView(model: model)
@@ -286,22 +283,11 @@ struct PanelView: View {
             HStack(spacing: 2) {
                 faceButton
                 Rectangle().fill(Theme.glassFillStrong).frame(width: 1, height: 16)
-                Button {
-                    model.requestScreenCut()
-                } label: {
-                    Image(systemName: "scissors")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(Theme.softTitle)
-                        .frame(width: Theme.islandButtonHeight, height: Theme.islandButtonHeight)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(IslandButtonStyle())
-                .help("Cut a sticker out of your screen (⌃⌘S)")
-                .accessibilityLabel("Cut a sticker out of your screen")
+                scissorsButton
             }
             .island(highlighted: model.faceSearchOn)
             Spacer(minLength: 8)
-            if model.focusedPick != nil && !model.isCaptureOpen {
+            if model.focusedPick != nil {
                 HStack(spacing: 2) {
                     Button {
                         model.perform(.copy)
@@ -345,6 +331,28 @@ struct PanelView: View {
         .padding(.top, 8)
         .padding(.bottom, Theme.gridPadding)
         .frame(height: Theme.bottomBarHeight)
+    }
+
+    /// ✂: with face search on, "Clip me" clips your reaction from the camera (tap a still, hold a moving one); off, it
+    /// cuts a sticker out of the screen. ⌃⌘S does the same.
+    @ViewBuilder
+    private var scissorsButton: some View {
+        if model.faceSearchOn {
+            ClipButton(model: model, capture: model.capture)
+        } else {
+            Button {
+                model.requestScreenCut()
+            } label: {
+                Image(systemName: "scissors")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(Theme.softTitle)
+                    .frame(width: Theme.islandButtonHeight, height: Theme.islandButtonHeight)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(IslandButtonStyle())
+            .help("Cut a sticker out of your screen (⌃⌘S)")
+            .accessibilityLabel("Cut a sticker out of your screen")
+        }
     }
 
     /// Bottom left, MemeMe's own: the camera searches with your face (⌘F); again, it stops. The words stay put; while
@@ -402,7 +410,7 @@ struct PanelView: View {
     /// Files and images dropped on the panel become an image query (never saved silently).
     private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
         // A tile dragged out and let go over the panel isn't a search for itself.
-        guard !model.isCaptureOpen, !model.isDraggingTile else { return false }
+        guard !model.isDraggingTile else { return false }
         let model = self.model
         let fileType = UTType.fileURL.identifier
         let imageType = UTType.image.identifier
@@ -799,6 +807,149 @@ private struct IslandButtonStyle: ButtonStyle {
             if configuration.isPressed { return Color.white.opacity(0.14) }
             if selected || isHovered { return Color.white.opacity(0.08) }
             return .clear
+        }
+    }
+}
+
+/// The left island's ✂ while face search is on: "Clip me". Tap for a still sticker of your reaction, hold for a moving
+/// one (the label counts the seconds while it records).
+private struct ClipButton: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var capture: CaptureModel
+    @State private var pressed = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: isRecording ? "record.circle" : "scissors")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(isRecording ? Theme.accent : Theme.text)
+            // A fixed width: "Clip me", "1.4 s" and "Cutting…" don't move the island.
+            Text(label)
+                .font(.system(size: 13, weight: .medium).monospacedDigit())
+                .foregroundColor(Theme.text)
+                .frame(width: 58, alignment: .leading)
+            Keycap("⌃⌘S")
+        }
+        .padding(.leading, 8)
+        .padding(.trailing, 5)
+        .frame(height: Theme.islandButtonHeight)
+        .contentShape(Rectangle())
+        .background(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(pressed ? Color.white.opacity(0.14) : Color.clear)
+        )
+        .opacity(model.canClip || capture.isBusy ? 1 : 0.5)
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in
+                    guard !pressed else { return }
+                    pressed = true
+                    model.clipPress(from: .mouse)
+                }
+                .onEnded { _ in
+                    pressed = false
+                    model.clipRelease(from: .mouse)
+                }
+        )
+        .help("Clip me: tap for a sticker of your reaction, hold for a moving one. Saved to My Stickers and copied.")
+        .accessibilityLabel("Clip me")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { model.clipTap() }
+    }
+
+    private var isRecording: Bool {
+        if case .recording = capture.phase { return true }
+        return false
+    }
+
+    private var label: String {
+        if case let .recording(progress) = capture.phase {
+            return String(format: "%.1f s", progress * CaptureRenderer.maximumClipDuration)
+        }
+        if model.isCutting || capture.phase == .saving { return "Cutting…" }
+        return "Clip me"
+    }
+}
+
+/// Over the islands after Clip me: the sticker, saved to My Stickers and copied, with Rename and Undo.
+private struct ClipNoticeView: View {
+    @ObservedObject var model: AppModel
+    let notice: ClipNotice
+
+    var body: some View {
+        HStack(spacing: 10) {
+            AsyncThumbnail(url: notice.thumbnail)
+                .frame(width: 28, height: 28)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(verbatim: notice.isNew ? "Saved “\(notice.name)” to My Stickers" : "Already one of your stickers")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(Theme.text)
+                    .lineLimit(1)
+                Text(verbatim: notice.copied ? "and copied: ⌘V in the chat to send it" : "Copy it with ↩")
+                    .font(.system(size: 11))
+                    .foregroundColor(Theme.softTitle)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            noticeButton("Rename") { model.renameClippedSticker() }
+            if notice.isNew {
+                noticeButton("Undo") { model.undoClippedSticker() }
+            }
+            Button {
+                model.dismissClipNotice()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(Theme.softTitle)
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(IslandButtonStyle())
+            .accessibilityLabel("Dismiss")
+        }
+        .padding(.leading, 8)
+        .padding(.trailing, 6)
+        .frame(height: 44)
+        .frame(maxWidth: 460)
+        .island()
+        .padding(.horizontal, Theme.gridPadding)
+        .task(id: notice) { @MainActor in
+            // Goes on its own after a while.
+            try? await Task.sleep(nanoseconds: 8_000_000_000)
+            if !Task.isCancelled, model.clipNotice == notice { model.dismissClipNotice() }
+        }
+    }
+}
+
+private extension ClipNoticeView {
+    func noticeButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(verbatim: title)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(Theme.text)
+                .padding(.horizontal, 10)
+                .frame(height: 26)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(IslandButtonStyle())
+    }
+}
+
+/// A small picture from a file (the sticker just made).
+private struct AsyncThumbnail: View {
+    let url: URL
+    @State private var image: NSImage?
+
+    var body: some View {
+        ZStack {
+            if let image {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+            }
+        }
+        .task(id: url) {
+            image = NSImage(contentsOf: url)
         }
     }
 }

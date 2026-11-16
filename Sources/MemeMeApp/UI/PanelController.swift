@@ -472,9 +472,6 @@ final class PanelController: NSObject {
         let hasNoModifiers = flags.intersection([.command, .control, .option, .shift]).isEmpty
         let hasNoCommandLikeModifiers = flags.intersection([.command, .control, .option]).isEmpty
 
-        if model.isCaptureOpen {
-            return handleCaptureKeyDown(event, hasNoCommandLikeModifiers: hasNoCommandLikeModifiers)
-        }
         if model.menu != nil {
             return handleMenuKeyDown(event, flags: flags)
         }
@@ -542,15 +539,17 @@ final class PanelController: NSObject {
         case KeyCode.space:
             // A stray space (pasted, say) mustn't turn Space and ⇧Space into typing for the rest of the session.
             guard model.queryText.trimmingCharacters(in: .whitespaces).isEmpty else { return event }
+            // Space held for Clip me (⇧ often let go first) repeats: nothing else happens until it's up.
+            if model.capture.isBusy { return nil }
             if hasNoModifiers {
                 model.snap()
                 return nil
             }
-            // ⇧Space opens the capture view once the camera reads you; before that it does nothing. Either way it
-            // never types a lone space into the field.
+            // ⇧Space is Clip me while face search reads you: tap for a still sticker, hold for a moving one. Otherwise
+            // it does nothing, and never types a lone space into the field.
             guard flags.intersection([.command, .control, .option, .shift]) == .shift else { return event }
             if !event.isARepeat {
-                model.openCapture()
+                model.clipPress(from: .space)
             }
             return nil
 
@@ -638,46 +637,10 @@ final class PanelController: NSObject {
         }
     }
 
-    /// The capture view has no text field: Space (tap or hold) and ↵ are the shutter, ← → change the filter, Esc goes
-    /// back; other plain keys do nothing.
-    private func handleCaptureKeyDown(_ event: NSEvent, hasNoCommandLikeModifiers: Bool) -> NSEvent? {
-        switch event.keyCode {
-        case KeyCode.escape:
-            if !model.handleEscape() {
-                hide()
-            }
-            return nil
-        case KeyCode.space:
-            // Held down, the key repeats; only the first press counts.
-            if !event.isARepeat {
-                model.capture.press(from: .space)
-            }
-            return nil
-        case KeyCode.returnKey, KeyCode.enter:
-            // Like Space: down presses, up releases, so the panel never closes while ↵ is still down (its key
-            // repeats would send the chat's draft).
-            guard hasNoCommandLikeModifiers, !event.isARepeat else { return nil }
-            model.capture.press(from: .key)
-            return nil
-        case KeyCode.left, KeyCode.right:
-            model.capture.cycleFilter(by: event.keyCode == KeyCode.left ? -1 : 1)
-            return nil
-        default:
-            return hasNoCommandLikeModifiers ? nil : event
-        }
-    }
-
-    /// Releasing Space or ↵ ends its press in the capture view (people often let go of ⇧ first, so any modifiers count).
+    /// Releasing Space ends ⇧Space's Clip me (people often let go of ⇧ first, so any modifiers count).
     private func handleKeyUp(_ event: NSEvent) -> NSEvent? {
-        guard panel.isVisible, model.isCaptureOpen else { return event }
-        switch event.keyCode {
-        case KeyCode.space:
-            model.capture.release(from: .space)
-        case KeyCode.returnKey, KeyCode.enter:
-            model.capture.release(from: .key)
-        default:
-            return event
-        }
+        guard panel.isVisible, event.keyCode == KeyCode.space, model.capture.isBusy else { return event }
+        model.clipRelease(from: .space)
         return nil
     }
 
