@@ -283,8 +283,8 @@ struct PickerTile: View {
             HStack(spacing: 6) {
                 SourceBadge(pick: pick)
                 Text(verbatim: pick.title.isEmpty ? "Untitled" : pick.title)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(isFocused ? Theme.text : Theme.softTitle)
+                    .font(.system(size: 12, weight: isFocused ? .semibold : .medium))
+                    .foregroundColor(isFocused ? Color.white : Theme.softTitle)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
@@ -386,12 +386,17 @@ struct PickerTile: View {
     @ViewBuilder
     private var ring: some View {
         if isFocused {
-            // Hugging the tile, with a soft glow in the signal color.
-            RoundedRectangle(cornerRadius: cornerRadius + 1, style: .continuous)
-                .stroke(Theme.accent, lineWidth: 2)
-                .padding(-1)
-                .shadow(color: Theme.accent.opacity(0.4), radius: 8)
-                .allowsHitTesting(false)
+            // White, like the rest of the glass: a 2 pt ring hugging the tile and a faint 4 pt halo around it. Orange is
+            // kept for the ↩ key that copies it.
+            ZStack {
+                RoundedRectangle(cornerRadius: cornerRadius + 4, style: .continuous)
+                    .stroke(Theme.selectionHalo, lineWidth: 4)
+                    .padding(-4)
+                RoundedRectangle(cornerRadius: cornerRadius + 1, style: .continuous)
+                    .stroke(Theme.selectionRing, lineWidth: 2)
+                    .padding(-1)
+            }
+            .allowsHitTesting(false)
         }
     }
 

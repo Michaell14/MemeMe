@@ -307,7 +307,7 @@ struct PanelView: View {
                             Text("Copy")
                                 .font(.system(size: 13, weight: .semibold))
                                 .foregroundColor(Theme.text)
-                            Keycap("↩")
+                            Keycap("↩", filled: true)
                         }
                         .padding(.leading, 10)
                         .padding(.trailing, 5)
@@ -724,19 +724,23 @@ struct SourceGlyph: View {
 /// One key of a shortcut: "⌘", "K", "↩".
 struct Keycap: View {
     let key: String
+    /// Filled in the signal color: the key of the main action (↩ beside Copy).
+    let filled: Bool
 
-    init(_ key: String) {
+    init(_ key: String, filled: Bool = false) {
         self.key = key
+        self.filled = filled
     }
 
     var body: some View {
         Text(verbatim: key)
-            .font(.system(size: 11, weight: .medium))
-            .foregroundColor(Theme.softTitle)
+            .font(.system(size: 11, weight: filled ? .semibold : .medium))
+            .foregroundColor(filled ? Theme.onAccent : Theme.softTitle)
             .frame(minWidth: 20, minHeight: 20)
             .padding(.horizontal, key.count > 1 ? 4 : 0)
-            .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(Theme.keyFill))
-            .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(Theme.glassEdge, lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(filled ? Theme.accent : Theme.keyFill))
+            .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .strokeBorder(filled ? Color.clear : Theme.glassEdge, lineWidth: 1))
             .accessibilityHidden(true)
     }
 }

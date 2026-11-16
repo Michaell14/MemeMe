@@ -68,6 +68,9 @@ enum Theme {
     static let tileRadius: CGFloat = 14
     /// A result's name under its tile, unless it is the focused one.
     static let softTitle: Color = rgb(0xAEAEB2)
+    /// The selected tile: a white ring hugging it and a faint halo around that (orange stays on the ↩ key).
+    static let selectionRing: Color = Color.white.opacity(0.95)
+    static let selectionHalo: Color = Color.white.opacity(0.12)
     /// A tile's edge, at rest and pointed at.
     static let tileEdge: Color = Color.white.opacity(0.12)
     static let tileEdgeHover: Color = Color.white.opacity(0.32)
