@@ -222,6 +222,22 @@ struct MoodReadout: Equatable {
 }
 
 /// What the last pen stroke did in the face editor; `undoable` when it changed something, so Undo sits beside it.
+/// Under the grid after Clip me: the sticker it saved to My Stickers and copied, with Rename and Undo.
+struct ClipNotice: Equatable {
+    let itemID: UUID
+    let name: String
+    let thumbnail: URL
+    let isGIF: Bool
+    /// false: the same picture was already one of your stickers (Undo leaves it).
+    let isNew: Bool
+    var copied = true
+}
+
+/// A capture handed to the cutter off the main thread.
+private struct ClipWork: @unchecked Sendable {
+    let result: CaptureResult
+}
+
 struct EditorNotice: Equatable {
     let text: String
     let undoable: Bool
@@ -337,8 +353,11 @@ private struct DescribedPhrase {
     /// A tile of the panel is being dragged out: the panel takes no drop of its own tile (set and cleared by the
     /// panel controller, which watches the drag).
     @Published var isDraggingTile: Bool = false
-    /// The capture view replaces the panel's contents: a big filtered mirror and a shutter.
-    @Published private(set) var isCaptureOpen: Bool = false
+    /// Clip me is cutting you out of what the camera caught.
+    @Published private(set) var isCutting: Bool = false
+    /// The sticker Clip me just made: first in All Sources and My Stickers, marked NEW and selected.
+    @Published private(set) var newStickerID: UUID?
+    @Published private(set) var clipNotice: ClipNotice?
     /// Your things you saved (the star on a tile; the Favorites source).
     @Published private(set) var savedIDs: Set<UUID> = []
     /// What the camera reads in the face being held while the mirror is big ("Brows up", 0...5), strongest first;
@@ -437,6 +456,7 @@ private struct DescribedPhrase {
     private var sessionID = 0
     /// The newest pick; an older one that finishes later leaves the clipboard alone.
     private var commitToken = 0
+    private var clipTask: Task<Void, Never>?
     /// The open whose pick is still being copied (one pick at a time per open).
     private var committingSession: Int?
     private var shownSummaryID: UUID?
@@ -525,7 +545,7 @@ private struct DescribedPhrase {
             self?.handleSample(sample)
         }
         capture.onCaptured = { [weak self] result in
-            self?.deliverCapture(result)
+            self?.handleClip(result)
         }
         indexer.onLibraryChanged = { [weak self] in
             self?.libraryDidChange()
@@ -620,7 +640,7 @@ private struct DescribedPhrase {
     func panelDidHide() {
         isPanelVisible = false
         closeMenu()
-        closeCapture(backToMemes: false)
+        cancelClip()
         cancelSessionTasks()
         camera.stop()
         if holdProgress != 0 { holdProgress = 0 }
@@ -707,7 +727,7 @@ private struct DescribedPhrase {
         } else {
             faceSearchOn = false
             if leanRegion != nil { leanRegion = nil }
-            closeCapture(backToMemes: false)
+            cancelClip()
             endFaceEdit()
             tracker.reset()
             earlyMood.reset()
@@ -1004,18 +1024,18 @@ private struct DescribedPhrase {
 
     /// Esc: the first press clears refinements (the face editor, text, more-like-this, image query); returns false when
     /// there were none.
-    /// In the capture view it drops a capture in progress, else goes back to the memes.
+    /// A clip being recorded is dropped first; the Clip me notice goes next.
     func handleEscape() -> Bool {
         if menu != nil {
             closeMenu()
             return true
         }
-        if isCaptureOpen {
-            if capture.isBusy {
-                capture.cancel()
-            } else {
-                closeCapture()
-            }
+        if capture.isBusy {
+            capture.cancel()
+            return true
+        }
+        if clipNotice != nil {
+            clipNotice = nil
             return true
         }
         // The You're-set card closes with the panel.
@@ -1098,7 +1118,7 @@ private struct DescribedPhrase {
 
     /// The × on the word in the search field: the camera caught a face, and nothing else covers it.
     var canDismissCaughtFace: Bool {
-        mode == .live && resultSource == .expression && faceEdit == nil && !isCaptureOpen && tracker.query != nil
+        mode == .live && resultSource == .expression && faceEdit == nil && tracker.query != nil
     }
 
     /// The × on the word in the search field: not this face. The panel goes back to your recent and frequent picks
@@ -1160,7 +1180,7 @@ private struct DescribedPhrase {
 
     /// The face editor can open: the camera's search shows a face (not a pose alone) and nothing covers it.
     var canEditFace: Bool {
-        mode == .live && !isCaptureOpen && !showSetupCard && faceEdit == nil && !shownWeights.isEmpty
+        mode == .live && !capture.isBusy && !showSetupCard && faceEdit == nil && !shownWeights.isEmpty
     }
 
     /// "mostly your brows", "your whole face"…: what counts in the face search showing; nil without one.
@@ -1582,121 +1602,133 @@ private struct DescribedPhrase {
         saveSoon()
     }
 
-    // MARK: - Capture view
+    // MARK: - Clip me
 
-    /// The camera button and ⇧Space open the capture view while the camera reads you.
-    var canOpenCapture: Bool {
-        mode == .live && !showSetupCard && camera.isRunning
+    /// Clip me (the ✂ island, ⌃⌘S, ⇧Space, the chip under the mirror) clips your reaction while face search reads you.
+    var canClip: Bool {
+        faceSearchOn && mode == .live && camera.isRunning && !showSetupCard && faceEdit == nil && !isCutting
     }
 
-    func openCapture() {
-        guard canOpenCapture, !isCaptureOpen else { return }
-        endFaceEdit()
-        // A GIPHY pick still downloading must not copy, show the You're-set card or close the panel under the capture view;
-        // it no longer holds the one-pick-at-a-time lock either.
+    /// Shutter down: a short press takes a still, holding records a moving sticker (up to 3 s). Returns false when
+    /// it was refused; that input's release then does nothing.
+    @discardableResult
+    func clipPress(from input: ShutterInput) -> Bool {
+        guard canClip else { return false }
+        closeMenu()
+        return capture.press(from: input)
+    }
+
+    func clipRelease(from input: ShutterInput) {
+        capture.release(from: input)
+    }
+
+    /// A tap (✂, ⌃⌘S): a still.
+    func clipTap() {
+        guard clipPress(from: .key) else { return }
+        capture.release(from: .key)
+    }
+
+    /// Drops a clip being recorded (Esc, face search off, the panel closing); a cut already under way finishes.
+    private func cancelClip() {
+        if capture.isBusy { capture.deactivate() }
+    }
+
+    /// Rename on the notice: the sticker's name, asked for in a small sheet.
+    func renameClippedSticker() {
+        guard let notice = clipNotice, var item = store.item(id: notice.itemID) else { return }
+        let alert = NSAlert()
+        alert.messageText = "Rename sticker"
+        alert.addButton(withTitle: "Rename")
+        alert.addButton(withTitle: "Cancel")
+        let field = NSTextField(string: item.displayName)
+        field.frame = NSRect(x: 0, y: 0, width: 240, height: 24)
+        alert.accessoryView = field
+        alert.window.initialFirstResponder = field
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, name != item.displayName else { return }
+        item.displayName = name
+        store.update(item)
+        saveSoon()
+        clipNotice = ClipNotice(itemID: item.id, name: name, thumbnail: notice.thumbnail, isGIF: notice.isGIF,
+                                isNew: notice.isNew, copied: notice.copied)
+        refreshCurrentResults()
+    }
+
+    /// Undo on the notice: the sticker is deleted (the clipboard keeps its copy).
+    func undoClippedSticker() {
+        guard let notice = clipNotice else { return }
+        clipNotice = nil
+        if newStickerID == notice.itemID { newStickerID = nil }
+        if notice.isNew {
+            friends.removeOwnSticker(id: notice.itemID)
+        }
+        refreshCurrentResults()
+    }
+
+    func dismissClipNotice() {
+        clipNotice = nil
+    }
+
+    /// A clip came in: cut you out (off the main thread), save the sticker to My Stickers, copy it, and show it
+    /// first in the grid, marked NEW and selected. The panel stays open.
+    private func handleClip(_ result: CaptureResult) {
+        // A GIPHY pick still downloading must not overwrite the sticker on the pasteboard.
         commitToken += 1
         committingSession = nil
-        isCaptureOpen = true
-        capture.activate()
-        tracker.clearHold()
-        if holdProgress != 0 { holdProgress = 0 }
-        earlyMood.reset()
-    }
-
-    /// Back to the memes (Esc, or after a capture is copied); a capture in progress is dropped. `backToMemes`: the
-    /// memes show again (Esc, "Back to memes"), so a held pose's name dropped while the view was open is shown now
-    /// (`showPoseNameDroppedForCapture`); false when the panel closes or starts over right after.
-    func closeCapture(backToMemes: Bool = true) {
-        guard isCaptureOpen else { return }
-        capture.deactivate()
-        isCaptureOpen = false
-        // The strip got no frames while the view was open: start the face-missing clock again, so a first frame
-        // without a face (looking down at Esc) isn't read as a long gap.
-        if mode == .live {
-            liveSince = CACurrentMediaTime()
-            faceMissing = false
-            faceBackSince = nil
-        }
-        refreshHint()
-        if backToMemes {
-            showPoseNameDroppedForCapture()
-        }
-    }
-
-    /// The held pose's name came while the capture view was open and was dropped (`describe`), so the readout shows
-    /// the rule's phrase and the web rows the last query's: searching the held query again shows its name. The model
-    /// isn't asked again (it kept its answer) and no page turns. Nothing to do when the words were already shown, are
-    /// still being asked for, or the held query isn't a described pose.
-    private func showPoseNameDroppedForCapture() {
-        guard isPanelVisible, mode == .live, resultSource == .expression, describeTask == nil,
-              let query = tracker.query, describedPhrase?.timestamp != query.timestamp,
-              PoseDescription.of(query, baseline: tracker.baseline) != nil else { return }
-        runExpressionSearch(animate: false)
-    }
-
-    /// A finished capture: copy it as "reaction.gif" / "reaction.png", close the panel, and offer
-    /// "Save as sticker" on the HUD. A capture is never kept unless saved as a sticker.
-    private func deliverCapture(_ result: CaptureResult) {
-        // A pick that was still downloading must not overwrite this on the pasteboard.
-        commitToken += 1
-        let fileURL: URL
-        do {
-            fileURL = try Clipboard.copy(data: result.data, fileName: result.isGIF ? "reaction.gif" : "reaction.png")
-        } catch {
-            modelLog.error("Copying a capture to the pasteboard failed")
-            HUDController.shared.show("Couldn’t copy that one. Try again.")
-            return
-        }
-        // A photo is cut from the file just copied; a GIF from its strongest frame.
-        let stickerSource = result.isGIF ? result.stickerFrame.flatMap { AppModel.writeStickerSource($0) } : fileURL
-        closeCapture(backToMemes: false)
-        if isPanelVisible {
-            onRequestClose?()
-        }
-        let action = stickerSource.map { url in
-            HUDAction(title: "Save as sticker") { [weak self] in
-                self?.saveCaptureAsSticker(from: url)
-            }
-        }
-        HUDController.shared.show("Copied your \(result.isGIF ? "GIF" : "photo") · ⌘V — not sent", thumbnail: fileURL, action: action)
-    }
-
-    /// A PNG of `frame` next to the clipboard's copies (deleted within the hour like them).
-    private static func writeStickerSource(_ frame: CGImage) -> URL? {
-        guard let data = CaptureEncoder.png(frame) else { return nil }
-        let directory = Clipboard.clipboardDirectory().appendingPathComponent(UUID().uuidString, isDirectory: true)
-        do {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
-            let url = directory.appendingPathComponent("capture.png", isDirectory: false)
-            try data.write(to: url, options: .atomic)
-            return url
-        } catch {
-            return nil
-        }
-    }
-
-    private func saveCaptureAsSticker(from url: URL) {
-        HUDController.shared.show("Making your sticker…")
-        Task { [weak self] in
-            guard let self else { return }
-            let made = try? await self.friends.makeOwnSticker(fromCapture: url)
-            if let made {
-                // Reopened meanwhile: the notice would cover the panel, and the sticker is in the library.
-                guard !self.isPanelVisible else { return }
-                guard made.isNew else {
-                    HUDController.shared.show("Already one of your stickers", thumbnail: made.item.fileURL)
-                    return
-                }
-                let undo = HUDAction(title: "Undo") { [weak self] in
-                    self?.friends.removeOwnSticker(id: made.item.id)
-                    HUDController.shared.show("Sticker removed")
-                }
-                HUDController.shared.show("Saved “\(made.item.displayName)” as a sticker", thumbnail: made.item.fileURL, action: undo)
-            } else {
-                // Shown even over a reopened panel (like "Couldn’t read that image"): nothing else would say it failed.
+        isCutting = true
+        clipNotice = nil
+        let name = clipName
+        let box = ClipWork(result: result)
+        clipTask?.cancel()
+        clipTask = Task { [weak self] in
+            let clip = await Task.detached(priority: .userInitiated) { ClipSticker.make(from: box.result) }.value
+            guard let self, !Task.isCancelled else { return }
+            guard let clip else {
+                self.isCutting = false
                 HUDController.shared.show("Couldn’t find you in that one.")
+                return
             }
+            let made: (item: LibraryItem, isNew: Bool)
+            do {
+                made = try await self.friends.makeClipSticker(clip, name: name)
+            } catch {
+                self.isCutting = false
+                modelLog.error("Saving a clipped sticker failed")
+                HUDController.shared.show("Couldn’t save that one. Try again.")
+                return
+            }
+            self.isCutting = false
+            var copied = true
+            do {
+                try Clipboard.copy(fileURL: made.item.fileURL, item: made.item)
+            } catch {
+                copied = false
+                modelLog.error("Copying a clipped sticker failed")
+            }
+            guard self.isPanelVisible else {
+                HUDController.shared.show(copied ? "Saved “\(made.item.displayName)” · copied, ⌘V to paste"
+                                                 : "Saved “\(made.item.displayName)” to My Stickers",
+                                          thumbnail: made.item.fileURL)
+                return
+            }
+            self.newStickerID = made.item.id
+            self.clipNotice = ClipNotice(itemID: made.item.id, name: made.item.displayName,
+                                         thumbnail: made.item.fileURL, isGIF: clip.isGIF, isNew: made.isNew,
+                                         copied: copied)
+            if self.source != .all && self.source != .myStickers {
+                self.selectSource(.myStickers)
+            }
+            self.userInteracted = true
+            self.focusedIndex = 0
         }
+    }
+
+    /// "You — laughing": the word the camera reads now.
+    private var clipName: String {
+        if let word = readout?.word, !word.isEmpty { return "You — \(word)" }
+        return "You"
     }
 
     // MARK: - Camera
@@ -1709,9 +1741,9 @@ private struct DescribedPhrase {
             faceMissing = false
             warmPoseNamer()
         }
-        // In text, image and more-like modes the camera only feeds the (dimmed) mirror; in the capture view it
-        // only feeds the capture picture; while the face editor is open, only the dimmed mirror.
-        guard mode == .live, !isCaptureOpen, faceEdit == nil else {
+        // In text, image and more-like modes the camera only feeds the (dimmed) mirror; while the face editor is
+        // open, only the dimmed mirror.
+        guard mode == .live, faceEdit == nil else {
             earlyMood.reset()
             standingBack.reset()
             return
@@ -2035,7 +2067,7 @@ private struct DescribedPhrase {
             self.describeTask = nil
             self.describingTimestamp = nil
             // .warming too: Esc back from typing restarts the camera and searches the held pose (returnToFace).
-            guard self.isPanelVisible, self.mode == .live || self.mode == .warming, !self.isCaptureOpen,
+            guard self.isPanelVisible, self.mode == .live || self.mode == .warming,
                   self.resultSource == .expression, self.tracker.query?.timestamp == timestamp else {
                 self.stopAwaitingGiphyName()
                 return
@@ -2434,6 +2466,11 @@ private struct DescribedPhrase {
             } else {
                 message = templateQuery.map { "No classic memes for “\($0.label)”." } ?? "No classic memes."
             }
+        }
+        // Clip me's new sticker comes first, wherever the ranking put it.
+        if let id = newStickerID, source == .all || source == .myStickers, let item = store.item(id: id) {
+            picks.removeAll { if case let .meme(shown) = $0 { return shown.id == id }; return false }
+            picks.insert(.meme(item), at: 0)
         }
         return PickerLayout(picks: picks, columns: columns, isLoading: loading, message: message,
                             title: sectionTitle)
@@ -3109,7 +3146,9 @@ private struct DescribedPhrase {
     // MARK: - Session and persistence
 
     private func resetForNewSession() {
-        closeCapture(backToMemes: false)
+        cancelClip()
+        newStickerID = nil
+        clipNotice = nil
         cancelSessionTasks()
         clearTextState()
         resetQueryImage()

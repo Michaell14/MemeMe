@@ -311,6 +311,7 @@ struct PickerTile: View {
             .shadow(color: .black.opacity(isHovered && !isFocused ? 0.3 : 0), radius: 12, x: 0, y: 10)
             .overlay(alignment: .bottomLeading) { gifTag }
             .overlay(alignment: .topTrailing) { saveControl }
+            .overlay(alignment: .topLeading) { newTag }
             .overlay { ring }
             .offset(y: isHovered && !isFocused ? -2 : 0)
             .animation(.easeOut(duration: 0.14), value: isHovered)
@@ -327,6 +328,22 @@ struct PickerTile: View {
             GiphyTileContent(gif: gif, isFocused: isFocused, web: model.webStickers, size: size, isSticker: true)
         case let .template(template):
             TemplateTileContent(template: template, model: model, size: size)
+        }
+    }
+
+    /// Clip me's sticker, just made: "NEW" in the signal color.
+    @ViewBuilder
+    private var newTag: some View {
+        if case let .meme(item) = pick, item.id == model.newStickerID {
+            Text("NEW")
+                .font(.system(size: 10, weight: .bold))
+                .tracking(0.4)
+                .foregroundColor(Theme.onAccent)
+                .padding(.horizontal, 5)
+                .frame(height: 16)
+                .background(RoundedRectangle(cornerRadius: 4, style: .continuous).fill(Theme.accent))
+                .padding(6)
+                .allowsHitTesting(false)
         }
     }
 

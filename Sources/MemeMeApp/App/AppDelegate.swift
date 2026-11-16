@@ -44,8 +44,16 @@ private let launchLog = Logger(subsystem: "com.mememe.app", category: "app")
             screenCut?.start()
         }
         model.onRequestScreenCut = startScreenCut
-        let screenCutHotKey = HotKey(keyCode: UInt32(kVK_ANSI_S), modifiers: UInt32(controlKey | cmdKey),
-                                     action: startScreenCut)
+        // ⌃⌘S: Clip me while the panel's face search reads you (a still sticker of your reaction); else a cut from
+        // the screen.
+        let screenCutHotKey = HotKey(keyCode: UInt32(kVK_ANSI_S), modifiers: UInt32(controlKey | cmdKey)) { [weak model] in
+            guard let model else { return }
+            if model.isPanelVisible && model.faceSearchOn {
+                model.clipTap()
+            } else {
+                startScreenCut()
+            }
+        }
 
         self.model = model
         self.panel = panel
