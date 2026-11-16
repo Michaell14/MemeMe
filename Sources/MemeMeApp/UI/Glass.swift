@@ -31,6 +31,8 @@ struct GlassSurface: ViewModifier {
     var tint: Color = Theme.glassTint
     var edge: Color = Theme.glassEdge
     var shadow = true
+    /// The brighter line along the top edge (light glass); smoked glass goes without.
+    var highlight = true
 
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
@@ -45,7 +47,8 @@ struct GlassSurface: ViewModifier {
             .overlay(shape.strokeBorder(edge, lineWidth: 1).allowsHitTesting(false))
             .overlay(
                 shape.strokeBorder(
-                    LinearGradient(colors: [Theme.glassHighlight, .clear], startPoint: .top, endPoint: .center),
+                    LinearGradient(colors: [highlight ? Theme.glassHighlight : .clear, .clear],
+                                   startPoint: .top, endPoint: .center),
                     lineWidth: 1
                 )
                 .allowsHitTesting(false)
@@ -57,7 +60,9 @@ struct GlassSurface: ViewModifier {
 extension View {
     /// A glass surface (see `GlassSurface`).
     func glass(cornerRadius: CGFloat, blending: NSVisualEffectView.BlendingMode = .withinWindow,
-               tint: Color = Theme.glassTint, edge: Color = Theme.glassEdge, shadow: Bool = true) -> some View {
-        modifier(GlassSurface(cornerRadius: cornerRadius, blending: blending, tint: tint, edge: edge, shadow: shadow))
+               tint: Color = Theme.glassTint, edge: Color = Theme.glassEdge, shadow: Bool = true,
+               highlight: Bool = true) -> some View {
+        modifier(GlassSurface(cornerRadius: cornerRadius, blending: blending, tint: tint, edge: edge, shadow: shadow,
+                              highlight: highlight))
     }
 }
