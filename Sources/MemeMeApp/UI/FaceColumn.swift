@@ -85,7 +85,7 @@ struct FaceColumn: View {
             .frame(height: 24)
             .background(
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(leaned ? Theme.raised2 : Color.clear)
+                    .fill(leaned ? Theme.glassFillStrong : Color.clear)
             )
             .contentShape(Rectangle())
         }
@@ -108,7 +108,7 @@ struct FaceColumn: View {
         .overlay {
             // The ring's track: a quiet edge that the hold fills.
             Circle()
-                .stroke(Theme.raised2, lineWidth: 3)
+                .stroke(Theme.glassFillStrong, lineWidth: 3)
                 .padding(ringInset)
                 .allowsHitTesting(false)
         }
@@ -165,8 +165,8 @@ struct FaceColumn: View {
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundColor(Theme.text)
                 .frame(width: 28, height: 28)
-                .background(Circle().fill(Theme.raised2))
-                .overlay(Circle().strokeBorder(Theme.panelBackground, lineWidth: 2))
+                .background(Circle().fill(Theme.glassFillStrong))
+                .overlay(Circle().strokeBorder(Theme.glassEdge, lineWidth: 1))
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
@@ -184,8 +184,8 @@ struct FaceColumn: View {
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundColor(Theme.text)
                 .frame(width: 28, height: 28)
-                .background(Circle().fill(Theme.raised2))
-                .overlay(Circle().strokeBorder(Theme.panelBackground, lineWidth: 2))
+                .background(Circle().fill(Theme.glassFillStrong))
+                .overlay(Circle().strokeBorder(Theme.glassEdge, lineWidth: 1))
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)

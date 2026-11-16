@@ -13,9 +13,9 @@ struct PickerGrid: View {
     @State private var documentsAdded = false
 
     private let headerHeight: CGFloat = 36
-    /// How far the focus ring (2 pt, 3 pt out) and the hover lift reach past a tile: the tiles (and the title over
+    /// How far the focus ring and its glow, and the hover lift and its shadow, reach past a tile: the tiles (and the title over
     /// them) sit this far in from the scroll view's edges, which clip.
-    private let ringRoom: CGFloat = 6
+    private let ringRoom: CGFloat = 10
     private let titleHeight: CGFloat = 15
     private let titleSpacing: CGFloat = 7
 
@@ -184,11 +184,11 @@ struct PickerGrid: View {
                 }
         } else if layout.isLoading {
             VStack(alignment: .leading, spacing: titleSpacing) {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Theme.surface)
+                RoundedRectangle(cornerRadius: Theme.tileRadius, style: .continuous)
+                    .fill(Theme.tileBackground)
                     .frame(width: size, height: size)
                 RoundedRectangle(cornerRadius: 3, style: .continuous)
-                    .fill(Theme.surface)
+                    .fill(Theme.tileBackground)
                     .frame(width: size * 0.6, height: 8)
                     .frame(height: titleHeight)
             }
@@ -268,7 +268,7 @@ struct PickerTile: View {
 
     @State private var isHovered = false
 
-    private let cornerRadius: CGFloat = 10
+    private let cornerRadius: CGFloat = Theme.tileRadius
 
     init(pick: Pick, size: CGFloat, isFocused: Bool, marksType: Bool, model: AppModel) {
         self.pick = pick
@@ -308,9 +308,10 @@ struct PickerTile: View {
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(Theme.tileEdge, lineWidth: 1)
+                    .strokeBorder(isHovered && !isFocused ? Theme.tileEdgeHover : Theme.tileEdge, lineWidth: 1)
                     .allowsHitTesting(false)
             }
+            .shadow(color: .black.opacity(isHovered && !isFocused ? 0.3 : 0), radius: 12, x: 0, y: 10)
             .overlay(alignment: .bottomLeading) { gifTag }
             .overlay(alignment: .topTrailing) { saveControl }
             .overlay { ring }
@@ -386,9 +387,11 @@ struct PickerTile: View {
     @ViewBuilder
     private var ring: some View {
         if isFocused {
-            RoundedRectangle(cornerRadius: cornerRadius + 3, style: .continuous)
+            // Hugging the tile, with a soft glow in the signal color.
+            RoundedRectangle(cornerRadius: cornerRadius + 1, style: .continuous)
                 .stroke(Theme.accent, lineWidth: 2)
-                .padding(-3)
+                .padding(-1)
+                .shadow(color: Theme.accent.opacity(0.4), radius: 8)
                 .allowsHitTesting(false)
         }
     }
@@ -437,7 +440,7 @@ private struct SourceBadge: View {
                     .font(.system(size: 7.5, weight: .semibold))
                     .foregroundColor(Theme.text)
                     .frame(width: 14, height: 14)
-                    .background(RoundedRectangle(cornerRadius: 4, style: .continuous).fill(Theme.raised2))
+                    .background(RoundedRectangle(cornerRadius: 4, style: .continuous).fill(Theme.glassFillStrong))
             }
         }
         .accessibilityHidden(true)

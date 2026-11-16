@@ -38,18 +38,36 @@ enum Theme {
     static let text2: Color = rgb(0x8E8E93)
     /// This one, or done (the focus ring, the ↩ chip, the Copied check). Nothing else.
     static let signal: Color = rgb(0xFF9A5C)
-    /// The panel's surface: a hair lighter than the notch, so it reads as a window.
-    static let panelBackground: Color = rgb(0x161618)
-    /// Menus over the panel (sources, actions).
-    static let menuBackground: Color = rgb(0x1F1F21)
-    /// Hairlines and the panel's edge.
-    static let hairline: Color = Color.white.opacity(0.08)
-    /// A tile before its picture loads.
-    static let tileBackground: Color = rgb(0x1F1F22)
+    /// Where the panel isn't glass (the face column's button rims): close to the glass's tint.
+    static let panelBackground: Color = rgb(0x1E1E22)
+
+    // MARK: Frosted glass (the panel, its islands and menus, the screen cut's card)
+
+    /// Over the panel's blur: a dark tint, so white text stays readable over any wallpaper.
+    static let glassTint: Color = rgb(0x1E1E22, opacity: 0.62)
+    /// Over a menu's blur.
+    static let menuTint: Color = rgb(0x28282E, opacity: 0.7)
+    /// An island's film over the panel: white 8 %, its fill while on (signal 18 %).
+    static let islandTint: Color = Color.white.opacity(0.08)
+    static let islandOnTint: Color = rgb(0xFF9A5C, opacity: 0.18)
+    /// Every glass surface's 1 px edge, and the brighter line along its top.
+    static let glassEdge: Color = Color.white.opacity(0.14)
+    static let glassHighlight: Color = Color.white.opacity(0.22)
+    /// Buttons and fields on glass (the source button, tokens), and while open or pressed.
+    static let glassFill: Color = Color.white.opacity(0.08)
+    static let glassFillStrong: Color = Color.white.opacity(0.14)
+    /// Keycaps on glass.
+    static let keyFill: Color = Color.white.opacity(0.10)
+    /// Hairlines inside the panel and its menus.
+    static let hairline: Color = Color.white.opacity(0.10)
+    /// A tile before its picture loads (white 6 % on glass), and placeholders.
+    static let tileBackground: Color = Color.white.opacity(0.06)
+    static let tileRadius: CGFloat = 14
     /// A result's name under its tile, unless it is the focused one.
     static let softTitle: Color = rgb(0xAEAEB2)
-    /// A tile's resting edge.
-    static let tileEdge: Color = Color.white.opacity(0.06)
+    /// A tile's edge, at rest and pointed at.
+    static let tileEdge: Color = Color.white.opacity(0.12)
+    static let tileEdgeHover: Color = Color.white.opacity(0.32)
 
     // MARK: The names the views use, on Notch Black
 
