@@ -76,7 +76,7 @@ struct PanelView: View {
     /// The search field: what you type searches the source showing. Once the camera caught a face its word sits in the
     /// field as a token (× drops it), and what you type refines it. The source menu sits at the right.
     private var searchBar: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
             queryGlyph
             if model.queryText.isEmpty, let readout = model.readout {
                 faceToken(readout)
@@ -103,8 +103,7 @@ struct PanelView: View {
                 sourceButton
             }
         }
-        .padding(.leading, 18)
-        .padding(.trailing, 12)
+        .padding(.horizontal, Theme.gridPadding)
         .frame(height: Theme.searchBarHeight)
     }
 
@@ -242,8 +241,9 @@ struct PanelView: View {
                     FaceColumn(model: model)
                         .padding(.leading, Theme.gridPadding)
                 }
+                // The grid insets its own content by the gutter: its scroll view then reaches the panel's edge, so the
+                // focus ring's glow is never clipped.
                 PickerGrid(model: model)
-                    .padding(.horizontal, Theme.gridPadding)
                     .overlay {
                         if showsDrop {
                             DropCard()
@@ -275,25 +275,28 @@ struct PanelView: View {
 
     // MARK: Bottom bar
 
-    /// Islands along the bottom, on the panel itself (no bar): your face and ✂ on the left, MemeMe's own; what ↵ does
-    /// and the actions on the right.
+    /// Islands along the bottom, 16 pt from the panel's edges like everything else: your face and ✂ share the left one
+    /// (MemeMe's own), "Copy ↩ · Actions ⌘K" the right one. Their labels never change, so nothing moves as the pointer
+    /// passes over the tiles (what will be copied shows on the tile itself).
     private var bottomBar: some View {
         HStack(spacing: 8) {
-            faceButton
-                .island(highlighted: model.faceSearchOn)
-            Button {
-                model.requestScreenCut()
-            } label: {
-                Image(systemName: "scissors")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(Theme.softTitle)
-                    .frame(width: 32, height: 32)
-                    .contentShape(Rectangle())
+            HStack(spacing: 2) {
+                faceButton
+                Rectangle().fill(Theme.glassFillStrong).frame(width: 1, height: 18)
+                Button {
+                    model.requestScreenCut()
+                } label: {
+                    Image(systemName: "scissors")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(Theme.softTitle)
+                        .frame(width: 36, height: 36)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(IslandButtonStyle())
+                .help("Cut a sticker out of your screen (⌃⌘S)")
+                .accessibilityLabel("Cut a sticker out of your screen")
             }
-            .buttonStyle(IslandButtonStyle())
-            .island()
-            .help("Cut a sticker out of your screen (⌃⌘S)")
-            .accessibilityLabel("Cut a sticker out of your screen")
+            .island(highlighted: model.faceSearchOn)
             Spacer(minLength: 8)
             if model.focusedPick != nil && !model.isCaptureOpen {
                 HStack(spacing: 2) {
@@ -301,19 +304,21 @@ struct PanelView: View {
                         model.perform(.copy)
                     } label: {
                         HStack(spacing: 8) {
-                            Text(verbatim: model.copyLabel)
+                            Text("Copy")
                                 .font(.system(size: 13, weight: .semibold))
                                 .foregroundColor(Theme.text)
+                            Spacer(minLength: 0)
                             Keycap("↩")
                         }
-                        .padding(.leading, 10)
-                        .padding(.trailing, 6)
-                        .frame(height: 32)
+                        .padding(.leading, 12)
+                        .padding(.trailing, 7)
+                        .frame(width: 92, height: 36)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(IslandButtonStyle())
-                    .help("Copy it and go back to the chat. MemeMe never pastes for you.")
-                    Rectangle().fill(Theme.glassFillStrong).frame(width: 1, height: 16)
+                    .help(Text(verbatim: "\(model.copyLabel) and go back to the chat. MemeMe never pastes for you."))
+                    .accessibilityLabel(Text(verbatim: model.copyLabel))
+                    Rectangle().fill(Theme.glassFillStrong).frame(width: 1, height: 18)
                     Button {
                         model.toggleMenu(.actions)
                     } label: {
@@ -321,14 +326,11 @@ struct PanelView: View {
                             Text("Actions")
                                 .font(.system(size: 13, weight: .medium))
                                 .foregroundColor(Theme.softTitle)
-                            HStack(spacing: 3) {
-                                Keycap("⌘")
-                                Keycap("K")
-                            }
+                            Keycap("⌘K")
                         }
-                        .padding(.leading, 10)
-                        .padding(.trailing, 6)
-                        .frame(height: 32)
+                        .padding(.leading, 12)
+                        .padding(.trailing, 7)
+                        .frame(height: 36)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(IslandButtonStyle(selected: model.menu == .actions))
@@ -337,13 +339,14 @@ struct PanelView: View {
                 .island()
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.top, 6)
-        .padding(.bottom, 12)
+        .padding(.horizontal, Theme.gridPadding)
+        .padding(.top, 8)
+        .padding(.bottom, Theme.gridPadding)
         .frame(height: Theme.bottomBarHeight)
     }
 
-    /// Bottom left, MemeMe's own: the camera searches with your face (⌘F); again, it stops.
+    /// Bottom left, MemeMe's own: the camera searches with your face (⌘F); again, it stops. The words stay put; while
+    /// it is on, the camera fills in the signal color and the island takes its tint.
     private var faceButton: some View {
         let on = model.faceSearchOn
         return Button {
@@ -358,17 +361,14 @@ struct PanelView: View {
                         RoundedRectangle(cornerRadius: 7, style: .continuous)
                             .fill(on ? Theme.accent : Theme.glassFillStrong)
                     )
-                Text(verbatim: on ? "Face search on" : "Search with your face")
+                Text("Search with your face")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(on ? Theme.accent : Theme.text)
-                HStack(spacing: 3) {
-                    Keycap("⌘")
-                    Keycap("F")
-                }
+                    .foregroundColor(Theme.text)
+                Keycap("⌘F")
             }
-            .padding(.leading, 4)
-            .padding(.trailing, 6)
-            .frame(height: 32)
+            .padding(.leading, 6)
+            .padding(.trailing, 7)
+            .frame(height: 36)
             .contentShape(Rectangle())
         }
         .buttonStyle(IslandButtonStyle())
@@ -388,8 +388,8 @@ struct PanelView: View {
                     .onTapGesture { model.closeMenu() }
                     .accessibilityHidden(true)
                 MenuPanel(model: model, menu: menu, focus: $focus, menuField: .menu)
-                    .padding(.trailing, 10)
-                    .padding(.top, menu == .sources ? 50 : 0)
+                    .padding(.trailing, Theme.gridPadding)
+                    .padding(.top, menu == .sources ? 52 : 0)
                     .padding(.bottom, menu == .actions ? Theme.bottomBarHeight + 6 : 0)
             }
         }
@@ -744,7 +744,7 @@ struct Keycap: View {
 
 // MARK: - Islands
 
-/// A floating island along the panel's bottom edge: glass of its own over the panel (white 8 %, radius 16, a light
+/// A floating island along the panel's bottom edge: glass of its own over the panel (white 8 %, radius 14, a light
 /// edge); tinted and edged in the signal color while what it holds is on.
 private struct IslandModifier: ViewModifier {
     var highlighted = false
@@ -752,7 +752,7 @@ private struct IslandModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .padding(4)
-            .glass(cornerRadius: 16,
+            .glass(cornerRadius: 14,
                    tint: highlighted ? Theme.islandOnTint : Theme.islandTint,
                    edge: highlighted ? Theme.accent.opacity(0.6) : Theme.glassEdge)
     }
@@ -780,7 +780,7 @@ private struct IslandButtonStyle: ButtonStyle {
         var body: some View {
             configuration.label
                 .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .fill(fill)
                 )
                 .onHover { isHovered = $0 }

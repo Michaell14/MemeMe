@@ -7,16 +7,17 @@ enum Theme {
     static let panelWidth: CGFloat = 760
     static let panelRadius: CGFloat = 16
     static let searchBarHeight: CGFloat = 56
-    static let bottomBarHeight: CGFloat = 62
+    static let bottomBarHeight: CGFloat = 68
     /// The grid's area (and the camera's column beside it): two rows and a peek at the third.
     static let contentHeight: CGFloat = 384
     /// The camera's column, 16 in from the panel's edge.
     static let faceColumnWidth: CGFloat = 212
     static let faceMirrorSize: CGFloat = 168
-    /// The grid's side padding and spacing.
+    /// The panel's one gutter (every edge 16 pt in: the search bar, the grid's title and tiles, the islands) and the
+    /// grid's spacing.
     static let gridPadding: CGFloat = 16
     static let gridSpacing: CGFloat = 12
-    static let gridRowSpacing: CGFloat = 14
+    static let gridRowSpacing: CGFloat = 16
     /// The HUD's drawer still hangs from the notch: its shoulders and bottom corners.
     static let shoulder: CGFloat = 12
     static let panelCornerRadius: CGFloat = 24
