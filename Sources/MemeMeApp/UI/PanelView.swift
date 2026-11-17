@@ -31,6 +31,10 @@ struct PanelView: View {
         .glass(cornerRadius: Theme.panelRadius, blending: .behindWindow, shadow: false)
         .overlay { menuLayer }
         .clipShape(RoundedRectangle(cornerRadius: Theme.panelRadius, style: .continuous))
+        // Pinned to the top: the window follows the content's height a moment later (PanelController), and until then
+        // the hosting view would center content that grew or shrank (the face editor opening or closing), so the
+        // whole panel would jump by half the difference for a frame. The ideal height is still the content's.
+        .frame(maxHeight: .infinity, alignment: .top)
         .onDrop(of: [.fileURL, .image], isTargeted: $isDropTargeted) { providers in
             handleDrop(providers)
         }
