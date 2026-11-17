@@ -3,7 +3,7 @@ import Foundation
 /// User preferences and small bits of app state, persisted as settings.json.
 public struct AppSettings: Codable, Equatable, Sendable {
     public var hotKeyKeyCode: UInt32 = 46               // kVK_ANSI_M
-    public var hotKeyModifiers: UInt32 = 4352           // Carbon controlKey (4096) | cmdKey (256)
+    public var hotKeyModifiers: UInt32 = 2048           // Carbon optionKey (⌥M)
     public var openAtLogin: Bool = true
     public var stickerPolicy: StickerPolicy = .automatic
     public var groupFaces: Bool? = nil                  // nil = not asked yet
@@ -16,6 +16,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var libraryOfferAccepted: Bool = false
     public var baseline: RestingBaseline = RestingBaseline()
     public var skippedUpdateBuild: Int? = nil           // the build whose panel line got "Not now"
+
+    /// The shortcut before ⌥M (⌃⌘M: Carbon controlKey | cmdKey). v1 has no rebinding UI, so a saved ⌃⌘M is the
+    /// old default and moves to the new one.
+    static let legacyHotKeyModifiers: UInt32 = 4352
 
     public init() {}
 
@@ -32,6 +36,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
         let defaults = AppSettings()
         hotKeyKeyCode = container.decodeLenient(UInt32.self, forKey: .hotKeyKeyCode, default: defaults.hotKeyKeyCode)
         hotKeyModifiers = container.decodeLenient(UInt32.self, forKey: .hotKeyModifiers, default: defaults.hotKeyModifiers)
+        if hotKeyKeyCode == defaults.hotKeyKeyCode && hotKeyModifiers == AppSettings.legacyHotKeyModifiers {
+            hotKeyModifiers = defaults.hotKeyModifiers
+        }
         openAtLogin = container.decodeLenient(Bool.self, forKey: .openAtLogin, default: defaults.openAtLogin)
         stickerPolicy = container.decodeLenient(StickerPolicy.self, forKey: .stickerPolicy, default: defaults.stickerPolicy)
         groupFaces = container.decodeLenientIfPresent(Bool.self, forKey: .groupFaces)

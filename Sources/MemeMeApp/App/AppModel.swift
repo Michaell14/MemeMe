@@ -380,7 +380,7 @@ private struct DescribedPhrase {
     private let poseNamer: any PoseNaming
 
     var onRequestClose: (() -> Void)?
-    /// Opens the screen cut (✂ in the panel; ⌃⌘S from anywhere): the app delegate closes the panel and starts it.
+    /// Opens the screen cut (✂ in the panel; ⌥S from anywhere): the app delegate closes the panel and starts it.
     var onRequestScreenCut: (() -> Void)?
 
     /// ✂ in the panel: cut a sticker out of what is on screen.
@@ -1656,7 +1656,7 @@ private struct DescribedPhrase {
 
     // MARK: - Clip me
 
-    /// Clip me (the ✂ island, ⌃⌘S, ⇧Space, the chip under the mirror) clips your reaction while face search reads you.
+    /// Clip me (the ✂ island, ⌥S, ⇧Space, the chip under the mirror) clips your reaction while face search reads you.
     var canClip: Bool {
         faceSearchOn && mode == .live && camera.isRunning && !showSetupCard && faceEdit == nil && !isCutting
     }
@@ -1674,7 +1674,7 @@ private struct DescribedPhrase {
         capture.release(from: input)
     }
 
-    /// A tap (✂, ⌃⌘S): a still.
+    /// A tap (✂, ⌥S): a still.
     func clipTap() {
         guard clipPress(from: .key) else { return }
         capture.release(from: .key)
@@ -3222,7 +3222,7 @@ private struct DescribedPhrase {
         if holdProgress != 0 { holdProgress = 0 }
         if !newResultIDs.isEmpty { newResultIDs = [] }
         if showSetupCard { showSetupCard = false }
-        // Always open on search in All Sources, so ⌃⌘M then ↩ repeats your last pick.
+        // Always open on search in All Sources, so ⌥M then ↩ repeats your last pick.
         if source != .all { source = .all }
         if faceSearchOn { faceSearchOn = false }
         if leanRegion != nil { leanRegion = nil }

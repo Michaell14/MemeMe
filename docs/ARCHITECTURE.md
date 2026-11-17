@@ -778,7 +778,7 @@ public enum HeldFaceReading {
 ```swift
 public struct AppSettings: Codable, Equatable, Sendable {
     public var hotKeyKeyCode: UInt32            // 46 (kVK_ANSI_M)
-    public var hotKeyModifiers: UInt32          // 4352 = Carbon controlKey (4096) | cmdKey (256)
+    public var hotKeyModifiers: UInt32          // 2048 = Carbon optionKey
     public var openAtLogin: Bool                // true
     public var stickerPolicy: StickerPolicy     // .automatic
     public var groupFaces: Bool?                // nil = not asked yet
@@ -1401,7 +1401,7 @@ struct SetupCardView: View { @ObservedObject var model: AppModel }
 struct AnimatedImageView: NSViewRepresentable { init(url: URL); init(image: NSImage) }   // NSImageView with animates = true
 ```
 - `PanelView`: `Theme.panelWidth` wide, its height fitting, on `Theme.panelBackground`, clipped to a radius-16 rounded rect with a 1 px white 10 % edge: the search bar (`Theme.searchBarHeight`: magnifier or the kept face's glyph, the face token, the field at 17 pt, the source button → `model.toggleMenu(.sources)`), a the content (setup card, naming row, then an `HStack` of `FaceColumn` while `model.showsFaceColumn` and `PickerGrid`, `Theme.contentHeight` tall; the face editor and the footer under it), the islands (`Theme.bottomBarHeight`, no bar: the face button and ✂ each on its own island → `model.toggleFaceSearch()`; with a focused pick, `model.copyLabel` + ↩ → `model.perform(.copy)` and Actions ⌘K → `model.toggleMenu(.actions)`). `model.menu` shows a `MenuPanel` over it (sources at the top right, actions above the bottom bar) with a filter field bound to `model.menuQuery`, focused while it is open, and a click-catcher behind it → `model.closeMenu()`.
-- While face search is on, ✂ on the left island is `ClipButton` ("Clip me ⌃⌘S", a `DragGesture(minimumDistance: 0)`: down → `model.clipPress(from: .mouse)`, up → `model.clipRelease(from: .mouse)`; the label shows the seconds while recording, "Cutting…" while cutting). `model.clipNotice` floats `ClipNoticeView` over the islands (thumbnail, "Saved “<name>” to My Stickers", Rename → `model.renameClippedSticker()`, Undo → `model.undoClippedSticker()`, × ; 8 s). `FaceColumn` adds `ClipMirrorButton` on the mirror's edge (the same gesture) and `ClipMirrorOverlay` (the accent recording ring and seconds, the white flash on `capture.flashCount`, the dim and spinner while `model.isCutting`). `PickerTile` marks `model.newStickerID` with an accent "NEW" tag.
+- While face search is on, ✂ on the left island is `ClipButton` ("Clip me ⌥S", a `DragGesture(minimumDistance: 0)`: down → `model.clipPress(from: .mouse)`, up → `model.clipRelease(from: .mouse)`; the label shows the seconds while recording, "Cutting…" while cutting). `model.clipNotice` floats `ClipNoticeView` over the islands (thumbnail, "Saved “<name>” to My Stickers", Rename → `model.renameClippedSticker()`, Undo → `model.undoClippedSticker()`, × ; 8 s). `FaceColumn` adds `ClipMirrorButton` on the mirror's edge (the same gesture) and `ClipMirrorOverlay` (the accent recording ring and seconds, the white flash on `capture.flashCount`, the dim and spinner while `model.isCutting`). `PickerTile` marks `model.newStickerID` with an accent "NEW" tag.
 - Drops on the whole panel: `.onDrop(of: [.fileURL, .image], …)` → `model.search(withImageAt:)`. While a drag is over the panel (`isDropTargeted`, unless `model.isDraggingTile`) a dashed white `DropCard` covers the grid.
 - `PickerGrid`: tiles `floor((width − (columns − 1) × 12) / columns)` square, the width 728 (516 beside the camera's column); rows 14 apart; while `layout.isLoading` placeholder tiles finish the last row and add one; with no picks, `layout.message`. Each tile: `.onHover` → `model.hover(index:)`, tap → `model.commit(index:)`, `.onDrag` → `model.dragItemProvider(index:)`, a context menu (More Like This, Add to / Remove from Favorites, Copy Link, Open on GIPHY / in Browser).
 - `PickerTile`: your things' thumbnails via `ThumbnailCache.shared` (a sticker aspect-fit 8 pt in, else aspect fill), the focused GIF of yours as `AnimatedImageView(url:)`; GIPHY's GIFs and stickers load `web.still(for:)` / `webStickers.still(for:)` and, while focused, the preview; classic memes `model.templates.image(for:)`, aspect fit. Focused: a 2 pt `Theme.accent` ring 3 pt out; hovered: lifted 2 pt.
@@ -1410,7 +1410,7 @@ struct AnimatedImageView: NSViewRepresentable { init(url: URL); init(image: NSIm
 ### UI/ScreenCutController.swift, Stickers/ScreenSubjects.swift
 
 ```swift
-@MainActor final class ScreenCutController { init(model: AppModel); var isOpen: Bool { get }; func start(); func close() }   // ⌃⌘S (AppDelegate) and model.onRequestScreenCut
+@MainActor final class ScreenCutController { init(model: AppModel); var isOpen: Bool { get }; func start(); func close() }   // ⌥S (AppDelegate) and model.onRequestScreenCut
 @MainActor final class ScreenCutModel: ObservableObject   // status, hovered / selection (ScreenPiece), dragBox, name; hover(at:), click(at:adding:removing:), drag(from:to:), endDrag(), save(), copy(), cancel()
 struct ScreenPiece { let rect: CGRect; let cutout: CGImage; let outline: CGImage; let isRectangle: Bool }   // rect normalized, origin top-left
 final class ScreenSubjects: @unchecked Sendable {         // heavy: off the main actor
@@ -1758,7 +1758,7 @@ struct PickerLayout: Equatable {
     var canClip: Bool { get }                        // faceSearchOn, .live, camera running, no setup card, no face editor, not cutting
     func clipPress(from: ShutterInput) -> Bool       // closeMenu(); capture.press(from:)
     func clipRelease(from: ShutterInput)             // capture.release(from:)
-    func clipTap()                                   // press + release (.key): a still (✂ click handled by the gesture, ⌃⌘S)
+    func clipTap()                                   // press + release (.key): a still (✂ click handled by the gesture, ⌥S)
     func renameClippedSticker()                      // NSAlert with a text field → store.update(displayName), saveSoon()
     func undoClippedSticker()                        // friends.removeOwnSticker when isNew; clears notice and newStickerID
     func dismissClipNotice()

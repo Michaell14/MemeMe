@@ -12,7 +12,7 @@ final class AppSettingsTests: XCTestCase {
     func testDefaults() {
         let settings = AppSettings()
         XCTAssertEqual(settings.hotKeyKeyCode, 46)
-        XCTAssertEqual(settings.hotKeyModifiers, 4352)
+        XCTAssertEqual(settings.hotKeyModifiers, 2048)
         XCTAssertTrue(settings.openAtLogin)
         XCTAssertEqual(settings.stickerPolicy, .automatic)
         XCTAssertNil(settings.groupFaces)
@@ -38,10 +38,17 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(settings.groupFaces, true)
         XCTAssertEqual(settings.stickerPolicy, .automatic)
         XCTAssertEqual(settings.hotKeyKeyCode, 46)
-        XCTAssertEqual(settings.hotKeyModifiers, 4352)
+        XCTAssertEqual(settings.hotKeyModifiers, 2048)
         XCTAssertEqual(settings.watchedFolders, ["/Users/me/Downloads"])
         XCTAssertTrue(settings.webDiscoverEnabled)
         XCTAssertEqual(settings.baseline, RestingBaseline())
+    }
+
+    func testSavedControlCommandMMovesToOptionM() throws {
+        let json = #"{"hotKeyKeyCode": 46, "hotKeyModifiers": 4352}"#
+        let settings = try makeDecoder().decode(AppSettings.self, from: Data(json.utf8))
+        XCTAssertEqual(settings.hotKeyKeyCode, 46)
+        XCTAssertEqual(settings.hotKeyModifiers, 2048)
     }
 
     func testRoundTripWithEveryFieldChanged() throws {

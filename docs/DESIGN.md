@@ -1,6 +1,6 @@
 # MemeMe — product & interaction spec (v1)
 
-MemeMe is a macOS 14+ menu-bar app. You press ⌃⌘M in any chat, make a face, and pick a reaction; it is copied and you are back in the chat. The design goal is **as little friction as possible**, and the app must stay **tiny and lightweight**.
+MemeMe is a macOS 14+ menu-bar app. You press ⌥M in any chat, make a face, and pick a reaction; it is copied and you are back in the chat. The design goal is **as little friction as possible**, and the app must stay **tiny and lightweight**.
 
 The search-first redesign's canvas (opening on search, the source menu, the actions, searching with your face, cutting a sticker from the screen) lives at https://claude.ai/artifact/RUDf5tucyRh3mUGqax3CcS (page "v3 · Search first"); the notch drawer it replaced is on its "v2" page and at https://claude.ai/artifact/6XruumvWCYSvhtqqNAoQp5, the face editor's boards at https://claude.ai/artifact/Co3mWPGgV9UZ3L4muq36tS. The panel is a **floating search panel**: a search field with a **source menu** at its right (All Sources, Favorites, On My Mac, My Stickers, GIPHY GIFs, GIPHY Stickers, Classic Memes), a grid of results with their names, and islands along the bottom: **Search with your face** (⌘F) and ✂ on the left, **Copy ↩ · Actions ⌘K** on the right.
 
@@ -65,7 +65,7 @@ The readout's word shows beside the notch (in the query field); under the mirror
 
 ### Recent
 
-On open, the grid shows **Recent in this app** (per frontmost app bundle id), newest first; tile 1 is the last item sent from this app, so ⌃⌘M then ↵ repeats a reaction. If there is no history, your newest; GIPHY's "reaction" results and the most popular classic memes follow, so the first run is never empty. The × on the face token comes back here.
+On open, the grid shows **Recent in this app** (per frontmost app bundle id), newest first; tile 1 is the last item sent from this app, so ⌥M then ↵ repeats a reaction. If there is no history, your newest; GIPHY's "reaction" results and the most popular classic memes follow, so the first run is never empty. The × on the face token comes back here.
 
 ### Favorites
 
@@ -110,13 +110,13 @@ Holding a face is still how a search starts; the editor only refines a face that
 
 ## Clip me (your reaction as a sticker)
 
-- While face search is on (⌘F), ✂ in the left island reads **Clip me ⌃⌘S** and a ✂ button sits on the mirror's edge. Make the reaction you want, then **tap** (a click, ⌃⌘S, or ⇧Space with an empty search field) for a still sticker, or **hold** (the mouse or ⇧Space, longer than 0.35 s) for a moving one: the mirror's ring fills in the signal color with a red dot and the seconds ("1.4 s") on the picture, and the label counts too; recording ends when you let go or after 3 s (up to 12.5 frames a second, 320 px). The picture flashes white when it's taken. Esc drops a clip being recorded. Off, ✂ and ⌃⌘S cut from the screen (below).
+- While face search is on (⌘F), ✂ in the left island reads **Clip me ⌥S** and a ✂ button sits on the mirror's edge. Make the reaction you want, then **tap** (a click, ⌥S, or ⇧Space with an empty search field) for a still sticker, or **hold** (the mouse or ⇧Space, longer than 0.35 s) for a moving one: the mirror's ring fills in the signal color with a red dot and the seconds ("1.4 s") on the picture, and the label counts too; recording ends when you let go or after 3 s (up to 12.5 frames a second, 320 px). The picture flashes white when it's taken. Esc drops a clip being recorded. Off, ✂ and ⌥S cut from the screen (below).
 - **Cutting you out:** the mirror dims with a spinner and the label says "Cutting…"; Apple's subject lifting (`VNGenerateForegroundInstanceMaskRequest`, on this Mac) cuts out everyone in the picture with a white die-cut outline (`ClipSticker`). A moving sticker is cut frame by frame and framed by the box every frame fits in, so it doesn't jitter; it loops at real speed on transparent. The search keeps going; the grid doesn't move.
 - **Saved and copied, no questions:** the sticker is kept in My Stickers ("You — shocked", from the word the camera read; source "Camera") and put on the clipboard like any pick. It drops into the grid first (All Sources, or My Stickers), marked **NEW** in the signal color and selected, and a notice floats over the islands: **Saved “You — shocked” to My Stickers** / "and copied: ⌘V in the chat to send it", with **Rename** (a small sheet), **Undo** (deletes it; the clipboard keeps its copy) and ×. It goes after 8 s or on Esc. The panel stays open. "Couldn’t find you in that one." when no one could be cut out.
 
 ## Cutting a sticker from the screen
 
-- **⌃⌘S** from anywhere (while face search isn't on in the panel: then it's Clip me), or ✂ beside the face button in the panel (which closes first). The first time, macOS asks for Screen Recording; until it is allowed the notch says "Allow MemeMe to record the screen in System Settings › Privacy & Security, then press ⌃⌘S again."
+- **⌥S** from anywhere (while face search isn't on in the panel: then it's Clip me), or ✂ beside the face button in the panel (which closes first). The first time, macOS asks for Screen Recording; until it is allowed the notch says "Allow MemeMe to record the screen in System Settings › Privacy & Security, then press ⌥S again."
 - The screen under the pointer freezes (a screenshot without MemeMe's own windows, at most 2880 px on its longer side) under a 55 % black layer. Apple's subject lifting (`VNGenerateForegroundInstanceMaskRequest`, on this Mac; no model is bundled) splits it into subjects. A black hint hangs from the top: "Finding what’s on your screen…", then "Click what you want as a sticker, or drag a box around it" ("Drag a box around what you want as a sticker" when nothing stands out), with ⇧ click to add · ⌥ click to remove · esc cancel.
 - The subject under the pointer lights up (the screen itself, undimmed, inside a 4 px outline in the signal color). A click takes it, ⇧-click adds another, ⌥-click takes one away, a click on the background lets go. A box dragged around something lifts the subjects inside that box alone; with none, the box itself is taken (as a plain rectangle, without the white outline).
 - A card (260 pt, the panel's surface) sits beside what was taken (right, else left): "New sticker" and "from Safari", the sticker on a checkerboard, **Name** (Vision's best guess, such as "Cat", else "Sticker"; the field has the focus), "Goes to My Stickers. Find it by its name, or by making the same face.", **Save ↩** (filled, signal color) and **Copy ⌘C**.
@@ -142,11 +142,11 @@ Holding a face is still how a search starts; the editor only refines a face that
 
 - Esc: first clears refinements (the face editor, text, more-like-this, image query); second closes.
 - Any click outside the panel closes it (prevents ↵ meant for the panel from reaching the chat).
-- ⌃⌘M toggles.
+- ⌥M toggles.
 
 ## Library that fills itself
 
-- **First-run "You're set" card** (shown after the first pick on first run, replacing the top row): "Copied. Paste it with ⌘V." · "Next time, in any chat: ⌃ ⌘ M · Change" · checkbox "Open at login" (checked) · button "Find memes already on this Mac" with caption "Downloads, Desktop, Screenshots · stays on this Mac". It closes on the next app switch or Esc.
+- **First-run "You're set" card** (shown after the first pick on first run, replacing the top row): "Copied. Paste it with ⌘V." · "Next time, in any chat: ⌥ M · Change" · checkbox "Open at login" (checked) · button "Find memes already on this Mac" with caption "Downloads, Desktop, Screenshots · stays on this Mac". It closes on the next app switch or Esc.
 - If the card was skipped: a [Find my memes] capsule sits under the mirror while you have no memes; the menu has it too. No footer line asks.
 - While indexing: footer "Finding your memes… 212 · newest first". After: one line on the next open "Added 312 from Downloads, Desktop · 1,140 skipped (photos, documents) · Review · Undo".
 - Watched folders: Downloads, Desktop, and the screenshot location (from `com.apple.screencapture` → `location`, default Desktop). New files become searchable in about 2 s. Top level only. Images ≤ 25 MB: PNG, JPEG, GIF, HEIC, WebP, TIFF.
@@ -167,7 +167,7 @@ A white speech bubble with a wink in it on an orange tile (`#FF9A5C` to a deeper
   - Kept memes: "Kept 23 · 4 duplicates merged" + "Undo".
   - The popover closes on outside click or after 8 s without hover.
 - Menu:
-  - Open MemeMe ⌃⌘M
+  - Open MemeMe ⌥M
   - — Collecting from: ✓ Downloads · ✓ Desktop · ✓ Screenshots (each toggles) · Add Folder… · Find Memes on This Mac (when nothing is watched)
   - Pause Collecting for 1 Hour (or Resume Collecting)
   - — Web Discover (GIPHY) ✓ · Set GIPHY API Key…
@@ -201,9 +201,9 @@ GIPHY's results are shown the way GIPHY's rules ask: together, in GIPHY's order,
 
 ## First run
 
-1. App launches (LSUIElement, no Dock icon). On the first launch per install only, the panel opens by itself (later login launches stay quiet until ⌃⌘M), in its usual place under the menu bar, in the prompt state, with [Find my memes] under the mirror, the most popular classic memes and GIPHY's "reaction" results (no GIFs when offline or without a key).
+1. App launches (LSUIElement, no Dock icon). On the first launch per install only, the panel opens by itself (later login launches stay quiet until ⌥M), in its usual place under the menu bar, in the prompt state, with [Find my memes] under the mirror, the most popular classic memes and GIPHY's "reaction" results (no GIFs when offline or without a key).
 2. 0.6 s later the camera permission request (the app is activated for this one prompt so the system alert is in front).
-3. Make any face → results. Pick → the You're set card. ⌃⌘M is registered without any permission (Carbon hot key). If the shortcut can't be registered, the card says "⌃⌘M is taken by another app." (rebinding UI is out of scope for v1).
+3. Make any face → results. Pick → the You're set card. ⌥M is registered without any permission (Carbon hot key). If the shortcut can't be registered, the card says "⌥M is taken by another app." (rebinding UI is out of scope for v1).
 4. Open at login is registered via `SMAppService.mainApp` (checked by default, toggle in card and menu).
 
 ## Updates

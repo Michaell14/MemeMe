@@ -153,7 +153,7 @@ private struct BatchRecord {
         return batch
     }
 
-    /// "Save" in the screen cut (⌃⌘S): the die-cut PNG of what you cut out of the screen, kept as one of your own
+    /// "Save" in the screen cut (⌥S): the die-cut PNG of what you cut out of the screen, kept as one of your own
     /// stickers named `name` (source "Screen"; `sourceApp`, the app it was cut from, as its detail). Its picture is read
     /// like any meme's (a face, labels, a feature print) so face and word searches find it. A sticker made from the
     /// same pixels before is returned instead.

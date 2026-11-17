@@ -182,9 +182,9 @@ struct PanelLinkButtonStyle: ButtonStyle {
     }
 }
 
-/// ⌃ ⌘ M keycaps.
+/// ⌥ M keycaps.
 struct KeycapRow: View {
-    var keys: [String] = ["⌃", "⌘", "M"]
+    var keys: [String] = ["⌥", "M"]
     var color: Color = Theme.mutedText
     var fontSize: CGFloat = 11
     /// Filled caps with brighter text (used on the setup card).
@@ -210,6 +210,6 @@ struct KeycapRow: View {
         }
         .fixedSize()
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Control Command M")
+        .accessibilityLabel("Option M")
     }
 }

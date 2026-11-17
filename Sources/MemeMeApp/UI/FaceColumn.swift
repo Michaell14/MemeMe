@@ -500,7 +500,7 @@ private struct ClipMirrorButton: View {
                         model.clipRelease(from: .mouse)
                     }
             )
-            .help("Clip me: tap for a sticker of your reaction, hold for a moving one (⌃⌘S, ⇧Space)")
+            .help("Clip me: tap for a sticker of your reaction, hold for a moving one (⌥S, ⇧Space)")
             .accessibilityLabel("Clip me")
             .accessibilityAddTraits(.isButton)
             .accessibilityAction { model.clipTap() }
