@@ -19,7 +19,7 @@ enum PanelMenu: Equatable { case sources, actions }
 
 /// What the actions menu (⌘K) can do with the selected result.
 enum PickAction: String, CaseIterable, Equatable {
-    case copy, copyLink, copyMarkdown, toggleFavorite, moreLikeThis, showInFinder, openInBrowser
+    case copy, copyLink, copyMarkdown, toggleFavorite, moreLikeThis, showInFinder, openInBrowser, deleteSticker
 }
 
 /// One row of a menu over the panel.
@@ -867,7 +867,9 @@ private struct DescribedPhrase {
             var keep: [PickAction] = []
             if canSave(pick) { keep.append(.toggleFavorite) }
             keep.append(.moreLikeThis)
-            return [[.copy], keep, [.showInFinder]]
+            var groups: [[PickAction]] = [[.copy], keep, [.showInFinder]]
+            if canDeleteSticker(pick) { groups.append([.deleteSticker]) }
+            return groups
         case .gif, .giphySticker, .template:
             return [[.copy, .copyLink, .copyMarkdown], [.openInBrowser]]
         }
@@ -896,6 +898,7 @@ private struct DescribedPhrase {
         case .moreLikeThis: return "More Like This"
         case .showInFinder: return "Show in Finder"
         case .openInBrowser: return pick.isFromGiphy ? "Open on GIPHY" : "Open in Browser"
+        case .deleteSticker: return "Delete Sticker…"
         }
     }
 
@@ -908,6 +911,7 @@ private struct DescribedPhrase {
         case .moreLikeThis: return "sparkles"
         case .showInFinder: return "folder"
         case .openInBrowser: return "globe"
+        case .deleteSticker: return "trash"
         }
     }
 
@@ -921,6 +925,7 @@ private struct DescribedPhrase {
         case .moreLikeThis: return ["⌘", "M"]
         case .showInFinder: return ["⇧", "⌘", "R"]
         case .openInBrowser: return ["⌘", "O"]
+        case .deleteSticker: return ["⌘", "⌫"]
         }
     }
 
@@ -948,6 +953,8 @@ private struct DescribedPhrase {
             guard let link = AppModel.link(for: pick) else { return }
             onRequestClose?()
             NSWorkspace.shared.open(link)
+        case .deleteSticker:
+            deleteSticker(pick)
         }
     }
 
@@ -1174,6 +1181,45 @@ private struct DescribedPhrase {
     func toggleSaveFocused() {
         guard let pick = focusedPick else { return }
         toggleSaved(pick)
+    }
+
+    // MARK: - Deleting stickers
+
+    /// Stickers in your collection (clipped, cut from the screen, made from photos) can be deleted; GIPHY's can't.
+    func canDeleteSticker(_ pick: Pick) -> Bool {
+        guard case let .meme(item) = pick, item.isSticker, item.kind != .web else { return false }
+        return store.item(id: item.id) != nil
+    }
+
+    /// Delete on a tile's menu (and ⌘⌫ on the focused one): asks first, then removes the sticker and its file.
+    func deleteSticker(_ pick: Pick) {
+        guard canDeleteSticker(pick), case let .meme(item) = pick else { return }
+        let alert = NSAlert()
+        alert.messageText = "Delete “\(item.displayName)”?"
+        alert.informativeText = "It's removed from My Stickers and its file is deleted. This can't be undone."
+        alert.addButton(withTitle: "Delete")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons.first?.hasDestructiveAction = true
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        removeSticker(id: item.id)
+    }
+
+    /// Deletes the sticker without asking (`deleteSticker` asks); the grid drops its tile.
+    func removeSticker(id: UUID) {
+        guard let item = store.item(id: id), item.isSticker, item.kind != .web else { return }
+        friends.deleteSticker(id: id)
+        if clipNotice?.itemID == id { clipNotice = nil }
+        if newStickerID == id { newStickerID = nil }
+        savedIDs = Set(store.recents.saved)
+        refreshFooter()
+        refreshCurrentResults()
+    }
+
+    func deleteFocusedSticker() -> Bool {
+        guard let pick = focusedPick, canDeleteSticker(pick) else { return false }
+        deleteSticker(pick)
+        return true
     }
 
     // MARK: - Face editor

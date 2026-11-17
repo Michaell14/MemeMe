@@ -215,6 +215,17 @@ private struct BatchRecord {
         saveStore()
     }
 
+    /// Delete on a sticker's tile: forgets it and deletes its file; an unnamed person left with no stickers goes too.
+    func deleteSticker(id: UUID) {
+        guard let item = store.item(id: id), item.isSticker else { return }
+        removedStickers[id] = nil
+        store.remove(ids: [id])
+        if let personID = item.personID {
+            detach(embedding: item.faceEmbedding, fromPerson: personID)
+        }
+        saveStore()
+    }
+
     /// Persists consent. When enabled, matches the batch's stickers (and earlier unmatched stickers) and returns the updated batch.
     func setGrouping(_ enabled: Bool, batch: StickerBatch?) -> StickerBatch? {
         var settings = store.settings

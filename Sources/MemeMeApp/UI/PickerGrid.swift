@@ -175,6 +175,12 @@ struct PickerGrid: View {
                             model.perform(.openInBrowser)
                         }
                     }
+                    if model.canDeleteSticker(pick) {
+                        Divider()
+                        Button("Delete Sticker…", role: .destructive) {
+                            model.deleteSticker(pick)
+                        }
+                    }
                 }
                 .accessibilityAction {
                     model.commit(index: slot)

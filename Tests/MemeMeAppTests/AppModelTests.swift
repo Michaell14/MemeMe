@@ -401,6 +401,46 @@ final class AppModelTests: XCTestCase {
     }
 
     @MainActor
+    func testAStickerCanBeDeletedFromTheCollection() throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.remove() }
+        let items = fixtures(in: sandbox)
+        let stickers = try sandbox.directory("Library/Stickers")
+        let fileURL = stickers.appendingPathComponent("sticker-clip.png", isDirectory: false)
+        try Data([0x89, 0x50, 0x4E, 0x47]).write(to: fileURL)
+        let sticker = LibraryItem(
+            fileURL: fileURL,
+            displayName: "Me — shocked",
+            kind: .mine,
+            tier: .meme,
+            source: "Camera",
+            addedAt: AppModelTests.march15,
+            contentHash: "hash-clip",
+            isSticker: true
+        )
+        let model = try makeModel(in: sandbox, items: [items.march, sticker])
+
+        model.panelWillShow(previousApp: nil)
+        defer {
+            model.panelDidHide()
+            model.saveNow()
+        }
+        XCTAssertFalse(model.canDeleteSticker(.meme(items.march)), "only stickers are deleted from the panel")
+        model.selectSource(.myStickers)
+        XCTAssertEqual(model.focusedPick, .meme(sticker))
+        XCTAssertTrue(model.canDeleteSticker(.meme(sticker)))
+        XCTAssertEqual(model.actions.last, [.deleteSticker], "⌘K offers Delete Sticker last")
+        model.toggleSaved(.meme(sticker))
+        XCTAssertTrue(model.isSaved(.meme(sticker)))
+
+        model.removeSticker(id: sticker.id)
+        XCTAssertTrue(model.results.isEmpty, "its tile goes")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path), "and its file")
+        XCTAssertFalse(model.savedIDs.contains(sticker.id), "and it leaves Favorites")
+        XCTAssertFalse(model.canDeleteSticker(.meme(sticker)))
+    }
+
+    @MainActor
     func testEscapeWithNothingToClearCloses() throws {
         let sandbox = try TestSandbox()
         defer { sandbox.remove() }
