@@ -440,8 +440,6 @@ final class AppModelTests: XCTestCase {
 
     @MainActor
     func testEditorNoticesSayWhatAStrokeDid() {
-        XCTAssertEqual(AppModel.notice(for: .circle(.mouth), mood: .happy), "Circled your mouth: it counts most now.")
-        XCTAssertEqual(AppModel.notice(for: .circle(.eyes), mood: .happy), "Circled your eyes: they count most now.")
         XCTAssertEqual(AppModel.notice(for: .scribble(.brows), mood: .happy), "Scribbled out your brows: they’re ignored now.")
         XCTAssertEqual(AppModel.notice(for: .tear, mood: .crying), "Tears drawn. Now searching “crying”.")
     }

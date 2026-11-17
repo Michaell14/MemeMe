@@ -17,13 +17,13 @@ final class StrokeGestureTests: XCTestCase {
         StrokeGesture.read(points, on: sketch, weights: weights)
     }
 
-    func testACircleMakesItsPartCountMost() {
+    func testACircleMeansNothing() {
         let mouth = sketch.ring(.mouth, weight: 1).center
-        XCTAssertEqual(read(loop(around: mouth, width: 80, height: 36)), .circle(.mouth))
+        XCTAssertNil(read(loop(around: mouth, width: 80, height: 36)))
         let brows = sketch.ring(.brows, weight: 1).center
-        XCTAssertEqual(read(loop(around: brows, width: 112, height: 28)), .circle(.brows))
+        XCTAssertNil(read(loop(around: brows, width: 112, height: 28)))
         let eyes = sketch.ring(.eyes, weight: 1).center
-        XCTAssertEqual(read(loop(around: eyes, width: 104, height: 30)), .circle(.eyes))
+        XCTAssertNil(read(loop(around: eyes, width: 104, height: 30)))
     }
 
     func testAScribbleOrALineThroughAPartIgnoresIt() {

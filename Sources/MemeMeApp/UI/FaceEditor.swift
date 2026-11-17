@@ -12,8 +12,7 @@ enum FaceEditorTool: Equatable {
 ///
 /// Left, the face drawn from its seven numbers, the way the search reads it: round dots move a feature, the squares on
 /// the rings set how much a part counts (a ring glows brighter the more its part counts, dashed when it's ignored),
-/// the top dot tilts the head. With the pen a circle makes a part count most, a scribble ignores it, and tears make the
-/// word "crying". Middle, what counts, with − and + per part (the keyboard's and VoiceOver's way to the weights).
+/// the top dot tilts the head. With the pen a scribble ignores a part, and tears make the word "crying". Middle, what counts, with − and + per part (the keyboard's and VoiceOver's way to the weights).
 /// Right, the tools, Reset and Undo. The tiles re-rank as you drag; GIPHY is searched once you let go.
 struct FaceEditorView: View {
     @ObservedObject var model: AppModel
@@ -49,7 +48,7 @@ private struct FaceCanvas: View {
     @State private var dragOnHandle: Bool?
     /// The stroke being drawn with the pen (face space).
     @State private var stroke: [SketchPoint] = []
-    /// A circle or scribble just read, fading out as it turns into the ring's change.
+    /// A scribble just read, fading out as it turns into the ring's change.
     @State private var fading: [SketchPoint] = []
     @State private var fadeOpacity: Double = 0
     @State private var pinchStarted = false
@@ -496,7 +495,7 @@ private struct EditorTools: View {
             ToolPicker(tool: $tool)
             Text(verbatim: tool == .adjust
                 ? "Drag a dot to push a feature further. Drag a square, or pinch on a part, to change how much it counts."
-                : "Circle a part to make it count most, scribble one out to ignore it, or draw what the camera missed.")
+                : "Scribble a part out to ignore it, or draw what the camera missed.")
                 .font(.system(size: 11))
                 .foregroundColor(Theme.mutedText)
                 .lineSpacing(2)

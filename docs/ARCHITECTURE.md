@@ -286,9 +286,9 @@ public struct FaceSketch: Equatable, Sendable {
 
 ```swift
 public enum StrokeGesture: Equatable, Sendable {
-    case circle(FaceRegion), scribble(FaceRegion), tear
+    case scribble(FaceRegion), tear
     /// nil under 2 points or 14 long. Turns: direction changes along x or y (wobbles under 4 ignored), the larger count.
-    /// circle: gap < 0.4 × diagonal, length > 1.6 × diagonal, turns < 4; scribble: turns ≥ 3, or 2.5 × wider than tall within 34 of a part;
+    /// a loop (gap < 0.4 × diagonal, length > 1.6 × diagonal, turns < 4) → nil; scribble: turns ≥ 3, or 2.5 × wider than tall within 34 of a part;
     /// tear: 1.3 × taller than wide, drawn down, starting between 4 above an eye's top and 36 below its center, within 28 of its column.
     /// The part: the ring center nearest the stroke's box center (vertical × 1.6).
     public static func read(_ points: [SketchPoint], on sketch: FaceSketch, weights: [FaceRegion: Double]) -> StrokeGesture?
@@ -318,7 +318,7 @@ public struct FaceEditSession: Equatable, Sendable {
     public mutating func pinch(by magnification: Double)   // a held ring: start + round(log2(magnification) × 5)
     public mutating func endDrag()                          // remembers the start for undo when something changed
     public mutating func step(_ region: FaceRegion, by delta: Int)
-    public mutating func apply(_ gesture: StrokeGesture, stroke: [SketchPoint])   // circle → 5, scribble → 0, tear → kept
+    public mutating func apply(_ gesture: StrokeGesture, stroke: [SketchPoint])   // scribble → 0, tear → kept
     public mutating func undo() -> Bool
     public mutating func reset()                            // to the caught face; undoable
 }

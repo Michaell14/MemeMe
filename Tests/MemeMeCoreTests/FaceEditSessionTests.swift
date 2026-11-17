@@ -154,8 +154,6 @@ final class FaceEditSessionTests: XCTestCase {
         var session = try makeSession(TestFaces.smile)
         XCTAssertNotEqual(session.mood(baseline: baseline), .crying)
 
-        session.apply(.circle(.eyes), stroke: [])
-        XCTAssertEqual(session.weight(.eyes), 5)
         session.apply(.scribble(.mouth), stroke: [])
         XCTAssertEqual(session.weight(.mouth), 0)
 

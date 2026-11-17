@@ -89,8 +89,8 @@ private enum HintCopy {
     static let backToFaceAction = "Back to your face"
     /// Under the mirror while the face editor is open: the tiles follow your edit, not the camera.
     static let editingTitle = "Searching your edit"
-    /// A pen stroke that is none of the three.
-    static let strokeNotRead = "Circle a part, scribble one out, or draw a tear."
+    /// A pen stroke that is neither.
+    static let strokeNotRead = "Scribble a part out, or draw a tear."
     static let cameraOffTitle = "No camera"
     static let cameraOffSubtitle = "Drop, paste or type instead."
     static let cameraOffAction = "Turn on camera"
@@ -1312,8 +1312,6 @@ private struct DescribedPhrase {
     /// What a pen stroke did, in the editor.
     nonisolated static func notice(for gesture: StrokeGesture, mood: Mood) -> String {
         switch gesture {
-        case let .circle(region):
-            return "Circled your \(region.rawValue): " + (region == .mouth ? "it counts most now." : "they count most now.")
         case let .scribble(region):
             return "Scribbled out your \(region.rawValue): " + (region == .mouth ? "it’s ignored now." : "they’re ignored now.")
         case .tear:
