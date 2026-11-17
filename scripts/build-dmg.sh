@@ -5,7 +5,7 @@
 # build/.dmgbuild-venv and needs Python 3.10 or later. Without one, the DMG holds the same two items
 # in Finder's default window.
 #
-# The image is compressed (UDZO), verified, signed on Developer ID builds, then mounted and checked
+# The image is compressed (ULMO, LZMA), verified, signed on Developer ID builds, then mounted and checked
 # the way users and the in-app updater see it: the app's signature verifies and the Applications
 # link is there. Notarizing is a separate step (scripts/notarize.sh) that runs after this one.
 #
@@ -94,8 +94,8 @@ create_image() {
     rm -rf "$staging" && mkdir -p "$staging" \
       && ditto "$APP" "$staging/$PRODUCT.app" \
       && ln -s /Applications "$staging/Applications" \
-      && hdiutil create -volname "$PRODUCT" -srcfolder "$staging" -fs HFS+ -format UDZO \
-        -imagekey zlib-level=9 -ov "$DMG"
+      && hdiutil create -volname "$PRODUCT" -srcfolder "$staging" -fs HFS+ -format ULMO \
+        -ov "$DMG"
   fi
 }
 

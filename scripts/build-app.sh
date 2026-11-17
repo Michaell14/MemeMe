@@ -111,6 +111,11 @@ log "Assembling $APP"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BINARY" "$APP/Contents/MacOS/$PRODUCT"
+# Strip the copy's debug and local symbols (the build's own binary keeps them for debugging). The app never
+# looks itself up by symbol name, and release builds ship no dSYM, so this only makes the download smaller.
+UNSTRIPPED_SIZE="$(stat -f%z "$APP/Contents/MacOS/$PRODUCT")"
+strip -S -x "$APP/Contents/MacOS/$PRODUCT"
+log "Binary: $UNSTRIPPED_SIZE bytes, $(stat -f%z "$APP/Contents/MacOS/$PRODUCT") stripped"
 cp "$PLIST_SOURCE" "$PLIST"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 # The app icon (Info.plist CFBundleIconFile = AppIcon); its sources are in Resources/AppIcon.

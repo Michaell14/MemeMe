@@ -9,8 +9,8 @@ import os.path
 app = defines["app"]
 app_name = os.path.basename(app.rstrip("/"))
 
-format = "UDZO"
-compression_level = 9
+# LZMA (ULMO): the smallest download; macOS 10.15 and later open it, and MemeMe needs 14.
+format = "ULMO"
 filesystem = "HFS+"
 
 files = [app]
