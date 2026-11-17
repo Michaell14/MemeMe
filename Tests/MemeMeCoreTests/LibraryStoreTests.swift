@@ -362,6 +362,29 @@ final class LibraryStoreTests: XCTestCase {
         XCTAssertEqual(try LibraryStore(rootURL: root).items, [item])
     }
 
+    func testAFailedBackgroundWriteIsNotMissedByTheNextSave() throws {
+        let store = try LibraryStore(rootURL: root)
+        let item = makeItem(name: "a")
+        store.add(item)
+        try store.save()
+        let next = makeItem(name: "b")
+        store.add(next)
+
+        // The folder can't be written: the background write fails. Quit's save() runs before the failure's report
+        // reaches the main queue, so it must find the failure itself and fail too, not report success.
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: root.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: root.path) }
+        store.saveInBackground()
+        XCTAssertThrowsError(try store.save())
+        XCTAssertTrue(store.isDirty)
+
+        // Writable again: the next save writes what the failed one couldn't.
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: root.path)
+        try store.save()
+        XCTAssertFalse(store.isDirty)
+        XCTAssertEqual(try LibraryStore(rootURL: root).items, [item, next])
+    }
+
     func testDirectoriesAreCreatedOnAccess() throws {
         let store = try LibraryStore(rootURL: root)
         let kept = store.keptDirectory

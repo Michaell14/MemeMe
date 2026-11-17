@@ -20,6 +20,9 @@ public final class LibraryStore {
     }
 
     private var changes: Changes = []
+    /// Files a background write failed to write and no later write has covered yet. Read and written only on
+    /// `writes`, so `save()` sees a failure even when its report hasn't reached the main queue yet (quit).
+    private var unwrittenChanges: Changes = []
 
     /// Setting marks the store dirty.
     public var recents: RecentStore {
@@ -287,12 +290,17 @@ public final class LibraryStore {
     }
 
     /// Atomic JSON writes (sorted keys, ISO-8601 dates) of the files that changed; clears isDirty. Waits for
-    /// earlier background saves first, so the files are always written in order (and nothing is lost on quit).
-    /// On failure the unwritten files stay marked as changed.
+    /// earlier background saves first, so the files are always written in order, and writes again (with their
+    /// current values) any files one of them failed to write, so nothing is lost on quit. On failure it throws and
+    /// the unwritten files stay marked as changed.
     public func save() throws {
+        changes.formUnion(LibraryStore.writes.sync { unwrittenChanges })
         let snapshot = takeSnapshot()
         do {
-            try LibraryStore.writes.sync { try snapshot.write() }
+            try LibraryStore.writes.sync {
+                try snapshot.write()
+                unwrittenChanges.subtract(snapshot.changes)
+            }
         } catch {
             changes.formUnion(snapshot.changes)
             throw error
@@ -308,7 +316,11 @@ public final class LibraryStore {
         LibraryStore.writes.async { [weak self] in
             do {
                 try snapshot.write()
+                self?.unwrittenChanges.subtract(snapshot.changes)
             } catch {
+                // Kept on this queue for a save() already waiting here, and marked again on the main queue for
+                // the next save.
+                self?.unwrittenChanges.formUnion(snapshot.changes)
                 DispatchQueue.main.async {
                     self?.changes.formUnion(snapshot.changes)
                     onFailure(error)
