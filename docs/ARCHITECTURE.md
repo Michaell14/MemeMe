@@ -1573,7 +1573,7 @@ struct UpdateInstaller {
 
 ### App/StatusItemController.swift (updates)
 
-- Observes `model.updates.$available`: the icon (a viewfinder around a winking face, drawn by `statusImage(badged:)`) has a small dot in place of its top-right bracket when an update is available (one template image, so it follows the menu bar's color).
+- Observes `model.updates.$available`: the icon (a speech bubble with a wink in it, drawn by `statusImage(badged:)`) has a small dot on the bubble's top-right corner, with a cleared ring around it, when an update is available (one template image, so it follows the menu bar's color).
 - Menu: with an update, the first item is "Update to MemeMe <displayVersion>…" (→ `model.installUpdate()`), or "Updating MemeMe…" disabled while `phase` is `.downloading`/`.installing`, then a separator. When `model.updates.isEnabled`, a section before Quit: "Check for Updates…" (→ `model.updates.checkFromMenu()`) and a disabled "Version <installedDisplayVersion>".
 
 ### App/CaptureModel.swift

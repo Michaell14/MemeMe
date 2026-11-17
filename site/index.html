@@ -1,1094 +1,1130 @@
 <title>MemeMe</title>
 <meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="A small menu-bar app for Mac that finds the right reaction image. Press ⌃⌘M in any chat, type a word or make a face, and press Return.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&display=swap">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&text=OMGICAN%E2%80%99TSRYLDUFE%20&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400..700&display=swap">
 <style>
-/* "Laptop lid": the promise on the left; on the right a lilac MacBook lid covered in stickers.
-   The face stickers are the face picker, and the big sticker is MemeMe's panel, working. */
-:root {
-  color-scheme: light;
-  --bg: #EDF1F7;
-  --ink: #161B2E;
-  --ink-2: #2A3150;
-  --ink-3: #3C4257;
-  --ink-4: #4A5270;
-  --white: #FFFFFF;
-  --link: #4330C9;
-  --link-hi: #2E1F99;
-  --dl-sub: #C9CFE6;
-  --dash: #CDD3E1;
-  --kbd-line: #C3C9DA;
+/* MemeMe: a light page that talks like a chat, with the app working inside a laptop.
+   The demo matches the app: frosted glass on Notch Black. */
+:root{
+  --ground:#000; --raised:#1C1C1E; --raised2:#2C2C2E; --line:#3A3A3C;
+  --text:#F5F5F7; --text2:#8E8E93; --soft:#AEAEB2; --signal:#FF9A5C; --signal-deep:#EE6530;
+  --sf:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Inter",system-ui,sans-serif;
+  --meme:"Anton",Impact,"Arial Narrow Bold",sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  color-scheme:light;
+}
+*,*::before,*::after{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:#000;color:var(--text);font-family:var(--sf);-webkit-font-smoothing:antialiased;overflow-x:hidden}
+button{font:inherit;color:inherit;cursor:pointer}
+a{color:inherit}
+:focus-visible{outline:2px solid var(--signal);outline-offset:3px;border-radius:6px}
+.wrap{width:100%;max-width:1240px;margin-inline:auto;padding-left:max(20px,env(safe-area-inset-left,0px));padding-right:max(20px,env(safe-area-inset-right,0px))}
+.kc{display:inline-grid;place-items:center;min-width:1.7em;height:1.7em;padding:0 .4em;border-radius:.38em;font:600 .8em/1 var(--sf);background:rgba(255,255,255,.1);box-shadow:inset 0 0 0 1px rgba(255,255,255,.16),0 1px 0 rgba(0,0,0,.4);vertical-align:.08em}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important;scroll-behavior:auto!important}}
 
-  /* The lid (lilac). The step numbers in Install pick it up too. */
-  --lid-top: #CBC3F3;
-  --lid-edge: #A99EDD;
-  --lid-shadow: rgba(52, 40, 120, .22);
-  --lid-gloss: rgba(255, 255, 255, .55);
-  --lid-peel: rgba(255, 255, 255, .28);
+/* =========================================================
+   LAPTOP + DESKTOP + MEMEME PANEL (shared demo)
+   ========================================================= */
+.lap{container-type:inline-size;position:relative;width:100%;max-width:1180px;margin-inline:auto;transform:scale(var(--lap-scale,1));transform-origin:50% 100%;--lid:#0E0E10;--lid-edge:#2E2E33;--base1:#3A3A3F;--base2:#1D1D21;--base-hi:rgba(255,255,255,.18);--lid-back:linear-gradient(160deg,#3a3a40,#1d1d21)}
+.lap[data-finish="silver"]{--lid:#0E0E10;--lid-edge:#C9CBD1;--base1:#E3E4E8;--base2:#A9ABB2;--base-hi:rgba(255,255,255,.9);--lid-back:linear-gradient(160deg,#E6E7EB,#B5B7BE)}
+.lap-hinge{perspective:2600px;perspective-origin:50% -40%}
+.lap-lid{position:relative;width:84%;margin-inline:auto;transform-origin:50% 100%;transform-style:preserve-3d;transform:rotateX(var(--lid-angle,0deg));will-change:transform}
+.lap-face{position:relative;background:var(--lid);border-radius:2.6cqw 2.6cqw .9cqw .9cqw;padding:1.15cqw 1.15cqw 1.9cqw;box-shadow:inset 0 0 0 .14cqw var(--lid-edge),inset 0 0 0 .36cqw #000;backface-visibility:hidden}
+.lap-back{position:absolute;inset:0;border-radius:2.6cqw 2.6cqw .9cqw .9cqw;background:var(--lid-back);transform:rotateY(180deg);backface-visibility:hidden;display:grid;place-items:center}
+.lap-back::after{content:"";width:6cqw;height:6cqw;border-radius:1.4cqw;background:rgba(255,255,255,.08);box-shadow:inset 0 0 0 1px rgba(255,255,255,.12)}
+.lap-screen{position:relative;aspect-ratio:16/10;overflow:hidden;border-radius:.55cqw;background:#000}
+.lap-screen::after{content:"";position:absolute;inset:0;background:#000;opacity:var(--off,0);pointer-events:none;z-index:50}
+.lap-cam{position:absolute;left:50%;top:.42cqw;width:.42cqw;height:.42cqw;margin-left:-.21cqw;border-radius:50%;background:#1a1d24;box-shadow:inset 0 0 0 .08cqw #2b3040;z-index:3}
+.lap-base{position:relative;height:1.9cqw;width:100%;background:linear-gradient(180deg,var(--base-hi) 0,var(--base1) 8%,var(--base2) 100%);border-radius:.3cqw .3cqw 2.4cqw 2.4cqw/.3cqw .3cqw 1.5cqw 1.5cqw;box-shadow:0 2.4cqw 3.4cqw -1.6cqw rgba(0,0,0,.55)}
+.lap-base::before{content:"";position:absolute;left:43%;width:14%;top:0;height:45%;border-radius:0 0 1cqw 1cqw;background:linear-gradient(180deg,rgba(0,0,0,.28),rgba(0,0,0,.05))}
+.lap-glow{position:absolute;left:8%;right:8%;bottom:-6%;height:40%;background:radial-gradient(50% 60% at 50% 40%,var(--glow,rgba(255,154,92,.22)),transparent 70%);filter:blur(20px);z-index:-1;pointer-events:none}
 
-  /* Stickers */
-  --logo-chip: #FF9A5C;
-  --key: #FFD95A;
-  --key-edge: #D2A526;
-  --mb-bg: #ECEEF4;
-  --mb-ink: #1D1D1F;
-  --mb-hi: rgba(0, 0, 0, .14);
-  --art-ink: #1D1B20;
-  --tear: #7CC4F5;
-  --skin-1: #E8A85C;
-  --skin-2: #F2C9A0;
-  --skin-3: #A86B45;
-  --skin-4: #C68B5E;
-  --skin-5: #B88A5A;
-  --skin-6: #F5C451;
-  --hair-1: #C98A4B;
-  --hair-2: #2A1A12;
-  --hair-3: #D9B26A;
+/* the desktop is laid out at 1440 x 900 points and scaled to the screen */
+.desk{position:absolute;left:0;top:0;width:1440px;height:900px;transform-origin:0 0;transform:scale(var(--s,.5));font-family:var(--sf);color:var(--text);overflow:hidden;user-select:none;-webkit-user-select:none}
+.wall{position:absolute;inset:-10%;background:#0B0B12}
+.wall i{position:absolute;border-radius:50%;filter:blur(90px);opacity:.95;animation:drift 26s ease-in-out infinite alternate}
+.wall i:nth-child(1){width:900px;height:700px;left:-6%;top:28%;background:#E8622E}
+.wall i:nth-child(2){width:800px;height:700px;left:44%;top:-18%;background:#7A2E7A;animation-delay:-8s}
+.wall i:nth-child(3){width:760px;height:620px;left:60%;top:46%;background:#FF9A5C;animation-delay:-14s}
+.wall i:nth-child(4){width:700px;height:600px;left:14%;top:-20%;background:#1F2A6B;animation-delay:-4s}
+.lap[data-finish="silver"] .wall{background:#F2D7C4}
+.lap[data-finish="silver"] .wall i:nth-child(1){background:#FF8A4C}
+.lap[data-finish="silver"] .wall i:nth-child(2){background:#C9A3F0}
+.lap[data-finish="silver"] .wall i:nth-child(3){background:#FFC58A}
+.lap[data-finish="silver"] .wall i:nth-child(4){background:#7FA6F5}
+@keyframes drift{to{transform:translate(80px,-60px) scale(1.12)}}
 
-  --sh-chip: rgba(30, 40, 80, .16);
-  --sh-pill: rgba(30, 40, 80, .12);
-  --sh-dl: rgba(22, 27, 46, .22);
-  --sh-num: rgba(22, 27, 46, .2);
-  --sh-card-1: rgba(22, 27, 46, .06);
-  --sh-card-2: rgba(40, 50, 90, .1);
+.menubar{position:absolute;left:0;right:0;top:0;height:34px;display:flex;align-items:center;justify-content:space-between;padding:0 18px;background:rgba(0,0,0,.24);backdrop-filter:blur(30px);-webkit-backdrop-filter:blur(30px);font-size:14px;color:#fff;z-index:20}
+.menubar .l,.menubar .r{display:flex;align-items:center;gap:22px}
+.menubar .l b{font-weight:700}
+.menubar .l span{opacity:.92}
+.menubar .r svg{display:block}
+.mb-icon{display:grid;place-items:center;width:30px;height:24px;border-radius:6px;border:0;background:transparent;padding:0;position:relative}
+.mb-icon:hover,.mb-icon[aria-expanded="true"]{background:rgba(255,255,255,.2)}
+.mb-icon .ping{position:absolute;inset:-6px;border-radius:9px;box-shadow:0 0 0 2px var(--signal);opacity:0;animation:ping 2.4s ease-out infinite}
+.desk[data-state="idle"] .mb-icon .ping{opacity:1}
+@keyframes ping{0%{transform:scale(.7);opacity:.9}70%,100%{transform:scale(1.25);opacity:0}}
+.d-notch{position:absolute;left:50%;top:0;width:200px;height:34px;margin-left:-100px;background:#000;border-radius:0 0 12px 12px;z-index:40}
 
-  /* MemeMe's panel is always dark (the app's Theme). */
-  --p-bg: #1E1F24;
-  --p-surface: #26282E;
-  --p-border: #3A3C44;
-  --p-sep: #2E3037;
-  --p-chip: #45474F;
-  --p-text: #ECECEF;
-  --p-soft: #C9CCD4;
-  --p-muted: #A9ACB5;
-  --p-place: #9A9DA6;
-  --p-accent: #7AA2FF;
-  --p-accent-ink: #0E1324;
-  --p-amber: #F5C451;
-  --p-amber-soft: rgba(245, 196, 81, .28);
-  --p-amber-glow: rgba(245, 196, 81, .35);
-  --p-mirror: #0E0F12;
-  --p-badge: rgba(14, 15, 18, .72);
-  --p-badge-ink: #FFFFFF;
-  --p-pin-hover: rgba(255, 255, 255, .55);
-  --p-dot-ring: rgba(14, 15, 18, .5);
-  --p-check-a: #2C2E34;
-  --p-check-b: #222328;
-  --p-tile-shadow: rgba(0, 0, 0, .45);
-  --p-hud: rgba(30, 31, 36, .97);
-  --p-hud-shadow: rgba(0, 0, 0, .5);
+/* chat window */
+.chat{position:absolute;left:150px;top:66px;width:1140px;height:790px;border-radius:14px;overflow:hidden;display:flex;background:rgba(28,28,30,.9);box-shadow:0 0 0 1px rgba(255,255,255,.12),0 40px 90px rgba(0,0,0,.5)}
+.lap[data-finish="silver"] .chat{background:rgba(30,30,33,.92)}
+.chat-side{width:300px;background:rgba(255,255,255,.035);border-right:1px solid rgba(255,255,255,.08);padding:16px 10px}
+.lights{display:flex;gap:8px;padding:2px 8px 22px}
+.lights i{width:13px;height:13px;border-radius:50%;background:#FF5F57}
+.lights i:nth-child(2){background:#FEBC2E}.lights i:nth-child(3){background:#28C840}
+.convo{display:flex;gap:11px;align-items:center;padding:10px;border-radius:10px;font-size:14px}
+.convo.on{background:rgba(255,255,255,.1)}
+.convo p{margin:2px 0 0;color:var(--text2);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:190px}
+.av{flex:none;display:grid;place-items:center;width:40px;height:40px;border-radius:50%;font:600 15px/1 var(--sf);color:#fff;background:linear-gradient(160deg,#9AA0AE,#5E6472)}
+.av.g{background:linear-gradient(160deg,#FFB27A,#E2602A)}
+.av.p{background:linear-gradient(160deg,#B7A4F5,#6F55D8)}
+.av.t{background:linear-gradient(160deg,#7FD6C4,#2E9C88)}
+.chat-main{flex:1;display:flex;flex-direction:column;min-width:0}
+.chat-head{height:64px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-bottom:1px solid rgba(255,255,255,.08);font-size:13px;color:var(--text2)}
+.chat-head b{color:var(--text);font-size:14px;font-weight:600}
+.msgs{flex:1;display:flex;flex-direction:column;justify-content:flex-end;gap:6px;padding:20px 28px;overflow:hidden}
+.m{max-width:62%;padding:10px 15px;border-radius:20px;font-size:16px;line-height:1.35;align-self:flex-start;background:#3A3A3C;color:#fff}
+.m.me{align-self:flex-end;background:#0A84FF}
+.m small{display:block;font-size:12px;color:var(--text2);margin:0 0 3px 4px}
+.m-who{align-self:flex-start;font-size:12px;color:var(--text2);margin:8px 0 -2px 14px}
+.m.pic{padding:0;background:none;width:230px;height:230px;border-radius:18px;overflow:hidden;position:relative;box-shadow:0 0 0 1px rgba(255,255,255,.1);animation:pop .45s cubic-bezier(.2,1.4,.4,1)}
+.m.typing{display:flex;gap:5px;padding:14px 16px}
+.m.typing i{width:8px;height:8px;border-radius:50%;background:#9a9aa0;animation:dots 1.2s infinite}
+.m.typing i:nth-child(2){animation-delay:.15s}.m.typing i:nth-child(3){animation-delay:.3s}
+@keyframes dots{0%,60%,100%{opacity:.35;transform:none}30%{opacity:1;transform:translateY(-3px)}}
+@keyframes pop{from{transform:scale(.6);opacity:0}to{transform:none;opacity:1}}
+.compose{margin:6px 22px 22px;height:44px;border-radius:22px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.16);display:flex;align-items:center;padding:0 18px;color:var(--text2);font-size:15px;gap:2px}
+.compose .caret{width:2px;height:20px;background:#0A84FF;animation:blink 1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
 
-  --font: "Bricolage Grotesque", "Avenir Next", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
-  --mac: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
-  --ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --sym: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Symbol", "Segoe UI", "DejaVu Sans", sans-serif;
-}
+/* HUD from the notch */
+.hud{position:absolute;left:50%;top:0;z-index:39;transform:translate(-50%,-100%);transition:transform .38s cubic-bezier(.2,1,.3,1);background:#000;border-radius:0 0 24px 24px;padding:44px 26px 16px;min-width:320px;display:flex;align-items:center;gap:12px;font-size:15px;color:#fff}
+.hud::before,.hud::after{content:"";position:absolute;top:0;width:12px;height:12px;background:radial-gradient(circle at 0 100%,transparent 11.5px,#000 12px)}
+.hud::before{left:-12px}.hud::after{right:-12px;transform:scaleX(-1)}
+.hud.on{transform:translate(-50%,0)}
+.hud .ok{display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--signal);color:#000}
+.hud .sub{color:var(--text2);margin-left:auto;display:flex;gap:4px;align-items:center;font-size:13px}
 
-*, *::before, *::after { box-sizing: border-box; }
-[hidden] { display: none !important; }
-body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--ink);
-  font-family: var(--font);
-  -webkit-font-smoothing: antialiased;
-  overflow-x: clip;
-}
-a { color: var(--link); }
-a:hover { color: var(--link-hi); }
-a:focus-visible, button:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
-button { font: inherit; color: inherit; }
-svg { display: block; }
-.sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+/* ---------- the panel ---------- */
+.mm{position:absolute;left:340px;top:150px;width:760px;border-radius:16px;z-index:30;color:var(--text);
+  background:rgba(30,30,34,.62);backdrop-filter:blur(36px) saturate(1.7);-webkit-backdrop-filter:blur(36px) saturate(1.7);
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.14),inset 0 1px 0 rgba(255,255,255,.22),0 30px 80px rgba(0,0,0,.45),0 8px 24px rgba(0,0,0,.25);
+  transform-origin:50% 0;transition:opacity .18s ease,transform .26s cubic-bezier(.2,1,.3,1)}
+.mm[hidden]{display:block!important;opacity:0;transform:translateY(-10px) scale(.97);pointer-events:none;visibility:hidden;transition:opacity .14s,transform .14s,visibility 0s .14s}
+.mm-search{height:56px;display:flex;align-items:center;gap:10px;padding:0 12px 0 16px}
+.mm-search>svg{flex:none;color:var(--text2)}
+.mm-input{flex:1;min-width:0;height:40px;border:0;background:transparent;color:var(--text);font:400 19px/1 var(--sf);outline:none;caret-color:var(--signal)}
+.mm-input::placeholder{color:var(--text2)}
+.token{flex:none;display:flex;align-items:center;gap:6px;height:30px;padding:0 6px 0 9px;border-radius:999px;background:rgba(255,255,255,.12);box-shadow:inset 0 0 0 1px rgba(255,255,255,.14);font:600 14px/1 var(--sf);animation:pop .3s cubic-bezier(.2,1.4,.4,1)}
+.token svg{color:var(--signal)}
+.token button{border:0;background:transparent;color:var(--text2);width:20px;height:20px;border-radius:50%;display:grid;place-items:center;padding:0}
+.token button:hover{background:rgba(255,255,255,.12);color:var(--text)}
+.srcbtn{flex:none;display:flex;align-items:center;gap:7px;height:34px;padding:0 10px;border:0;border-radius:9px;background:rgba(255,255,255,.08);box-shadow:inset 0 0 0 1px rgba(255,255,255,.14);font:500 14px/1 var(--sf);color:var(--text)}
+.srcbtn:hover,.srcbtn[aria-expanded="true"]{background:rgba(255,255,255,.14)}
+.srcbtn svg{color:var(--text2)}
+.mm-body{display:flex;height:430px;position:relative}
+.camcol{flex:none;width:0;overflow:hidden;transition:width .3s cubic-bezier(.2,1,.3,1)}
+.mm.face .camcol{width:228px}
+.camcol-in{width:228px;padding:4px 0 0 16px;display:flex;flex-direction:column;align-items:center;text-align:center}
+.mirror{position:relative;width:180px;height:180px}
+.mirror .disc{position:absolute;inset:6px;border-radius:50%;background:radial-gradient(circle at 50% 35%,#2A2A2F,#141416);box-shadow:inset 0 0 0 1px rgba(255,255,255,.1);overflow:hidden}
+.mirror svg.sk{position:absolute;inset:6px;width:168px;height:168px}
+.mirror svg.ring{position:absolute;inset:0;width:180px;height:180px;transform:rotate(-90deg)}
+.ring circle{fill:none;stroke-width:3.5}
+.ring .track{stroke:rgba(255,255,255,.08)}
+.ring .fill{stroke:var(--signal);stroke-linecap:round;stroke-dasharray:553;stroke-dashoffset:553}
+.cam-word{margin-top:12px;font:600 17px/1.2 var(--sf);min-height:21px}
+.cam-from{font-size:13px;color:var(--text2);margin-top:3px;min-height:16px}
+.cues{width:100%;margin-top:14px;display:grid;gap:7px;padding-right:2px}
+.cue{display:flex;align-items:center;justify-content:space-between;font-size:13px;color:var(--soft);border:0;background:transparent;padding:5px 8px;border-radius:8px}
+.cue:hover{background:rgba(255,255,255,.06)}
+.meter{display:flex;gap:3px}
+.meter i{width:16px;height:6px;border-radius:3px;background:rgba(255,255,255,.12);transition:background .2s}
+.meter i.on{background:#F5F5F7}
+.gridwrap{flex:1;min-width:0;overflow-y:auto;overflow-x:hidden;padding:0 16px 70px;scrollbar-width:none;-webkit-mask-image:linear-gradient(#000 calc(100% - 84px),transparent calc(100% - 50px))}
+.gridwrap::-webkit-scrollbar{display:none}
+.gtitle{height:26px;display:flex;align-items:center;justify-content:space-between;font:600 13px/1 var(--sf);color:var(--text2);margin-bottom:8px;padding-top:4px}
+.gtitle em{font-style:normal;color:var(--soft)}
+.gtitle .credit{font:500 11px/1 var(--sf);letter-spacing:.04em;color:var(--text2);opacity:.8}
+.grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:16px 12px;padding:4px 0}
+.mm.face .grid{grid-template-columns:repeat(4,minmax(0,1fr))}
+.tile{border:0;background:transparent;padding:0;text-align:left;display:flex;flex-direction:column;gap:8px;min-width:0;animation:tileIn .3s both cubic-bezier(.2,1,.3,1);animation-delay:calc(var(--i,0)*18ms)}
+@keyframes tileIn{from{opacity:0;transform:translateY(6px)}}
+.tile .sq{position:relative;aspect-ratio:1;border-radius:14px;overflow:hidden;background:rgba(255,255,255,.06);box-shadow:inset 0 0 0 1px rgba(255,255,255,.12);transition:transform .16s,box-shadow .16s}
+.tile:hover .sq{transform:translateY(-2px);box-shadow:inset 0 0 0 1px rgba(255,255,255,.32),0 10px 12px rgba(0,0,0,.3)}
+.tile.sel .sq{box-shadow:0 0 0 2px rgba(255,255,255,.95),0 0 0 6px rgba(255,255,255,.12)}
+.tile .nm{display:flex;align-items:center;gap:6px;font:500 13px/1.2 var(--sf);color:var(--soft);padding:0 2px;min-width:0}
+.tile .nm span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tile.sel .nm{color:#fff;font-weight:600}
+.badge{flex:none;display:grid;place-items:center;width:16px;height:16px;border-radius:4px;background:rgba(0,0,0,.55);box-shadow:inset 0 0 0 1px rgba(255,255,255,.14);color:#D1D1D6}
+.badge.g{font:800 9px/1 var(--sf);color:#fff;background:#000}
+.tag-gif{position:absolute;right:6px;bottom:6px;z-index:2;font:700 10px/1 var(--sf);padding:3px 5px;border-radius:5px;background:rgba(0,0,0,.62);color:#fff;letter-spacing:.03em}
+.tile .num{position:absolute;left:6px;top:6px;z-index:2;font:600 10px/1 var(--sf);padding:3px 5px;border-radius:5px;background:rgba(0,0,0,.55);color:#fff;opacity:0;transition:opacity .15s}
+.mm.cmd .tile .num{opacity:1}
+.empty{grid-column:1/-1;padding:48px 0;text-align:center;color:var(--text2);font-size:15px;line-height:1.6}
+.empty b{color:var(--text);font-weight:600}
+.islands{position:absolute;left:16px;right:16px;bottom:14px;display:flex;justify-content:space-between;pointer-events:none}
+.island{pointer-events:auto;display:flex;align-items:center;gap:2px;padding:3px;border-radius:13px;background:rgba(255,255,255,.08);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:inset 0 0 0 1px rgba(255,255,255,.14),inset 0 1px 0 rgba(255,255,255,.18),0 8px 18px rgba(0,0,0,.25)}
+.island button{display:flex;align-items:center;gap:8px;height:32px;padding:0 10px;border:0;border-radius:10px;background:transparent;font:500 14px/1 var(--sf);color:var(--text)}
+.island button:hover{background:rgba(255,255,255,.1)}
+.island button:active{background:rgba(255,255,255,.16)}
+.island .hair{width:1px;height:18px;background:rgba(255,255,255,.14);margin:0 2px}
+.island .k{font:500 12px/1 var(--sf);color:var(--text2);padding:3px 5px;border-radius:5px;background:rgba(255,255,255,.1);box-shadow:inset 0 0 0 1px rgba(255,255,255,.14)}
+.island .k.go{background:var(--signal);color:#000;box-shadow:none;font-weight:700}
+.mm.face .island.left{background:rgba(255,154,92,.18);box-shadow:inset 0 0 0 1px rgba(255,154,92,.6),0 8px 18px rgba(0,0,0,.25)}
+.mm.face .island.left .camglyph{color:var(--signal)}
+.menu{position:absolute;z-index:5;width:260px;padding:6px;border-radius:12px;background:rgba(40,40,46,.82);backdrop-filter:blur(30px);-webkit-backdrop-filter:blur(30px);box-shadow:inset 0 0 0 1px rgba(255,255,255,.16),0 18px 40px rgba(0,0,0,.45);font-size:14px;animation:menuIn .16s ease-out}
+@keyframes menuIn{from{opacity:0;transform:translateY(-4px)}}
+.menu .mh{padding:6px 10px 8px;font-weight:600;color:var(--text2);font-size:12px}
+.menu button{width:100%;display:flex;align-items:center;gap:10px;height:32px;padding:0 10px;border:0;border-radius:7px;background:transparent;text-align:left;color:var(--text)}
+.menu button:hover,.menu button.hi{background:rgba(255,255,255,.12)}
+.menu button .sc{margin-left:auto;color:var(--text2);font-size:12px}
+.menu button .chk{width:14px;color:var(--signal)}
+.menu hr{border:0;height:1px;background:rgba(255,255,255,.1);margin:5px 6px}
+.menu.src{right:12px;top:52px}
+.menu.act{right:16px;bottom:58px;width:320px}
 
-.wrap {
-  max-width: 1360px; margin: 0 auto;
-  padding-left: max(clamp(16px, 4vw, 56px), env(safe-area-inset-left, 0px));
-  padding-right: max(clamp(16px, 4vw, 56px), env(safe-area-inset-right, 0px));
-}
+/* the guide under the laptop */
+.guide{margin:26px auto 0;max-width:820px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;justify-content:center;font:500 15px/1.4 var(--sf);color:var(--g-fg,#D1D1D6);text-align:center;min-height:44px}
+.guide .step{font:600 12px/1 var(--sf);letter-spacing:.06em;text-transform:uppercase;color:var(--g-mute,#8E8E93)}
+.guide .say{min-width:0}
+.guide .acts{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+.gbtn{display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 14px;border-radius:999px;border:0;background:var(--g-btn,rgba(255,255,255,.1));box-shadow:inset 0 0 0 1px var(--g-edge,rgba(255,255,255,.16));font:500 14px/1 var(--sf);color:var(--g-btn-fg,#F5F5F7);transition:background .15s,transform .15s}
+.gbtn:hover{background:var(--g-btn-h,rgba(255,255,255,.16))}
+.gbtn:active{transform:scale(.97)}
+.gbtn.pri{background:var(--signal);color:#000;box-shadow:none;font-weight:600}
+.gbtn .kc{font-size:12px;background:rgba(0,0,0,.12);box-shadow:inset 0 0 0 1px rgba(0,0,0,.16)}
+.gbtn:not(.pri) .kc{background:var(--g-kc,rgba(255,255,255,.1));box-shadow:inset 0 0 0 1px var(--g-edge,rgba(255,255,255,.16))}
+.autoplay-note{display:block;width:100%;font:500 12px/1 var(--sf);color:var(--g-mute,#8E8E93);margin-top:2px}
 
-/* ---------- Top bar ---------- */
-.top-in { min-height: 76px; padding-block: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; }
-.brand { display: flex; align-items: center; gap: 10px; font-size: 22px; font-weight: 800; letter-spacing: -.02em; }
-.mark {
-  display: flex; align-items: center; justify-content: center; flex: none;
-  width: 34px; height: 34px; border-radius: 50%;
-  background: var(--white); color: var(--ink); transform: rotate(-8deg); box-shadow: 0 3px 6px var(--sh-chip);
-}
-.mark svg { width: 26px; height: 26px; }
-.nav { display: flex; align-items: center; gap: 4px; }
-.nav-gh, .nav-gh:hover { display: inline-flex; align-items: center; min-height: 44px; padding: 0 10px; color: var(--ink); font-size: 16px; font-weight: 600; text-decoration: none; }
-.nav-gh:hover { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 5px; }
-.pill, .pill:hover {
-  display: inline-flex; align-items: center; min-height: 44px; padding: 0 16px;
-  border: 2px solid var(--ink); border-radius: 999px; background: transparent;
-  color: var(--ink); font-size: 16px; font-weight: 700; text-decoration: none;
-}
-.pill:hover { background: var(--white); }
+/* =========================================================
+   REACTION ART (no faces: type, shape and motion)
+   ========================================================= */
+.art{position:absolute;inset:0;display:grid;place-items:center;overflow:hidden;container-type:size;background:var(--bg,#222);color:var(--fg,#fff)}
+.art *{animation-play-state:paused}
+.tile.sel .art *,.tile:hover .art *,.play .art *,.art.play *{animation-play-state:running}
+.art .tx{position:relative;z-index:2;font:400 24cqw/.86 var(--meme);text-transform:uppercase;text-align:center;letter-spacing:.01em;padding:0 6cqw}
+.art .tx.lc{text-transform:none;font:800 17cqw/.92 var(--sf);letter-spacing:-.03em}
+.art .tx.sm{font-size:16cqw}
+.art .tx.xl{font-size:44cqw}
+/* shake: OMG */
+.t-shake .tx{animation:shake .32s steps(2) infinite;text-shadow:.05em 0 var(--c1,#00E5FF),-.05em 0 var(--c2,#FF2D78)}
+@keyframes shake{0%{transform:translate(0,0) rotate(-2deg)}25%{transform:translate(2cqw,-1.5cqw) rotate(2deg)}50%{transform:translate(-2cqw,1cqw) rotate(-1deg)}75%{transform:translate(1cqw,2cqw) rotate(3deg)}}
+/* fire: this is fine */
+.t-fire{background:linear-gradient(#1a0d08,#2b1209)}
+.t-fire .fl{position:absolute;bottom:-12cqw;width:34cqw;height:62cqw;border-radius:50% 50% 45% 45%/60% 60% 40% 40%;background:radial-gradient(ellipse at 50% 80%,#FFE27A 0 18%,#FF9A5C 38%,#E8452A 62%,transparent 72%);filter:blur(1.5cqw);transform-origin:50% 100%;animation:flick .5s ease-in-out infinite alternate}
+.t-fire .fl:nth-child(1){left:-6cqw;animation-delay:-.2s}
+.t-fire .fl:nth-child(2){left:30cqw;height:74cqw;animation-delay:-.35s}
+.t-fire .fl:nth-child(3){left:66cqw;animation-delay:-.1s}
+@keyframes flick{0%{transform:scaleY(.86) skewX(-4deg)}100%{transform:scaleY(1.08) skewX(5deg)}}
+.t-fire .tx{color:#fff;text-shadow:0 .5cqw 3cqw rgba(0,0,0,.6);margin-top:-18cqw}
+/* burst: mind blown */
+.t-burst .rg{position:absolute;left:50%;top:50%;width:30cqw;height:30cqw;margin:-15cqw;border-radius:50%;border:2.4cqw solid var(--c1,#fff);opacity:0;animation:burst 1.4s cubic-bezier(.2,.7,.3,1) infinite}
+.t-burst .rg:nth-child(2){animation-delay:.46s;border-color:var(--c2,#fff)}
+.t-burst .rg:nth-child(3){animation-delay:.92s}
+.t-burst .rg:first-child{opacity:.6;transform:scale(1.6)}
+@keyframes burst{0%{transform:scale(.2);opacity:.95}100%{transform:scale(4);opacity:0}}
+/* tape: nope, yikes */
+.t-tape{background:repeating-linear-gradient(-45deg,var(--c1,#FFD60A) 0 9cqw,var(--c2,#111) 9cqw 18cqw);background-size:25.46cqw 25.46cqw;animation:none}
+.t-tape .bar{position:absolute;inset:0;background:inherit;animation:slide 1s linear infinite}
+@keyframes slide{to{background-position:25.46cqw 0}}
+.t-tape .tx{background:var(--fg2,#111);color:var(--fg,#fff);padding:4cqw 6cqw 3cqw;transform:rotate(-6deg);box-shadow:0 2cqw 0 rgba(0,0,0,.25)}
+/* bounce letters */
+.t-bounce .tx span{display:inline-block;animation:hop .9s cubic-bezier(.3,0,.3,1) infinite;animation-delay:calc(var(--k)*70ms)}
+@keyframes hop{0%,40%,100%{transform:none}20%{transform:translateY(-12cqw) rotate(-6deg)}}
+/* sparkle */
+.t-sparkle .st{position:absolute;width:12cqw;height:12cqw;background:var(--c1,#fff);clip-path:polygon(50% 0,61% 39%,100% 50%,61% 61%,50% 100%,39% 61%,0 50%,39% 39%);animation:tw 1.1s ease-in-out infinite}
+.t-sparkle .st:nth-child(1){left:12cqw;top:14cqw}
+.t-sparkle .st:nth-child(2){right:12cqw;top:22cqw;width:8cqw;height:8cqw;animation-delay:-.4s}
+.t-sparkle .st:nth-child(3){left:22cqw;bottom:14cqw;width:7cqw;height:7cqw;animation-delay:-.7s}
+.t-sparkle .st:nth-child(4){right:18cqw;bottom:18cqw;width:13cqw;height:13cqw;animation-delay:-.2s}
+@keyframes tw{0%,100%{transform:scale(.4) rotate(0);opacity:.5}50%{transform:scale(1.15) rotate(45deg);opacity:1}}
+.t-sparkle .tx{background:linear-gradient(100deg,var(--fg) 30%,#fff 50%,var(--fg) 70%);background-size:300% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:shine 1.6s linear infinite}
+@keyframes shine{from{background-position:100% 0}to{background-position:-50% 0}}
+/* glitch */
+.t-glitch .tx{animation:gl 1.2s steps(1) infinite}
+.t-glitch .tx::before,.t-glitch .tx::after{content:attr(data-t);position:absolute;inset:0;padding:inherit}
+.t-glitch .tx::before{color:var(--c1,#00E5FF);clip-path:inset(0 0 55% 0);transform:translateX(-2.5cqw);mix-blend-mode:screen}
+.t-glitch .tx::after{color:var(--c2,#FF2D78);clip-path:inset(55% 0 0 0);transform:translateX(2.5cqw);mix-blend-mode:screen}
+@keyframes gl{0%{transform:none}10%{transform:translateX(3cqw) skewX(12deg)}12%{transform:none}55%{transform:translateY(-2cqw)}57%{transform:none}80%{transform:scaleY(1.2)}82%{transform:none}}
+/* type */
+.t-type{background:#0E0F12}
+.t-type .tx{font:600 12cqw/1.15 var(--mono);text-transform:none;letter-spacing:-.02em;text-align:left;color:var(--fg,#F5F5F7);padding:0 9cqw;width:100%}
+.t-type .tx .cur{display:inline-block;width:1.2cqw;height:13cqw;background:var(--signal);vertical-align:-2cqw;margin-left:1cqw;animation:blink 1s steps(1) infinite}
+.t-type .tx .rv{display:inline;background:linear-gradient(90deg,currentColor 50%,transparent 50%);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:rev 2.4s steps(14) infinite}
+@keyframes rev{0%{background-position:100% 0}60%,100%{background-position:0 0}}
+/* stamp */
+.t-stamp .tx{border:2.4cqw solid currentColor;border-radius:4cqw;padding:5cqw 7cqw 3.5cqw;transform:rotate(-10deg);animation:thump 1.4s cubic-bezier(.3,1.6,.5,1) infinite}
+@keyframes thump{0%{transform:rotate(-10deg) scale(1.9);opacity:0}18%{transform:rotate(-10deg) scale(1);opacity:1}100%{transform:rotate(-10deg) scale(1)}}
+.t-stamp .tx.xl{border:0;padding:0}
+/* drift (zzz, ugh) */
+.t-drift .dz{position:absolute;font:400 12cqw/1 var(--meme);color:var(--c1,#fff);opacity:0;animation:float 2.4s ease-out infinite}
+.t-drift .dz:nth-child(1){left:62cqw;top:56cqw}
+.t-drift .dz:nth-child(2){left:70cqw;top:50cqw;animation-delay:.8s;font-size:9cqw}
+.t-drift .dz:nth-child(3){left:58cqw;top:52cqw;animation-delay:1.6s;font-size:15cqw}
+@keyframes float{0%{transform:translate(0,0) rotate(0);opacity:0}20%{opacity:1}100%{transform:translate(10cqw,-46cqw) rotate(18deg);opacity:0}}
+.t-drift .tx{animation:sag 2.4s ease-in-out infinite}
+@keyframes sag{0%,100%{transform:none}50%{transform:translateY(3cqw) scaleY(.92)}}
+/* spin */
+.t-spin::before{content:"";position:absolute;inset:-40%;background:conic-gradient(from 0deg,var(--c1),var(--c2),var(--c3,var(--c1)),var(--c1));animation:rot 3s linear infinite}
+@keyframes rot{to{transform:rotate(360deg)}}
+.t-spin .tx{color:#fff;text-shadow:0 1cqw 0 rgba(0,0,0,.25)}
+/* pulse heart */
+.t-pulse .ht{position:absolute;width:52cqw;height:52cqw;background:var(--c1,#FF4D6D);clip-path:path("M50 88 C 18 66 4 48 4 30 C 4 14 16 4 29 4 C 39 4 46 10 50 18 C 54 10 61 4 71 4 C 84 4 96 14 96 30 C 96 48 82 66 50 88 Z");transform:scale(.52);transform-origin:0 0;left:24cqw;top:20cqw;animation:beat .9s ease-in-out infinite}
+@keyframes beat{0%,100%{scale:1}15%{scale:1.14}30%{scale:1}45%{scale:1.08}}
+.t-pulse .tx{margin-top:46cqw;font-size:14cqw}
+/* split: same */
+.t-split{grid-template-rows:1fr 1fr;place-items:stretch;gap:0}
+.t-split .hf{display:grid;place-items:center;font:400 26cqw/1 var(--meme);text-transform:uppercase;background:var(--c1);color:var(--fg)}
+.t-split .hf:last-child{background:var(--c2);animation:echo 1.2s steps(1) infinite}
+@keyframes echo{50%{color:transparent}}
+/* wave */
+.t-wave .tx span{display:inline-block;animation:wave 1.4s ease-in-out infinite;animation-delay:calc(var(--k)*-110ms)}
+@keyframes wave{0%,100%{transform:translateY(3cqw)}50%{transform:translateY(-3cqw)}}
+/* drop */
+.t-drop .tx{animation:drop 1.6s cubic-bezier(.5,0,.5,1.6) infinite}
+@keyframes drop{0%{transform:translateY(-90cqw)}35%,80%{transform:none}100%{transform:translateY(90cqw)}}
+.t-drop .tx{animation-timing-function:cubic-bezier(.3,1.4,.5,1)}
+/* stickers: die-cut, white edge */
+.t-sticker{background:transparent}
+.t-sticker .stk{position:relative;display:grid;place-items:center;width:74cqw;height:62cqw;border-radius:16cqw;background:var(--c1);box-shadow:0 0 0 3.4cqw #fff,0 4cqw 6cqw rgba(0,0,0,.35);transform:rotate(-7deg);animation:wob 1.6s ease-in-out infinite}
+.t-sticker .stk.round{width:66cqw;height:66cqw;border-radius:50%}
+.t-sticker .stk .tx{padding:0;font-size:20cqw}
+@keyframes wob{0%,100%{transform:rotate(-7deg)}50%{transform:rotate(5deg) scale(1.05)}}
 
-/* ---------- Hero ---------- */
-.hero-in {
-  padding-block: clamp(20px, 3vw, 40px) clamp(56px, 7vw, 104px);
-  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 48px;
-}
-.copy { flex: 1 1 340px; max-width: 30rem; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; }
-.kicker {
-  margin: 0 0 22px; display: inline-flex; align-items: center; min-height: 32px; padding: 0 14px;
-  border-radius: 999px; background: var(--white); color: var(--ink);
-  font-size: 15px; line-height: 1.2; font-weight: 700;
-  box-shadow: 0 3px 8px var(--sh-pill); transform: rotate(-2deg);
-}
-h1 { margin: 0; font-size: clamp(2.5rem, 6.5vw - 1.85rem, 4rem); line-height: 1.02; font-weight: 800; letter-spacing: -.035em; }
-h1 span { display: block; }
-.lede { margin: 24px 0 0; max-width: 26rem; font-size: clamp(1.0625rem, .95rem + .4vw, 1.25rem); line-height: 1.5; font-weight: 500; color: var(--ink-2); text-wrap: pretty; }
-.nw { white-space: nowrap; }
-.dl, .dl:hover {
-  margin-top: 32px; display: inline-flex; align-items: center; gap: 14px; min-height: 64px;
-  padding: 11px 28px 11px 22px; border-radius: 18px;
-  background: var(--ink); color: var(--white); text-decoration: none;
-  box-shadow: 0 10px 22px var(--sh-dl);
-}
-.dl svg { width: 22px; height: 22px; flex: none; }
-.dl-t { display: flex; flex-direction: column; gap: 2px; line-height: 1.15; }
-.dl-t b { font-size: 19px; font-weight: 750; }
-.dl-t small { font-size: 13.5px; font-weight: 500; color: var(--dl-sub); }
-.req { margin: 14px 0 0; font-size: 14.5px; line-height: 1.5; font-weight: 500; color: var(--ink-4); }
+/* ---------- the page ---------- */
+.lap[data-wall="solid"] .wall{background:var(--wall-solid)}
+.lap[data-wall="solid"] .wall i{display:none}
+.lap[data-wall="solid"] .lap-glow{display:none}
+.lap[data-wall="solid"] .lap-base{box-shadow:0 1.6cqw 2.2cqw -1.4cqw rgba(0,0,0,.35)}
 
-/* ---------- The lid ---------- */
-.lid {
-  position: relative; flex: none; width: 760px; max-width: 100%; height: 520px; margin-bottom: 8px; margin-left: auto;
-  border-radius: 30px; background: var(--lid-top);
-  box-shadow: inset 0 0 0 1.5px var(--lid-gloss), 0 8px 0 var(--lid-edge), 0 30px 48px var(--lid-shadow);
-}
-.hinge { position: absolute; left: 50%; bottom: 0; width: 96px; height: 8px; margin-left: -48px; border-radius: 48px 48px 0 0 / 8px 8px 0 0; background: var(--lid-edge); }
+/* shared document blocks, themed by each draft's tokens */
+.doc-h2{font:600 22px/1.25 var(--d-head,var(--sf));letter-spacing:-.015em;margin:0 0 14px;color:var(--d-fg)}
+.doc p{margin:0 0 14px;font-size:16px;line-height:1.6;color:var(--d-body)}
+.doc p:last-child{margin-bottom:0}
+.kb{display:inline-block;min-width:1.6em;text-align:center;font:500 13px/1.5 var(--sf);padding:0 6px;border-radius:6px;border:1px solid var(--d-kb-edge);border-bottom-width:2px;background:var(--d-kb);color:var(--d-fg);white-space:nowrap}
+.steps{list-style:none;margin:0;padding:0;display:grid;gap:0;counter-reset:s}
+.steps li{counter-increment:s;display:grid;grid-template-columns:32px minmax(0,1fr);gap:4px 12px;padding:16px 0;border-top:1px solid var(--d-line);font-size:16px;line-height:1.55;color:var(--d-body)}
+.steps li::before{content:counter(s);font:600 14px/1.6 var(--d-num,var(--mono));color:var(--d-mute)}
+.steps li b{color:var(--d-fg);font-weight:600}
+.srcs{display:grid;grid-template-columns:170px minmax(0,1fr);margin:0}
+.srcs dt{padding:14px 16px 14px 0;border-top:1px solid var(--d-line);font-weight:600;font-size:15px;color:var(--d-fg)}
+.srcs dd{margin:0;padding:14px 0;border-top:1px solid var(--d-line);font-size:15px;line-height:1.55;color:var(--d-body)}
+@media (max-width:560px){.srcs{grid-template-columns:1fr}.srcs dd{border-top:0;padding-top:0}}
+.kbtable{width:100%;border-collapse:collapse;font-size:15px}
+.kbtable td{padding:10px 0;border-top:1px solid var(--d-line);vertical-align:top;color:var(--d-body);line-height:1.5}
+.kbtable td:first-child{width:150px;white-space:nowrap;padding-right:16px}
+.kbtable .kb{margin-right:3px}
+.faq details{border-top:1px solid var(--d-line)}
+.faq summary{cursor:pointer;list-style:none;display:flex;justify-content:space-between;gap:16px;padding:15px 0;font-weight:600;font-size:16px;color:var(--d-fg)}
+.faq summary::-webkit-details-marker{display:none}
+.faq summary::after{content:"+";color:var(--d-mute);font-weight:400;font-size:20px;line-height:1}
+.faq details[open] summary::after{content:"–"}
+.faq details p{margin:-4px 0 16px;font-size:15px;line-height:1.6;color:var(--d-body);max-width:62ch}
+.changes{list-style:none;margin:0;padding:0}
+.changes li{display:grid;grid-template-columns:72px minmax(0,1fr);gap:12px;padding:11px 0;border-top:1px solid var(--d-line);font-size:15px;line-height:1.5;color:var(--d-body)}
+.changes time{font:500 13px/1.6 var(--d-num,var(--mono));color:var(--d-mute);font-variant-numeric:tabular-nums}
+.specs{display:grid;grid-template-columns:170px minmax(0,1fr);margin:0}
+.specs dt,.specs dd{padding:12px 0;border-top:1px solid var(--d-line);font-size:15px;line-height:1.5}
+.specs dt{color:var(--d-mute)}
+.specs dd{margin:0;color:var(--d-fg)}
+.facefig{display:flex;gap:28px;align-items:center;flex-wrap:wrap}
+.facefig .cam{position:relative;width:200px;height:200px;flex:none;border-radius:50%;background:#141416;overflow:hidden}
+.facefig .cam svg{width:100%;height:100%}
+.facefig .side{display:grid;gap:12px;min-width:0;flex:1}
+.facefig .word{font:600 20px/1.2 var(--d-head,var(--sf));color:var(--d-fg);transition:opacity .2s}
+.facefig .from{font-size:14px;color:var(--d-mute)}
+.facebtns{display:flex;flex-wrap:wrap;gap:6px}
+.facebtns button{height:32px;padding:0 12px;border-radius:8px;border:1px solid var(--d-kb-edge);background:var(--d-kb);font:500 14px/1 var(--sf);color:var(--d-fg)}
+.facebtns button[aria-pressed="true"]{background:var(--d-fg);color:var(--d-inv);border-color:var(--d-fg)}
+.plainguide .guide{--g-fg:var(--d-fg);--g-mute:var(--d-mute);--g-btn:var(--d-kb);--g-btn-h:var(--d-kb);--g-edge:var(--d-kb-edge);--g-btn-fg:var(--d-fg);--g-kc:var(--d-kb)}
+.plainguide .guide .kc{background:var(--d-kb);box-shadow:inset 0 0 0 1px var(--d-kb-edge);color:var(--d-fg)}
+.plainguide .gbtn{border-radius:8px}
+.plainguide .gbtn.pri{background:var(--d-fg);color:var(--d-inv)}
+.plainguide .gbtn.pri .kc{background:transparent;box-shadow:inset 0 0 0 1px currentColor;color:inherit;opacity:.8}
 
-/* Logo sticker */
-.lg { position: absolute; left: 58px; top: 124px; order: 1; z-index: 1; padding: 6px; border-radius: 999px; background: var(--white); transform: rotate(-5deg); box-shadow: 0 6px 12px var(--lid-shadow); }
-.lg-in { display: flex; align-items: center; gap: 10px; padding: 9px 22px 9px 10px; border-radius: 999px; background: var(--logo-chip); color: var(--ink); }
-.lgm { display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 50%; background: var(--white); }
-.lgm svg { width: 26px; height: 26px; }
-.lgt { font-size: 26px; line-height: 1; font-weight: 800; letter-spacing: -.02em; }
+/* ---------- 1 · README: a careful document, like a well-kept project page ---------- */
+.readme{--d-fg:#1D1D1F;--d-body:#3A3A3C;--d-mute:#86868B;--d-line:#E5E5EA;--d-kb:#FFFFFF;--d-kb-edge:#D2D2D7;--d-inv:#FFFFFF;color:var(--d-fg);font-family:var(--sf)}
+.R-top{border-bottom:1px solid var(--d-line)}
+.R-top .wrap{height:56px;display:flex;align-items:center;gap:24px;font-size:14px}
+.R-top .name{display:flex;align-items:center;gap:9px;font-weight:600;text-decoration:none}
+.R-top .name img{width:24px;height:24px}
+.R-top nav{margin-left:auto;display:flex;gap:22px;color:var(--d-mute)}
+.R-top nav a{text-decoration:none}.R-top nav a:hover{color:var(--d-fg)}
+.R-col{max-width:720px;margin-inline:auto}
+.R-intro{padding-block:72px 48px}
+.R-intro img{width:96px;height:96px;margin-left:-8px}
+.R-intro h1{font:700 44px/1.05 var(--sf);letter-spacing:-.025em;margin:18px 0 14px}
+.R-lead{font-size:20px;line-height:1.5;color:var(--d-body);margin:0;max-width:34em}
+.R-dl{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-top:28px}
+.R-btn{display:inline-flex;align-items:center;gap:8px;height:44px;padding:0 18px;border-radius:10px;background:#1D1D1F;color:#fff;text-decoration:none;font:600 15px/1 var(--sf)}
+.R-btn:hover{background:#000}
+.R-meta{font-size:13px;line-height:1.5;color:var(--d-mute)}
+.R-meta a{color:var(--d-fg)}
+.R-demo{max-width:1080px;margin:0 auto;padding-bottom:16px}
+.R-sec{padding-block:48px;border-top:1px solid var(--d-line)}
+.R-sec:first-of-type{border-top:0}
+.R-foot{border-top:1px solid var(--d-line);padding-block:28px 100px;font-size:13px;color:var(--d-mute)}
+.R-foot .R-col{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+@media (max-width:620px){.R-top nav{display:none}.R-intro h1{font-size:36px}.R-lead{font-size:18px}}
 
-/* Keycap sticker */
-.lk { position: absolute; left: 594px; top: 166px; order: 2; z-index: 1; display: flex; gap: 5px; padding: 8px; border-radius: 16px; background: var(--white); transform: rotate(6deg); box-shadow: 0 6px 12px var(--lid-shadow); }
-.lk > span {
-  display: flex; align-items: center; justify-content: center; width: 38px; height: 38px;
-  border-radius: 9px; border-bottom: 4px solid var(--key-edge); background: var(--key); color: var(--ink);
-  font-size: 19px; line-height: 1; font-weight: 800;
-}
 
-/* "Lives up here" speech bubble, with a sliver of menu bar */
-.lb { position: absolute; left: 272px; top: 18px; order: 3; z-index: 1; flex: none; width: 304px; height: 142px; transform: rotate(2.5deg); }
-.lb > svg { position: absolute; left: 0; top: 0; overflow: visible; filter: drop-shadow(0 6px 8px var(--lid-shadow)); }
-.b-cut { fill: var(--white); stroke: var(--white); stroke-width: 14; stroke-linejoin: round; }
-.b-line { fill: var(--white); stroke: var(--ink); stroke-width: 2.5; stroke-linejoin: round; }
-.lb-in { position: absolute; left: 36px; top: 21px; width: 246px; display: flex; flex-direction: column; align-items: flex-start; gap: 9px; }
-.mb {
-  display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px 0 4px; border-radius: 8px;
-  background: var(--mb-bg); color: var(--mb-ink); font-family: var(--mac); font-size: 12.5px; font-weight: 500; white-space: nowrap;
-}
-.mb-smiley { display: flex; align-items: center; justify-content: center; width: 30px; height: 22px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: inherit; cursor: pointer; }
-.mb-smiley svg { width: 15px; height: 15px; }
-/* Invisible 44px hit areas for the small controls; the look stays the same. */
-.mb-smiley, .cap, .btn-accent { position: relative; }
-.mb-smiley::after, .cap::after, .btn-accent::after { content: ""; position: absolute; }
-.mb-smiley::after { inset: -11px -7px; }
-.cap::after { inset: -12px -4px; }
-.btn-accent::after { inset: -9px -2px; }
-.mb-smiley:hover, .mb-smiley[aria-expanded="true"] { background: var(--mb-hi); }
-.mb-smiley:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
-.mb-ic { display: flex; align-items: center; justify-content: center; }
-.mb-wifi { width: 24px; }
-.mb-batt { width: 28px; }
-.mb-time { padding-left: 2px; }
-.cue { display: flex; align-items: flex-start; gap: 6px; padding-left: 9px; }
-.cue svg { flex: none; margin-top: 1px; }
-.cue p { margin: 0; font-size: 14px; line-height: 1.35; font-weight: 600; color: var(--ink); text-wrap: pretty; }
+/* ---------- chat ---------- */
+.R-intro{max-width:1120px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,440px);gap:64px;align-items:center;padding-block:64px 56px}
+@media (max-width:900px){.R-intro{grid-template-columns:1fr;gap:40px}}
+body{background:#F2F2F7}
+.R-top{border-bottom-color:rgba(0,0,0,.08)}
+.R-convo{display:flex;flex-direction:column;gap:5px;background:#fff;border-radius:24px;padding:0 18px 22px;box-shadow:0 1px 2px rgba(0,0,0,.05),0 24px 48px -24px rgba(0,0,0,.2)}
+.R-convo .cv-head{display:flex;align-items:center;gap:10px;margin:0 -18px 8px;padding:14px 18px;border-bottom:1px solid #E5E5EA;font-size:14px}
+.R-convo .cv-head .av{width:30px;height:30px;font-size:11px}
+.R-convo .cv-who{font-size:11px;color:#86868B;margin:8px 0 0 12px}
+.R-convo .b{max-width:80%;width:fit-content;padding:9px 14px;border-radius:19px;font-size:15px;line-height:1.35;background:#E9E9EB;color:#1D1D1F}
+.R-convo .b.me{align-self:flex-end;background:#0A84FF;color:#fff}
+.R-convo .b.pic{position:relative;width:210px;height:210px;padding:0;overflow:hidden;border-radius:20px}
+.R-convo .cv-keys{align-self:center;display:flex;gap:3px;align-items:center;margin:12px 0 6px;font-size:12px;color:#86868B}
+.R-convo .cv-keys i{font-style:normal;margin:0 8px;padding:3px 9px;border-radius:7px;background:#F2F2F7;color:#1D1D1F}
+.R-convo .cv-keys i::before{content:"type ";color:#86868B}
+.R-btn{background:#0A84FF}
+.R-btn:hover{background:#0071E3}
+.R-sec{background:#fff;border-radius:20px;padding:32px;margin-block:16px;border:0}
+.R-demo{margin-bottom:24px}
+.faq details{border:0;margin-bottom:12px}
+.faq summary{display:block;width:fit-content;max-width:82%;padding:10px 15px;border-radius:19px;background:#E9E9EB;font-weight:500;font-size:15px;line-height:1.35;pointer-events:none}
+.faq summary::after{display:none}
+.faq details p{width:fit-content;max-width:82%;margin:6px 0 0 auto;padding:10px 15px;border-radius:19px;background:#0A84FF;color:#fff;font-size:15px;line-height:1.4}
+.R-foot{border-top-color:rgba(0,0,0,.08)}
+/* the hero conversation, animated */
+.R-convo > *{transition:opacity .35s ease,transform .45s cubic-bezier(.2,1.3,.4,1)}
+.R-convo > .cv-off{opacity:0;transform:translateY(8px) scale(.98)}
+.R-convo .b{position:relative}
+.R-convo .b.typing{color:transparent!important}
+.R-convo .b.typing::after{content:"";position:absolute;left:14px;top:50%;width:6px;height:6px;margin-top:-3px;border-radius:50%;background:#8E8E93;box-shadow:11px 0 0 #8E8E93,22px 0 0 #8E8E93;animation:tdots 1s infinite}
+@keyframes tdots{50%{opacity:.35}}
+.R-convo .cv-keys .kb{transition:background .12s,transform .12s,color .12s}
+.R-convo .cv-keys .kb.down{transform:translateY(1px);background:#1D1D1F;color:#fff;border-color:#1D1D1F}
+.R-convo .cv-keys i{min-width:58px;text-align:left}
+.R-convo .picwrap{position:relative;align-self:flex-end;margin-top:16px}
+.R-convo .tap{position:absolute;left:-16px;top:-14px;z-index:2;padding:5px 9px;border-radius:14px;background:#E9E9EB;color:#1D1D1F;font:800 11px/1 var(--sf);letter-spacing:.04em;text-transform:uppercase;box-shadow:0 0 0 3px #fff;transform:scale(0);transition:transform .3s cubic-bezier(.2,1.6,.4,1)}
+.R-convo .tap.on{transform:scale(1)}
+.R-convo .cv-read{align-self:flex-end;font-size:11px;color:#86868B;margin:-1px 4px 0 0}
 
-/* Face stickers: the face picker */
-.faces { order: 4; }
-.fs {
-  position: absolute; left: var(--x); top: var(--y); z-index: 2;
-  width: var(--s); height: var(--s); padding: 0; border: 0; border-radius: 50%;
-  background: none; cursor: pointer; transform: rotate(var(--r));
-  -webkit-tap-highlight-color: transparent;
-}
-.fs svg { width: 100%; height: 100%; overflow: visible; filter: drop-shadow(0 5px 6px var(--lid-shadow)); }
-.fs .ring { fill: var(--ink); stroke: var(--ink); stroke-width: 24; stroke-linejoin: round; opacity: 0; transition: opacity .15s; }
-.fs[aria-pressed="true"] .ring { opacity: 1; }
-.fs .cut { fill: var(--white); stroke: var(--white); stroke-width: 16; stroke-linejoin: round; }
-.fs .sk { fill: var(--sk); stroke: var(--art-ink); stroke-width: 2.5; stroke-linejoin: round; }
-.fs .hr { fill: var(--hr); stroke: var(--art-ink); stroke-width: 2.5; stroke-linejoin: round; }
-.fs .ln { fill: none; stroke: var(--art-ink); stroke-width: 2.5; stroke-linecap: round; }
-.fs .ey { stroke: var(--art-ink); stroke-width: 2.5; stroke-linecap: round; }
-.fs .pu { fill: var(--art-ink); }
-.fs .mo { stroke: var(--art-ink); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
-.fs .f-white { fill: var(--white); }
-.fs .f-ink { fill: var(--art-ink); }
-.fs .f-none { fill: none; }
-.fs .tr { fill: var(--tear); }
-.fs-tag {
-  position: absolute; left: 50%; bottom: -3px; transform: translateX(-50%);
-  padding: 3px 9px 4px; border-radius: 999px; background: var(--ink); color: var(--white);
-  font-size: 12.5px; line-height: 1.15; font-weight: 700; white-space: nowrap;
-  opacity: 0; pointer-events: none; transition: opacity .15s;
-}
-.fs[aria-pressed="true"] .fs-tag { opacity: 1; }
-.faces-cap { position: absolute; left: 306px; top: 176px; z-index: 1; margin: 0; font-size: 14.5px; line-height: 1.2; font-weight: 700; color: var(--ink); transform: rotate(-2deg); white-space: nowrap; }
 
-/* The panel sticker */
-.lp {
-  position: absolute; left: 26px; top: 210px; order: 5; z-index: 1; max-width: 100%;
-  padding: 8px; border-radius: 22px; background: var(--white); transform: rotate(-1.5deg);
-  box-shadow: 0 16px 30px var(--lid-shadow);
-}
-/* Copied: the panel goes back to the menu bar and leaves the sticker's outline behind. */
-.lp.is-closed { background: var(--lid-peel); box-shadow: none; outline: 2px dashed var(--lid-edge); outline-offset: -2px; }
-.stage { position: relative; width: 525px; max-width: 100%; }
-
-/* ---------- The panel (demo) ---------- */
-.panel {
-  --m: 100px;
-  position: relative; width: 100%;
-  background: var(--p-bg); color: var(--p-text);
-  border: 1px solid var(--p-border); border-radius: 14px; padding: 12px;
-  font: 400 12.5px/1.35 var(--ui);
-  transform-origin: 50% 0;
-  transition: transform .24s cubic-bezier(.3, .8, .3, 1), opacity .2s;
-}
-.panel.closing { transform: translateY(-12px) scale(.97, .6); opacity: 0; }
-.panel button { font-family: var(--ui); }
-.p-main { display: grid; grid-template-columns: var(--m) minmax(0, 1fr); gap: 12px; }
-.mirror-box { position: relative; width: var(--m); height: var(--m); }
-.mirror { width: 100%; height: 100%; border-radius: 16px; overflow: hidden; background: var(--p-mirror); box-shadow: 0 0 0 3px var(--p-accent); }
-.mirror svg { width: 100%; height: 100%; }
-.ring { position: absolute; inset: -3px; width: calc(100% + 6px); height: calc(100% + 6px); pointer-events: none; overflow: visible; }
-.ring rect { fill: none; stroke: var(--p-amber); stroke-width: 3; stroke-dasharray: 100; stroke-dashoffset: 100; }
-.ring.filling rect { animation: fill 1s linear forwards; }
-@keyframes fill { to { stroke-dashoffset: 0; } }
-.pin { position: absolute; border: 1.5px dashed transparent; border-radius: 10px; background: none; padding: 0; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
-.pin.eyes { left: 24%; top: 27%; width: 52%; height: 31%; }
-.pin.mouth { left: 33%; top: 58%; width: 34%; height: 24%; }
-.mirror-box:hover .pin { border-color: var(--p-pin-hover); }
-.pin[aria-pressed="true"] { border: 1.5px solid var(--p-amber); box-shadow: 0 0 0 3px var(--p-amber-soft), 0 0 18px var(--p-amber-glow); }
-.pin:focus-visible { outline: 2px solid var(--p-accent); outline-offset: 1px; }
-.hint { margin-top: 10px; display: grid; gap: 3px; justify-items: start; }
-.hint b { font-size: 12px; font-weight: 600; line-height: 1.3; }
-.hint span { font-size: 10.5px; color: var(--p-muted); line-height: 1.35; }
-.cap {
-  margin-top: 4px; padding: 3px 9px; border-radius: 99px; border: 1px solid var(--p-chip); background: none;
-  color: var(--p-text); font-size: 11px; line-height: 1.2; cursor: pointer; white-space: nowrap;
-}
-.cap:hover { background: var(--p-surface); }
-.cap:focus-visible, .btn-accent:focus-visible { outline: 2px solid var(--p-accent); outline-offset: 2px; }
-.search {
-  display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px;
-  background: var(--p-surface); border: 1px solid var(--p-sep); border-radius: 9px;
-}
-.search.has-text, .search:focus-within { border-color: var(--p-accent); }
-.search svg { width: 14px; height: 14px; color: var(--p-place); flex: none; }
-.search input { flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: none; padding: 0; color: var(--p-text); font: 400 12.5px/1 var(--ui); }
-.search input::placeholder { color: var(--p-place); opacity: 1; }
-.keys { display: flex; gap: 3px; flex: none; }
-.keys span { font: 500 10.5px/1.3 var(--sym); color: var(--p-muted); border: 1px solid var(--p-chip); border-radius: 4px; padding: 0 5px; }
-.grid { position: relative; list-style: none; margin: 8px 0 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 7px; }
-.grid li { aspect-ratio: 1; min-width: 0; max-width: 100%; }
-.tile { position: relative; display: block; width: 100%; height: 100%; padding: 0; border: 0; border-radius: 9px; background: var(--p-surface); cursor: pointer; transition: box-shadow .12s; }
-.tile .thumb { position: absolute; inset: 0; border-radius: 9px; overflow: hidden; }
-.tile .thumb svg { width: 100%; height: 100%; }
-.tile.sticker .thumb { background: repeating-conic-gradient(var(--p-check-a) 0 25%, var(--p-check-b) 0 50%) 0 0 / 14px 14px; }
-.tile.sticker .thumb svg { filter: drop-shadow(0 1px 1.5px var(--p-tile-shadow)); }
-.tile.is-focus, .tile:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--p-bg), 0 0 0 4px var(--p-accent); }
-.tile.arrived:not(.is-focus) { box-shadow: 0 0 0 2px var(--p-amber); }
-.tile:hover .thumb { filter: brightness(1.06); }
-.num { position: absolute; top: 4px; left: 4px; min-width: 15px; height: 15px; padding: 0 3px; border-radius: 5px; background: var(--p-badge); color: var(--p-badge-ink); font: 600 9.5px/15px var(--ui); text-align: center; }
-.own-dot { position: absolute; top: 5px; right: 5px; width: 8px; height: 8px; border-radius: 50%; background: var(--p-accent); box-shadow: 0 0 0 1.5px var(--p-dot-ring); }
-.friend-ring { position: absolute; top: 4px; right: 4px; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--p-amber); }
-.gif-badge { position: absolute; left: 4px; bottom: 4px; padding: 1px 3px; border-radius: 3px; background: var(--p-badge); color: var(--p-badge-ink); font: 800 7.5px/1.2 var(--ui); letter-spacing: .04em; }
-.tile.gif.is-focus .fg { animation: bob .42s ease-in-out infinite alternate; transform-origin: 50% 85%; transform-box: view-box; }
-@keyframes bob { from { transform: rotate(-3deg); } to { transform: rotate(3deg) translateY(-1.5px); } }
-.grid .ph { visibility: hidden; }
-.grid .empty {
-  position: absolute; inset: 0; aspect-ratio: auto; display: grid; place-items: center; text-align: center;
-  border: 1.5px dashed var(--p-chip); border-radius: 9px; color: var(--p-muted); padding: 12px; font-size: 12px;
-}
-.p-foot { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--p-sep); display: flex; align-items: baseline; justify-content: space-between; gap: 4px 14px; flex-wrap: wrap; }
-.focusline { font-size: 11.5px; color: var(--p-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; max-width: 100%; }
-.legend { font-size: 10.5px; color: var(--p-muted); white-space: nowrap; }
-
-.closed {
-  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-  width: min(380px, calc(100% - 32px)); display: grid; gap: 12px; padding: 12px;
-  background: var(--p-hud); color: var(--p-text); border: 1px solid var(--p-border); border-radius: 14px;
-  box-shadow: 0 24px 50px -24px var(--p-hud-shadow);
-  font: 400 12.5px/1.4 var(--ui);
-  animation: hudIn .24s ease-out;
-}
-@keyframes hudIn { from { opacity: 0; transform: translate(-50%, calc(-50% - 6px)); } }
-.closed-msg { display: flex; align-items: center; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--p-sep); }
-.closed-msg .thumb { width: 44px; height: 44px; border-radius: 9px; overflow: hidden; flex: none; }
-.closed-msg .thumb svg { width: 100%; height: 100%; }
-.closed-msg b { display: block; font-weight: 600; font-size: 13px; }
-.closed-msg span span { color: var(--p-muted); }
-.closed-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--p-soft); }
-.closed-foot > span { text-wrap: pretty; }
-.btn-accent { flex: none; border: 0; border-radius: 8px; padding: 6px 11px; background: var(--p-accent); color: var(--p-accent-ink); font: 600 12.5px/1.2 var(--ui); cursor: pointer; }
-
-/* ---------- Install ---------- */
-.sheet { container: sheet / inline-size; background: var(--white); color: var(--ink); border-radius: 28px; padding: clamp(24px, 4.5vw, 56px); box-shadow: 0 1px 0 var(--sh-card-1), 0 18px 40px var(--sh-card-2); }
-.sheet-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 12px 32px; margin-bottom: 40px; }
-h2 { margin: 0; font-size: clamp(2.25rem, 1.6rem + 2vw, 3.25rem); line-height: 1; font-weight: 800; letter-spacing: -.03em; }
-.once { margin: 0; display: flex; align-items: center; gap: 10px; font-size: 16px; line-height: 1.45; color: var(--ink-3); }
-.once svg, .privacy svg { flex: none; width: 18px; height: 18px; }
-.steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 20px; }
-/* Two columns (the sheet is 620-939px inside): stack steps 1 and 3 on the left, the tall step 2 on the right. */
-@container sheet (620px <= width < 940px) {
-  .steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .steps li:nth-child(2) { grid-column: 2; grid-row: 1 / span 2; }
-}
-.steps li { display: flex; flex-direction: column; gap: 10px; padding: 24px 26px 28px; border: 2px dashed var(--dash); border-radius: 22px; }
-.step-n {
-  align-self: flex-start; display: flex; align-items: center; justify-content: center; width: 46px; height: 46px;
-  border: 3px solid var(--white); border-radius: 50%; background: var(--lid-top); color: var(--ink);
-  font-size: 22px; line-height: 1; font-weight: 800; box-shadow: 0 4px 10px var(--sh-num); transform: rotate(var(--r));
-}
-h3 { margin: 4px 0 0; font-size: 24px; line-height: 1.2; font-weight: 750; letter-spacing: -.015em; }
-.st-p { margin: 0; font-size: 16.5px; line-height: 1.55; color: var(--ink-3); text-wrap: pretty; }
-.st-p a { font-weight: 600; }
-.kk { display: inline-flex; gap: 3px; vertical-align: 1px; }
-kbd {
-  display: inline-block; min-width: 1.5em; padding: 1px 6px;
-  border: 1px solid var(--kbd-line); border-bottom-width: 2px; border-radius: 6px;
-  background: var(--white); color: var(--ink); font-family: inherit; font-size: 14px; font-weight: 700; text-align: center;
-}
-.privacy { margin: 8px 0 0; display: flex; align-items: flex-start; gap: 10px; font-size: 14.5px; line-height: 1.5; color: var(--ink-3); text-wrap: pretty; }
-.privacy svg { margin-top: 2px; }
-
-/* ---------- Footer ---------- */
-.foot-in { padding-block: 28px 32px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 24px; font-size: 15px; }
-.foot-brand { display: flex; align-items: center; gap: 8px; font-weight: 700; }
-.foot-brand .mark { width: 24px; height: 24px; box-shadow: none; }
-.foot-brand .mark svg { width: 18px; height: 18px; }
-.foot-link, .foot-link:hover { display: inline-flex; align-items: center; min-height: 44px; color: var(--ink); font-weight: 600; text-decoration: underline; text-decoration-thickness: 1.5px; text-underline-offset: 4px; }
-.foot-link:hover { text-decoration-thickness: 3px; }
-
-/* ---------- Motion ---------- */
-@media (prefers-reduced-motion: no-preference) {
-  .stk, .fs { transition: transform .25s cubic-bezier(.2, .8, .2, 1); }
-  .dl { transition: transform .15s ease; }
-}
-@media (prefers-reduced-motion: no-preference) and (hover: hover) {
-  .stk:hover, .fs:hover { transform: rotate(0deg) scale(1.06); }
-  .dl:hover { transform: translateY(-2px); }
-}
-.fs:active { transform: rotate(var(--r)) scale(.96); }
-
-/* ---------- Responsive: below 860px the lid reflows into a tidy pile ---------- */
-@media (max-width: 859px) {
-  .lid { flex: 1 1 100%; width: auto; height: auto; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 18px 14px; padding: 26px 14px 34px; border-radius: 24px; }
-  .lg, .lk { position: static; }
-  .lb { position: relative; left: auto; top: auto; transform: rotate(-1.5deg); }
-  .faces { flex: 1 1 100%; display: grid; grid-template-columns: repeat(3, max-content); justify-content: center; gap: 22px 18px; padding-top: 4px; }
-  .fs { position: static; width: 84px; height: 84px; }
-  .faces-cap { position: static; grid-column: 1 / -1; justify-self: center; margin-top: -2px; transform: none; }
-  .lp { position: static; width: 100%; max-width: 541px; transform: rotate(-1deg); }
-  .stage { width: 100%; }
-}
-@media (min-width: 680px) and (max-width: 859px) {
-  .faces { grid-template-columns: repeat(6, max-content); }
-}
-@media (max-width: 600px) {
-  .panel { --m: 72px; padding: 10px; }
-  .p-main { grid-template-columns: minmax(0, 1fr); gap: 10px; }
-  .p-left { display: grid; grid-template-columns: var(--m) minmax(0, 1fr); gap: 14px; align-items: center; }
-  .mirror { border-radius: 13px; }
-  .hint { margin-top: 0; }
-  .hint b { font-size: 12.5px; }
-  .hint span { font-size: 11px; }
-  .grid { gap: 6px; }
-  .tile, .tile .thumb { border-radius: 8px; }
-  .legend { display: none; }
-  /* Keep the pins at least 24px tall in the small mirror (WCAG 2.5.8). */
-  .pin.eyes { left: 14%; top: 22%; width: 72%; height: 36%; }
-  .pin.mouth { left: 22%; top: 58%; width: 56%; height: 36%; }
-}
-@media (max-width: 479px) {
-  .lp { padding: 6px; border-radius: 16px; }
-  .fs { width: 76px; height: 76px; }
-  .lgt { font-size: 21px; }
-  .lgm { width: 30px; height: 30px; }
-  .lk > span { width: 34px; height: 34px; font-size: 17px; }
-}
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
-}
+body{background:#F2F2F7;color:#1D1D1F}
 </style>
 
-<header class="top">
-  <div class="wrap top-in">
-    <span class="brand">
-      <span class="mark" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M9 9.3v.8M15 9.3v.8"/><path d="M8.3 14c1 1.4 2.2 2.1 3.7 2.1s2.7-.7 3.7-2.1"/></svg>
-      </span>
-      MemeMe
-    </span>
-    <nav class="nav" aria-label="Site">
-      <a class="nav-gh" href="https://github.com/Michaell14/MemeMe" target="_blank" rel="noopener">GitHub</a>
-      <a class="pill" href="https://github.com/Michaell14/MemeMe/releases/latest/download/MemeMe.dmg" target="_blank" rel="noopener">Download</a>
-    </nav>
-  </div>
-</header>
-
-<main>
-  <section class="hero" aria-labelledby="hero-h">
-    <div class="wrap hero-in">
-      <div class="copy">
-        <p class="kicker">A menu bar app for Mac</p>
-        <h1 id="hero-h"><span>Make a face.</span> <span>Get the meme.</span></h1>
-        <p class="lede">MemeMe lives in your menu bar, with no Dock icon and no window. Press <span class="nw">⌃⌘M</span> in any chat, make the face you mean, and copy the reaction that matches.</p>
-        <a class="dl" href="https://github.com/Michaell14/MemeMe/releases/latest/download/MemeMe.dmg" target="_blank" rel="noopener">
-          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"/><path d="M7 10.5l5 5 5-5"/><path d="M5 19.5h14"/></svg>
-          <span class="dl-t"><b>Download for Mac</b><small>MemeMe.dmg · 2 MB</small></span>
-        </a>
-        <p class="req"><span class="nw">Version 1.0</span> · <span class="nw">macOS 14 Sonoma or later</span> · <span class="nw">Apple silicon and Intel</span></p>
+<div class="readme">
+  <header class="R-top"><div class="wrap">
+    <a class="name" href="#top" id="top"><img data-icon alt="">MemeMe</a>
+    <nav><a href="#r-how">How it works</a><a href="#r-faq">Questions</a><a href="#r-changes">Changes</a><a href="https://github.com/Michaell14/MemeMe" target="_blank" rel="noopener">GitHub</a></nav>
+  </div></header>
+  <div class="wrap">
+    <section class="R-col R-intro">
+      <div class="R-text">
+      <img data-icon alt="MemeMe app icon">
+      <h1>MemeMe</h1>
+      <p class="R-lead">A small menu-bar app for Mac that finds the right reaction image. In any chat, press <span class="kb">⌃</span><span class="kb">⌘</span><span class="kb">M</span>, type a word or make a face, and press Return. The image is copied and you paste it.</p>
+      <div class="R-dl">
+        <a class="R-btn" href="https://github.com/Michaell14/MemeMe/releases/latest/download/MemeMe.dmg"><svg width="16" height="16" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 2v10M4.5 8L9 12.5 13.5 8M3 16h12"/></svg>Download for Mac</a>
+        <span class="R-meta">Version 1.0 · 2 MB · macOS 14 or later<br>Free. <a href="https://github.com/Michaell14/MemeMe" target="_blank" rel="noopener">Source code on GitHub</a></span>
       </div>
-
-      <div class="lid" id="lid">
-        <div class="lg stk" aria-hidden="true">
-          <div class="lg-in">
-            <span class="lgm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M9 9.3v.8M15 9.3v.8"/><path d="M8.3 14c1 1.4 2.2 2.1 3.7 2.1s2.7-.7 3.7-2.1"/></svg></span>
-            <span class="lgt">MemeMe</span>
-          </div>
-        </div>
-
-        <div class="lk stk" aria-hidden="true"><span>⌃</span><span>⌘</span><span>M</span></div>
-
-        <div class="lb">
-          <svg aria-hidden="true" viewBox="0 0 304 142" width="304" height="142">
-            <path class="b-cut" d="M40 8 H278 Q296 8 296 26 V116 Q296 134 278 134 H40 Q22 134 22 116 L4 132 L22 94 V26 Q22 8 40 8 Z"/>
-            <path class="b-line" d="M40 8 H278 Q296 8 296 26 V116 Q296 134 278 134 H40 Q22 134 22 116 L4 132 L22 94 V26 Q22 8 40 8 Z"/>
-          </svg>
-          <div class="lb-in">
-            <div class="mb">
-              <button class="mb-smiley" id="smiley" type="button" aria-expanded="true" aria-controls="panel" aria-label="MemeMe in the menu bar">
-                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M9 9.3v.8M15 9.3v.8"/><path d="M8.3 14c1 1.4 2.2 2.1 3.7 2.1s2.7-.7 3.7-2.1"/></svg>
-              </button>
-              <span class="mb-ic mb-wifi" aria-hidden="true"><svg width="16" height="12" viewBox="0 0 16 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.2a9.5 9.5 0 0 1 13 0"/><path d="M4 7a6 6 0 0 1 8 0"/><path d="M6.5 9.7a2.4 2.4 0 0 1 3 0"/></svg></span>
-              <span class="mb-ic mb-batt" aria-hidden="true"><svg width="24" height="12" viewBox="0 0 24 12" fill="none"><rect x=".75" y=".75" width="19.5" height="10.5" rx="3" stroke="currentColor" stroke-opacity=".5" stroke-width="1.2"/><rect x="2.5" y="2.5" width="13" height="7" rx="1.6" fill="currentColor"/><path d="M22 4.3v3.4" stroke="currentColor" stroke-opacity=".5" stroke-width="1.5" stroke-linecap="round"/></svg></span>
-              <span class="mb-time" aria-hidden="true">Tue 9:41</span>
-            </div>
-            <div class="cue">
-              <svg aria-hidden="true" width="14" height="18" viewBox="0 0 14 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17V3"/><path d="M2 7.5L7 2.5l5 5"/></svg>
-              <p>Lives up here. No Dock icon, no window, not in ⌘-Tab.</p>
-            </div>
-          </div>
-        </div>
-
-        <div class="faces" role="group" aria-label="Try a face">
-          <button class="fs lf" type="button" data-face="shocked" aria-pressed="true" aria-label="Try Shocked" style="--x:38px;--y:20px;--s:100px;--r:-10deg;--sk:var(--skin-1)">
-            <svg viewBox="-4 -8 108 108" aria-hidden="true" focusable="false"><path class="ring" d="M18 54a32 32 0 1 0 64 0a32 32 0 1 0 -64 0 M22 40 L26 12 L46 28 Z M78 40 L74 12 L54 28 Z"/><path class="cut" d="M18 54a32 32 0 1 0 64 0a32 32 0 1 0 -64 0 M22 40 L26 12 L46 28 Z M78 40 L74 12 L54 28 Z"/><path class="sk" d="M22 40 L26 12 L46 28 Z M78 40 L74 12 L54 28 Z"/><circle class="sk" cx="50" cy="54" r="32"/><path class="ln" d="M30 36 Q38 29 45 34 M55 34 Q62 29 70 36"/><path class="ey f-white" d="M31 46a7 7 0 1 0 14 0a7 7 0 1 0 -14 0M55 46a7 7 0 1 0 14 0a7 7 0 1 0 -14 0"/><path class="pu" d="M35.4 46a2.6 2.6 0 1 0 5.2 0a2.6 2.6 0 1 0 -5.2 0M59.4 46a2.6 2.6 0 1 0 5.2 0a2.6 2.6 0 1 0 -5.2 0"/><path class="mo f-ink" d="M42.5 70a7.5 7.5 0 1 0 15 0a7.5 7.5 0 1 0 -15 0"/></svg>
-            <span class="fs-tag" aria-hidden="true">Shocked</span>
-          </button>
-          <button class="fs lf" type="button" data-face="unimpressed" aria-pressed="false" aria-label="Try Unimpressed" style="--x:166px;--y:30px;--s:76px;--r:8deg;--sk:var(--skin-2);--hr:var(--hair-1)">
-            <svg viewBox="-4 -8 108 108" aria-hidden="true" focusable="false"><path class="ring" d="M18 54a32 32 0 1 0 64 0a32 32 0 1 0 -64 0 M20 44 Q18 18 50 19 Q82 18 80 44 Q72 28 50 28 Q28 28 20 44 Z"/><path class="cut" d="M18 54a32 32 0 1 0 64 0a32 32 0 1 0 -64 0 M20 44 Q18 18 50 19 Q82 18 80 44 Q72 28 50 28 Q28 28 20 44 Z"/><circle class="sk" cx="50" cy="54" r="32"/><path class="hr" d="M20 44 Q18 18 50 19 Q82 18 80 44 Q72 28 50 28 Q28 28 20 44 Z"/><path class="ln" d="M30 40 L45 41.5 M55 41.5 L70 40"/><path class="ey f-white" d="M31 46 A7 7 0 0 0 45 46 Z M55 46 A7 7 0 0 0 69 46 Z"/><path class="pu" d="M35.6 49.2a2.4 2.4 0 1 0 4.8 0a2.4 2.4 0 1 0 -4.8 0M59.6 49.2a2.4 2.4 0 1 0 4.8 0a2.4 2.4 0 1 0 -4.8 0"/><path class="mo f-none" d="M40 70 Q50 66.5 60 70"/></svg>
-            <span class="fs-tag" aria-hidden="true">Unimpressed</span>
-          </button>
-          <button class="fs lf" type="button" data-face="laughing" aria-pressed="false" aria-label="Try Laughing" style="--x:618px;--y:14px;--s:110px;--r:9deg;--sk:var(--skin-3);--hr:var(--hair-2)">
-            <svg viewBox="-4 -8 108 108" aria-hidden="true" focusable="false"><path class="ring" d="M18 54a32 32 0 1 0 64 0a32 32 0 1 0 -64 0 M37 16a13 13 0 1 0 26 0a13 13 0 1 0 -26 0 M18 50 Q14 18 50 20 Q86 18 82 50 Q76 30 50 28 Q24 30 18 50 Z"/><path class="cut" d="M18 54a32 32 0 1 0 64 0a32 32 0 1 0 -64 0 M37 16a13 13 0 1 0 26 0a13 13 0 1 0 -26 0 M18 50 Q14 18 50 20 Q86 18 82 50 Q76 30 50 28 Q24 30 18 50 Z"/><circle class="sk" cx="50" cy="54" r="32"/><path class="hr" d="M37 16a13 13 0 1 0 26 0a13 13 0 1 0 -26 0 M18 50 Q14 18 50 20 Q86 18 82 50 Q76 30 50 28 Q24 30 18 50 Z"/><path class="ln" d="M30 36 Q37 32 45 35 M55 35 Q63 32 70 36"/><path class="ey f-none" d="M31 48 Q38 41 45 48 M55 48 Q62 41 69 48"/><path class="mo f-ink" d="M36 62 Q50 82 64 62 Z"/><path class="tr" d="M30 53 Q27 60 30 63 Q33 60 30 53 Z M70 53 Q67 60 70 63 Q73 60 70 53 Z"/></svg>
-            <span class="fs-tag" aria-hidden="true">Laughing</span>
-          </button>
-          <button class="fs lf" type="button" data-face="smug" aria-pressed="false" aria-label="Try Smug" style="--x:604px;--y:238px;--s:96px;--r:-7deg;--sk:var(--skin-4);--hr:var(--hair-3)">
-            <svg viewBox="-4 -8 108 108" aria-hidden="true" focusable="false"><path class="ring" d="M18 54a32 32 0 1 0 64 0a32 32 0 1 0 -64 0 M20 44 Q18 18 50 19 Q82 18 80 44 Q72 28 50 28 Q28 28 20 44 Z"/><path class="cut" d="M18 54a32 32 0 1 0 64 0a32 32 0 1 0 -64 0 M20 44 Q18 18 50 19 Q82 18 80 44 Q72 28 50 28 Q28 28 20 44 Z"/><circle class="sk" cx="50" cy="54" r="32"/><path class="hr" d="M20 44 Q18 18 50 19 Q82 18 80 44 Q72 28 50 28 Q28 28 20 44 Z"/><path class="ln" d="M30 39 L45 37 M55 35 Q62 31 70 35"/><path class="ey f-none" d="M31 47 L45 47 M55 47 L69 47"/><path class="pu" d="M38.6 49.5a2.4 2.4 0 1 0 4.8 0a2.4 2.4 0 1 0 -4.8 0M62.6 49.5a2.4 2.4 0 1 0 4.8 0a2.4 2.4 0 1 0 -4.8 0"/><path class="mo f-none" d="M39 68 Q52 72 63 62"/></svg>
-            <span class="fs-tag" aria-hidden="true">Smug</span>
-          </button>
-          <button class="fs lf" type="button" data-face="sideeye" aria-pressed="false" aria-label="Try Side eye" style="--x:660px;--y:326px;--s:84px;--r:12deg;--sk:var(--skin-5)">
-            <svg viewBox="-4 -8 108 108" aria-hidden="true" focusable="false"><path class="ring" d="M18 54a32 32 0 1 0 64 0a32 32 0 1 0 -64 0 M24 34 Q8 52 20 68 Q28 60 32 38 Z M76 34 Q92 52 80 68 Q72 60 68 38 Z"/><path class="cut" d="M18 54a32 32 0 1 0 64 0a32 32 0 1 0 -64 0 M24 34 Q8 52 20 68 Q28 60 32 38 Z M76 34 Q92 52 80 68 Q72 60 68 38 Z"/><path class="sk" d="M24 34 Q8 52 20 68 Q28 60 32 38 Z M76 34 Q92 52 80 68 Q72 60 68 38 Z"/><circle class="sk" cx="50" cy="54" r="32"/><path class="ln" d="M30 39 L45 39 M55 38 L70 36"/><path class="ey f-white" d="M32 47a6 6 0 1 0 12 0a6 6 0 1 0 -12 0M56 47a6 6 0 1 0 12 0a6 6 0 1 0 -12 0"/><path class="pu" d="M39.4 48a2.6 2.6 0 1 0 5.2 0a2.6 2.6 0 1 0 -5.2 0M63.4 48a2.6 2.6 0 1 0 5.2 0a2.6 2.6 0 1 0 -5.2 0"/><path class="mo f-none" d="M42 68 L58 67"/></svg>
-            <span class="fs-tag" aria-hidden="true">Side eye</span>
-          </button>
-          <button class="fs lf" type="button" data-face="confused" aria-pressed="false" aria-label="Try Confused" style="--x:598px;--y:414px;--s:88px;--r:-5deg;--sk:var(--skin-6)">
-            <svg viewBox="-4 -8 108 108" aria-hidden="true" focusable="false"><path class="ring" d="M18 54a32 32 0 1 0 64 0a32 32 0 1 0 -64 0"/><path class="cut" d="M18 54a32 32 0 1 0 64 0a32 32 0 1 0 -64 0"/><circle class="sk" cx="50" cy="54" r="32"/><path class="ln" d="M29 34 Q37 25 45 31 M55 41 L70 38"/><path class="ey f-white" d="M30.8 46a7.2 7.2 0 1 0 14.4 0a7.2 7.2 0 1 0 -14.4 0M56.8 47.5a5.2 5.2 0 1 0 10.4 0a5.2 5.2 0 1 0 -10.4 0"/><path class="pu" d="M33.8 44.2a2.6 2.6 0 1 0 5.2 0a2.6 2.6 0 1 0 -5.2 0M58.5 46.2a2.3 2.3 0 1 0 4.6 0a2.3 2.3 0 1 0 -4.6 0"/><path class="mo f-none" d="M39 70 Q44.5 65.5 50 70 Q55.5 74.5 61 68.5"/></svg>
-            <span class="fs-tag" aria-hidden="true">Confused</span>
-          </button>
-          <p class="faces-cap">Pick a face sticker to try it.</p>
-        </div>
-
-        <div class="lp" id="lp">
-          <div class="stage" id="stage">
-            <div class="panel" id="panel" role="group" aria-label="MemeMe panel, interactive demo">
-              <div class="p-main">
-                <div class="p-left">
-                  <div class="mirror-box" id="mirrorBox">
-                    <div class="mirror" id="mirror" role="img" aria-label="Your face"></div>
-                    <svg class="ring" id="ring" viewBox="0 0 126 126" aria-hidden="true"><rect x="1.5" y="1.5" width="123" height="123" rx="21" pathLength="100"/></svg>
-                    <button class="pin eyes" type="button" data-pin="eyes" aria-pressed="false" aria-label="Make your eyes count more"></button>
-                    <button class="pin mouth" type="button" data-pin="mouth" aria-pressed="false" aria-label="Make your mouth count more"></button>
-                  </div>
-                  <div class="hint">
-                    <b id="hintTitle">Make a face. Results follow it.</b>
-                    <span id="hintSub">Click your eyes or mouth to make them count more.</span>
-                    <button class="cap" id="hintAction" type="button" hidden>Clear</button>
-                  </div>
-                </div>
-                <div class="p-right">
-                  <label class="search" id="searchBox">
-                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="6.8" cy="6.8" r="4.9"/><path d="m10.5 10.5 3.6 3.6"/></svg>
-                    <input id="q" type="text" autocomplete="off" spellcheck="false" placeholder="Or type: cat, gif, Maya…" aria-label="Search by typing">
-                    <span class="keys" aria-label="Control Command M"><span>⌃</span><span>⌘</span><span>M</span></span>
-                  </label>
-                  <ol class="grid" id="grid" aria-label="Results"></ol>
+      </div>
+      <div class="R-convo" aria-label="An example chat">
+        <div class="cv-head"><span class="av g">WC</span><b>Weekend crew</b></div>
+        <div class="cv-who">Jordan</div>
+        <div class="b them">the deploy went out on a friday</div>
+        <div class="b them">and it broke checkout</div>
+        <div class="cv-who">Priya</div>
+        <div class="b them">how are we feeling</div>
+        <div class="cv-keys"><span class="kb">⌃</span><span class="kb">⌘</span><span class="kb">M</span><i data-type="fine">fine</i><span class="kb">↩</span><span class="kb">⌘</span><span class="kb">V</span></div>
+        <div class="picwrap"><div class="b me pic" data-art="fine"></div><span class="tap">haha</span></div>
+        <div class="cv-read">Delivered</div>
+        <div class="cv-who">Jordan</div>
+        <div class="b them">ok that is exactly it</div>
+      </div>
+    </section>
+    <div class="R-demo demo-slot plainguide">
+<div class="demo" id="demo">
+  <div class="lap" id="lap" data-finish="silver" data-wall="solid" style="--wall-solid:#7FA6F5">
+    <div class="lap-glow"></div>
+    <div class="lap-hinge">
+      <div class="lap-lid" id="lid">
+        <div class="lap-face">
+          <div class="lap-screen" id="screen">
+            <div class="desk" id="desk" data-state="idle">
+              <div class="wall"><i></i><i></i><i></i><i></i></div>
+              <div class="menubar">
+                <div class="l"><b>Messages</b><span>File</span><span>Edit</span><span>View</span><span>Conversation</span><span>Window</span><span>Help</span></div>
+                <div class="r">
+                  <button class="mb-icon" id="mbIcon" aria-label="Open MemeMe (Control Command M)" title="MemeMe ⌃⌘M"><span class="ping"></span>
+                    <svg width="20" height="20" viewBox="0 0 18 18" fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.7 2.3H13.3A3 3 0 0 1 16.3 5.3V9.6A3 3 0 0 1 13.3 12.6H6.8C5.9 14.1 4.4 15.4 2.4 16C3.1 14.9 3.0 13.6 2.5 12.2A3 3 0 0 1 1.7 9.6V5.3A3 3 0 0 1 4.7 2.3Z" stroke-width="1.4"/><path d="M10.5 6.6Q11.7 5.2 12.9 6.6M5.6 8.9Q9 11.2 12.4 8.9" stroke-width="1.3"/><rect x="5.4" y="5" width="1.5" height="2.5" rx=".75" fill="#fff" stroke="none"/></svg>
+                  </button>
+                  <svg width="20" height="16" viewBox="0 0 20 16" fill="#fff"><path d="M10 13.6l2.3-2.6a3.3 3.3 0 0 0-4.6 0zM5.5 8.8l1.5 1.6a4.4 4.4 0 0 1 6 0l1.5-1.6a6.6 6.6 0 0 0-9 0zM2.4 5.6L4 7.2a8.6 8.6 0 0 1 12 0l1.6-1.6a10.9 10.9 0 0 0-15.2 0z"/></svg>
+                  <svg width="28" height="14" viewBox="0 0 28 14"><rect x=".5" y=".5" width="23" height="13" rx="4" fill="none" stroke="#fff" opacity=".5"/><rect x="2.5" y="2.5" width="16" height="9" rx="2.2" fill="#fff"/><rect x="25" y="4.5" width="2" height="5" rx="1" fill="#fff" opacity=".5"/></svg>
+                  <span id="clock">Mon 16 Nov 9:41</span>
                 </div>
               </div>
-              <div class="p-foot">
-                <span class="focusline" id="focusText"></span>
-                <span class="legend">↵ copy · 1–9 pick · drag into chat · esc</span>
+              <div class="d-notch"></div>
+              <div class="hud" id="hud"><span class="ok"><svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 7l3 3 5-6.5"/></svg></span><span id="hudText">Copied</span><span class="sub"><span class="kc">⌘</span><span class="kc">V</span> to paste</span></div>
+
+              <div class="chat">
+                <div class="chat-side">
+                  <div class="lights"><i></i><i></i><i></i></div>
+                  <div class="convo on"><span class="av g">WC</span><div><b>Weekend crew</b><p id="lastPreview">Jordan: how are we feeling</p></div></div>
+                  <div class="convo"><span class="av p">AR</span><div><b>Alex Rivera</b><p>see you at 7</p></div></div>
+                  <div class="convo"><span class="av t">SK</span><div><b>Sam Kim</b><p>lmaooo stop</p></div></div>
+                  <div class="convo"><span class="av">DM</span><div><b>Dana M.</b><p>ok sending it now</p></div></div>
+                </div>
+                <div class="chat-main">
+                  <div class="chat-head"><b>Weekend crew</b>Jordan, Priya, you</div>
+                  <div class="msgs" id="msgs">
+                    <div class="m-who">Jordan</div>
+                    <div class="m">the deploy went out on a friday</div>
+                    <div class="m">and it broke checkout</div>
+                    <div class="m me">on a FRIDAY??</div>
+                    <div class="m-who">Priya</div>
+                    <div class="m">how are we feeling</div>
+                  </div>
+                  <div class="compose"><span class="caret"></span><span style="margin-left:6px">Message</span></div>
+                </div>
               </div>
-            </div>
-            <div class="closed" id="closed" hidden>
-              <div class="closed-msg" id="closedMsg"></div>
-              <div class="closed-foot">
-                <span>Back in the menu bar. Press ⌃⌘M or click <span class="nw">the smiley.</span></span>
-                <button class="btn-accent" id="reopen" type="button">Open</button>
+
+              <!-- MemeMe: the search panel -->
+              <div class="mm" id="mm" hidden role="dialog" aria-label="MemeMe">
+                <div class="mm-search">
+                  <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="8.5" cy="8.5" r="6"/><path d="M13 13l4.5 4.5"/></svg>
+                  <span class="token" id="token" hidden><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zM5.6 5.2a1 1 0 1 1 0 2 1 1 0 0 1 0-2zm4.8 0a1 1 0 1 1 0 2 1 1 0 0 1 0-2zM4.6 9.4h6.8a3.4 3.4 0 0 1-6.8 0z"/></svg><span id="tokenWord">shocked</span><button id="tokenX" aria-label="Not this face">×</button></span>
+                  <input class="mm-input" id="q" type="text" autocomplete="off" spellcheck="false" placeholder="Search GIFs, stickers and memes…" aria-label="Search">
+                  <button class="srcbtn" id="srcBtn" aria-haspopup="menu" aria-expanded="false"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="5" height="5" rx="1.4"/><rect x="9" y="2" width="5" height="5" rx="1.4"/><rect x="2" y="9" width="5" height="5" rx="1.4"/><rect x="9" y="9" width="5" height="5" rx="1.4"/></svg><span id="srcName">All Sources</span><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 4l3 3 3-3"/></svg></button>
+                </div>
+                <div class="mm-body">
+                  <div class="camcol"><div class="camcol-in">
+                    <div class="mirror"><div class="disc"></div><svg class="sk" id="sk" viewBox="18 20 164 164" aria-hidden="true"></svg>
+                      <svg class="ring" viewBox="0 0 180 180" aria-hidden="true"><circle class="track" cx="90" cy="90" r="88"/><circle class="fill" id="ringFill" cx="90" cy="90" r="88"/></svg></div>
+                    <div class="cam-word" id="camWord">Make a face.</div>
+                    <div class="cam-from" id="camFrom">Hold it and results follow.</div>
+                    <div class="cues">
+                      <button class="cue" data-part="brows">Brows <span class="meter" id="mBrows"><i></i><i></i><i></i><i></i><i></i></span></button>
+                      <button class="cue" data-part="eyes">Eyes <span class="meter" id="mEyes"><i></i><i></i><i></i><i></i><i></i></span></button>
+                      <button class="cue" data-part="mouth">Mouth <span class="meter" id="mMouth"><i></i><i></i><i></i><i></i><i></i></span></button>
+                    </div>
+                  </div></div>
+                  <div class="gridwrap" id="gridwrap">
+                    <div class="gtitle"><span id="gTitle">Recent in Messages</span><span class="credit" id="gCredit"></span></div>
+                    <div class="grid" id="grid"></div>
+                  </div>
+                  <div class="islands">
+                    <div class="island left">
+                      <button id="faceBtn" aria-pressed="false"><svg class="camglyph" width="18" height="16" viewBox="0 0 18 16" fill="currentColor"><path d="M6.4 1.5h5.2l1.3 2H15A2 2 0 0 1 17 5.5v7.5a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V5.5a2 2 0 0 1 2-2h2.1zM9 6a3.2 3.2 0 1 0 0 6.4A3.2 3.2 0 0 0 9 6z"/></svg>Search with your face <span class="k">⌘F</span></button>
+                      <span class="hair"></span>
+                      <button aria-label="Cut a sticker from the screen" id="cutBtn"><svg width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="4.5" cy="13.5" r="2.5"/><circle cx="13.5" cy="13.5" r="2.5"/><path d="M6.3 11.7L14 2M11.7 11.7L4 2"/></svg></button>
+                    </div>
+                    <div class="island right" id="rightIsland">
+                      <button id="copyBtn">Copy <span class="k go">↩</span></button>
+                      <span class="hair"></span>
+                      <button id="actBtn" aria-haspopup="menu">Actions <span class="k">⌘K</span></button>
+                    </div>
+                  </div>
+                </div>
+                <div class="menu src" id="srcMenu" hidden role="menu"></div>
+                <div class="menu act" id="actMenu" hidden role="menu"></div>
               </div>
             </div>
           </div>
+          <div class="lap-cam"></div>
         </div>
-
-        <span class="hinge" aria-hidden="true"></span>
-        <p class="sr" id="live" aria-live="polite"></p>
+        <div class="lap-back"></div>
       </div>
     </div>
-  </section>
-
-  <section id="install" aria-labelledby="install-h">
-    <div class="wrap">
-      <div class="sheet">
-        <div class="sheet-head">
-          <h2 id="install-h">Install</h2>
-          <p class="once">
-            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4v5h-5"/></svg>
-            You do this once. After that, MemeMe updates itself.
-          </p>
-        </div>
-
-        <ol class="steps">
-          <li>
-            <span class="step-n" aria-hidden="true" style="--r:-8deg">1</span>
-            <h3>Drag it to Applications</h3>
-            <p class="st-p">Open <a href="https://github.com/Michaell14/MemeMe/releases/latest/download/MemeMe.dmg" target="_blank" rel="noopener">MemeMe.dmg</a> and drag MemeMe to Applications.</p>
-          </li>
-          <li>
-            <span class="step-n" aria-hidden="true" style="--r:6deg">2</span>
-            <h3>Open it</h3>
-            <p class="st-p">The first time, macOS asks whether to open an app downloaded from the internet. Click Open.</p>
-          </li>
-          <li>
-            <span class="step-n" aria-hidden="true" style="--r:-4deg">3</span>
-            <h3>Allow the camera</h3>
-            <p class="st-p">Then press <span class="kk"><kbd>⌃</kbd><kbd>⌘</kbd><kbd>M</kbd></span> <span class="nw">in any chat.</span></p>
-            <p class="privacy">
-              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
-              The camera is on only while the panel is open, and your face never leaves your Mac.
-            </p>
-          </li>
-        </ol>
-      </div>
-    </div>
-  </section>
-</main>
-
-<footer class="foot">
-  <div class="wrap foot-in">
-    <span class="foot-brand">
-      <span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M9 9.3v.8M15 9.3v.8"/><path d="M8.3 14c1 1.4 2.2 2.1 3.7 2.1s2.7-.7 3.7-2.1"/></svg></span>
-      MemeMe 1.0
-    </span>
-    <a class="foot-link" href="https://github.com/Michaell14/MemeMe" target="_blank" rel="noopener">Source code and releases on GitHub</a>
+    <div class="lap-base"></div>
   </div>
-</footer>
+  <div class="guide" id="guide" aria-live="polite">
+    <span class="step" id="gStep">Live demo</span>
+    <span class="say" id="gSay">Press <span class="kc">⌃</span><span class="kc">⌘</span><span class="kc">M</span> in the chat</span>
+    <span class="acts" id="gActs"></span>
+  </div>
+</div>
+    </div>
+    <div class="R-col doc">
+      <section class="R-sec" id="r-how"><h2 class="doc-h2">How it works</h2><div data-block="steps"></div></section>
+      <section class="R-sec"><h2 class="doc-h2">Searching with your face</h2>
+        <p>Press <span class="kb">⌘</span><span class="kb">F</span> in the panel and the camera turns on. Hold an expression for about a third of a second and it becomes the search. There is no shutter. MemeMe compares you with your own resting face, so small changes count: one raised brow, a wink, a tongue out.</p>
+        <div class="facefig" id="rFace"><div class="cam"><svg class="sk" viewBox="18 20 164 164" aria-hidden="true"></svg></div><div class="side"><div><div class="word" data-word>shocked</div><div class="from">Try one:</div></div><div class="facebtns" data-faces="shocked,wink,tongue,raised,eyeroll,celebrate"></div></div></div>
+      </section>
+      <section class="R-sec"><h2 class="doc-h2">Where results come from</h2><div data-block="sources"></div></section>
+      <section class="R-sec"><h2 class="doc-h2">Keyboard</h2><div data-block="shortcuts"></div></section>
+      <section class="R-sec" id="r-faq"><h2 class="doc-h2">Questions</h2><div data-block="faq"></div></section>
+      <section class="R-sec" id="r-changes"><h2 class="doc-h2">Recent changes</h2><div data-block="changes"></div><p style="margin-top:16px"><a href="https://github.com/Michaell14/MemeMe/releases" target="_blank" rel="noopener" style="color:var(--d-fg)">All releases on GitHub</a></p></section>
+    </div>
+  </div>
+  <footer class="R-foot"><div class="wrap"><div class="R-col"><span>MemeMe 1.0 for macOS</span><a href="https://github.com/Michaell14/MemeMe" target="_blank" rel="noopener" style="color:inherit">github.com/Michaell14/MemeMe</a></div></div></footer>
+</div>
 
 <script>
 (() => {
-  "use strict";
-  const $ = (s, r = document) => r.querySelector(s);
-  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
-  const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
-  const n1 = v => Math.round(v * 10) / 10;
-  const ease = t => 1 - Math.pow(1 - t, 3);
-  const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const finePointer = matchMedia("(pointer: fine)").matches;
+'use strict';
+const ICON = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDI0IiBoZWlnaHQ9IjEwMjQiIHZpZXdCb3g9IjAgMCAxMDI0IDEwMjQiPgogIDxkZWZzPgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJ0aWxlR3JhZCIgeDE9IjAiIHkxPSIxMDAiIHgyPSIwIiB5Mj0iOTI0IiBncmFkaWVudFVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCIgc3RvcC1jb2xvcj0iI0ZGQTQ2OCIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjAuNSIgc3RvcC1jb2xvcj0iI0ZGOUE1QyIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiNFRTY1MzAiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgICA8cmFkaWFsR3JhZGllbnQgaWQ9InRpbGVHbG93IiBjeD0iNTEyIiBjeT0iMzAwIiByPSI1MjAiIGdyYWRpZW50VW5pdHM9InVzZXJTcGFjZU9uVXNlIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjRkZGRkZGIiBzdG9wLW9wYWNpdHk9IjAuMTIiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjRkZGRkZGIiBzdG9wLW9wYWNpdHk9IjAiLz4KICAgIDwvcmFkaWFsR3JhZGllbnQ+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImVkZ2VHcmFkIiB4MT0iMCIgeTE9IjEwMCIgeDI9IjAiIHkyPSI1MTIiIGdyYWRpZW50VW5pdHM9InVzZXJTcGFjZU9uVXNlIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjRkZGRkZGIiBzdG9wLW9wYWNpdHk9IjAuNTUiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjRkZGRkZGIiBzdG9wLW9wYWNpdHk9IjAiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImJ1YmJsZUdyYWQiIHgxPSIwIiB5MT0iMjUwIiB4Mj0iMCIgeTI9IjgwMCIgZ3JhZGllbnRVbml0cz0idXNlclNwYWNlT25Vc2UiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiNGRkZGRkYiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjRjFFRUY4Ii8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogICAgPGNsaXBQYXRoIGlkPSJ0aWxlQ2xpcCI+PHJlY3QgeD0iMTAwIiB5PSIxMDAiIHdpZHRoPSI4MjQiIGhlaWdodD0iODI0IiByeD0iMTg1IiByeT0iMTg1Ii8+PC9jbGlwUGF0aD4KICAgIDxmaWx0ZXIgaWQ9InRpbGVTaGFkb3ciIHg9Ii0yMCUiIHk9Ii0yMCUiIHdpZHRoPSIxNDAlIiBoZWlnaHQ9IjE0MCUiPgogICAgICA8ZmVHYXVzc2lhbkJsdXIgaW49IlNvdXJjZUFscGhhIiBzdGREZXZpYXRpb249IjEyIi8+CiAgICAgIDxmZU9mZnNldCBkeD0iMCIgZHk9IjEyIiByZXN1bHQ9ImJsdXIiLz4KICAgICAgPGZlRmxvb2QgZmxvb2QtY29sb3I9IiMwMDAwMDAiIGZsb29kLW9wYWNpdHk9IjAuMzAiLz4KICAgICAgPGZlQ29tcG9zaXRlIGluMj0iYmx1ciIgb3BlcmF0b3I9ImluIiByZXN1bHQ9InNoYWRvdyIvPgogICAgICA8ZmVNZXJnZT48ZmVNZXJnZU5vZGUgaW49InNoYWRvdyIvPjxmZU1lcmdlTm9kZSBpbj0iU291cmNlR3JhcGhpYyIvPjwvZmVNZXJnZT4KICAgIDwvZmlsdGVyPgogICAgPGZpbHRlciBpZD0iYnViYmxlU2hhZG93IiB4PSItMzAlIiB5PSItMzAlIiB3aWR0aD0iMTYwJSIgaGVpZ2h0PSIxNjAlIj4KICAgICAgPGZlR2F1c3NpYW5CbHVyIHN0ZERldmlhdGlvbj0iMTQiLz4KICAgIDwvZmlsdGVyPgogIDwvZGVmcz4KCiAgPCEtLSB0aWxlIC0tPgogIDxnIGZpbHRlcj0idXJsKCN0aWxlU2hhZG93KSI+CiAgICA8cmVjdCB4PSIxMDAiIHk9IjEwMCIgd2lkdGg9IjgyNCIgaGVpZ2h0PSI4MjQiIHJ4PSIxODUiIHJ5PSIxODUiIGZpbGw9InVybCgjdGlsZUdyYWQpIi8+CiAgPC9nPgogIDxnIGNsaXAtcGF0aD0idXJsKCN0aWxlQ2xpcCkiPgogICAgPHJlY3QgeD0iMTAwIiB5PSIxMDAiIHdpZHRoPSI4MjQiIGhlaWdodD0iODI0IiBmaWxsPSJ1cmwoI3RpbGVHbG93KSIvPgogIDwvZz4KICA8cmVjdCB4PSIxMDEiIHk9IjEwMSIgd2lkdGg9IjgyMiIgaGVpZ2h0PSI4MjIiIHJ4PSIxODQiIHJ5PSIxODQiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI0IzNDcxQSIgc3Ryb2tlLW9wYWNpdHk9IjAuMTQiIHN0cm9rZS13aWR0aD0iMiIvPgogIDxyZWN0IHg9IjEwMyIgeT0iMTAzIiB3aWR0aD0iODE4IiBoZWlnaHQ9IjgxOCIgcng9IjE4MiIgcnk9IjE4MiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSJ1cmwoI2VkZ2VHcmFkKSIgc3Ryb2tlLXdpZHRoPSIyIi8+CgogIDxnIHRyYW5zZm9ybT0idHJhbnNsYXRlKDUxMiA0NzApIHNjYWxlKDEuMCkgdHJhbnNsYXRlKC01MTIgLTQ3MCkiPgogICAgPCEtLSB0aGUgYnViYmxlOiBhIHNvZnQgc2hhZG93IG9uIHRoZSB0aWxlLCB0aGVuIHRoZSBib2R5IGFuZCBpdHMgdGFpbCAtLT4KICAgIDxnIGNsaXAtcGF0aD0idXJsKCN0aWxlQ2xpcCkiIG9wYWNpdHk9IjAuNCIgZmlsdGVyPSJ1cmwoI2J1YmJsZVNoYWRvdykiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDAgMTYpIj4KICAgICAgPHJlY3QgeD0iMjE0IiB5PSIyNTYiIHdpZHRoPSI1OTYiIGhlaWdodD0iNDIwIiByeD0iMTY4IiBmaWxsPSIjOUEzQTBFIi8+CiAgICAgIDxwYXRoIGQ9Ik0yOTYgNTkwIEMzMDAgNjkwIDI4NCA3NTIgMjM4IDgwMCBDMzI0IDc5NiA0MDQgNzU2IDQ1MiA2NjQgWiIgZmlsbD0iIzlBM0EwRSIvPgogICAgPC9nPgogICAgPHJlY3QgeD0iMjE0IiB5PSIyNTYiIHdpZHRoPSI1OTYiIGhlaWdodD0iNDIwIiByeD0iMTY4IiBmaWxsPSJ1cmwoI2J1YmJsZUdyYWQpIi8+CiAgICA8cGF0aCBkPSJNMjk2IDU5MCBDMzAwIDY5MCAyODQgNzUyIDIzOCA4MDAgQzMyNCA3OTYgNDA0IDc1NiA0NTIgNjY0IFoiIGZpbGw9InVybCgjYnViYmxlR3JhZCkiLz4KICAgIDwhLS0gdGhlIHdpbms6IGEgcGlsbCBleWUsIGEgY2xvc2VkIGV5ZSwgYSBncmluIC0tPgogICAgPGcgZmlsbD0iIzE2MUIyRSIgc3Ryb2tlPSIjMTYxQjJFIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogICAgICA8cmVjdCB4PSIzNzIuMCIgeT0iMzYxLjAiIHdpZHRoPSI2NCIgaGVpZ2h0PSIxMDYiIHJ4PSIzMi4wIiBzdHJva2U9Im5vbmUiLz4KICAgICAgPHBhdGggZD0iTTU1MiA0MzQgUTYxMiAzNjQgNjcyIDQzNCIgZmlsbD0ibm9uZSIgc3Ryb2tlLXdpZHRoPSI0MCIvPgogICAgICA8cGF0aCBkPSJNMzY4IDUyNCBRNTEyIDYyNCA2NTYgNTI0IiBmaWxsPSJub25lIiBzdHJva2Utd2lkdGg9IjQ0Ii8+CiAgICA8L2c+CiAgPC9nPgo8L3N2Zz4K";
+document.querySelectorAll('img[data-icon]').forEach(i => { i.src = ICON; });
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  // ---------- Faces ----------
-  // A face is seven numbers, the same kind of thing MemeMe measures on a real face.
-  const KEYS = ["brow", "tilt", "eye", "look", "mouth", "smile", "smirk"];
-  const REGION = { brow: "eyes", tilt: "eyes", eye: "eyes", look: "eyes", mouth: "mouth", smile: "mouth", smirk: "mouth" };
-  const face = p => ({ brow: 0, tilt: 0, eye: .55, look: 0, mouth: 0, smile: 0, smirk: 0, ...p });
-  const EXPR = {
-    shocked:     { label: "Shocked",     p: face({ brow: 1, eye: 1, mouth: 1 }) },
-    sideeye:     { label: "Side eye",    p: face({ brow: -.35, tilt: .25, eye: .42, look: 1, smile: -.25 }) },
-    laughing:    { label: "Laughing",    p: face({ brow: .35, eye: 0, mouth: .85, smile: 1 }) },
-    unimpressed: { label: "Unimpressed", p: face({ brow: -.2, eye: .38, smile: -.45 }) },
-    confused:    { label: "Confused",    p: face({ brow: .3, tilt: 1, eye: .72, look: -.3, mouth: .12, smile: -.3, smirk: .4 }) },
-    smug:        { label: "Smug",        p: face({ brow: -.1, tilt: .45, eye: .45, look: .35, smile: .55, smirk: .8 }) },
+/* ---------------- reactions (type, shape and motion; no faces) ---------------- */
+const M = [
+ {id:'fine',n:'this is fine',t:'fire',s:'giphy',k:'gif',tags:'fine calm ok burning chaos friday deploy everything',moods:'smirk happy sad',st:{}},
+ {id:'omg',n:'OMG',t:'shake',s:'giphy',k:'gif',tags:'omg wow what shocked surprised',moods:'shocked',cls:'xl',st:{bg:'#FF2D78',fg:'#fff',c1:'#00E5FF',c2:'#3D0AFF'}},
+ {id:'mind-blown',n:'mind blown',t:'burst',s:'classic',tags:'mind blown wow amazing shocked whoa',moods:'shocked',st:{bg:'#3D0AFF',fg:'#fff',c1:'#FFD60A',c2:'#FF9A5C'}},
+ {id:'nope',n:'nope',t:'tape',s:'mac',tags:'nope no never refuse',moods:'angry eyeroll',st:{c1:'#FF3B30',c2:'#1a1a1a',fg:'#fff',fg2:'#111'}},
+ {id:'lets-go',n:"let's go",t:'bounce',s:'giphy',k:'gif',tags:'lets go hype yes excited win',moods:'happy',st:{bg:'#00C853',fg:'#06210f'}},
+ {id:'slay',n:'slay',t:'sticker',s:'sticker',tags:'slay yes queen win',moods:'wink happy duck',st:{c1:'#FF4FD8',fg:'#fff'}},
+ {id:'sus',n:'sus',t:'glitch',s:'giphy',k:'gif',tags:'sus suspicious hmm doubt',moods:'raised smirk',cls:'xl',st:{bg:'#111',fg:'#fff',c1:'#00E5FF',c2:'#FF2D78'}},
+ {id:'no-thoughts',n:'no thoughts',t:'type',s:'mac',txt:'no thoughts, head empty',tags:'no thoughts empty blank brain',moods:'tongue eyeroll',st:{fg:'#F5F5F7'}},
+ {id:'facts',n:'facts',t:'stamp',s:'classic',tags:'facts true agree yes correct',moods:'smirk raised',st:{bg:'#FFD60A',fg:'#111'}},
+ {id:'sleepy',n:'5 more minutes',t:'drift',s:'mac',txt:'5 more min',tags:'sleepy tired zzz bored monday',moods:'sad eyeroll',cls:'sm',st:{bg:'#26215C',fg:'#C9C3FF',c1:'#fff'}},
+ {id:'party',n:'party',t:'spin',s:'giphy',k:'gif',tags:'party celebrate yay friday dance',moods:'happy',st:{c1:'#FF2D78',c2:'#FFD60A',c3:'#00E5FF'}},
+ {id:'chefs-kiss',n:"chef's kiss",t:'pulse',s:'sticker',tags:'chefs kiss perfect love nice',moods:'wink happy duck',st:{bg:'#FFE3EA',fg:'#B0003A',c1:'#FF4D6D'}},
+ {id:'same',n:'same',t:'split',s:'mac',tags:'same me too relatable',moods:'smirk sad',st:{c1:'#0A84FF',c2:'#0060DF',fg:'#fff'}},
+ {id:'big-mood',n:'big mood',t:'wave',s:'giphy',k:'gif',tags:'big mood relatable vibe',moods:'sad smirk',st:{bg:'#8E3FA0',fg:'#FFE27A'}},
+ {id:'i-cant',n:"I can't",t:'shake',s:'mac',k:'gif',tags:'i cant lol dying laughing',moods:'happy tongue',st:{bg:'#FFD60A',fg:'#111',c1:'#FF2D78',c2:'#00E5FF'}},
+ {id:'shook',n:'shook',t:'burst',s:'giphy',k:'gif',tags:'shook shocked scared',moods:'shocked',st:{bg:'#111',fg:'#fff',c1:'#FF9A5C',c2:'#fff'}},
+ {id:'yikes',n:'yikes',t:'tape',s:'giphy',k:'gif',tags:'yikes oof awkward bad',moods:'shocked sad',st:{c1:'#FFD60A',c2:'#111',fg:'#FFD60A',fg2:'#111'}},
+ {id:'plot-twist',n:'plot twist',t:'spin',s:'classic',tags:'plot twist surprise whoa',moods:'shocked raised',st:{c1:'#111',c2:'#3D0AFF',c3:'#111'}},
+ {id:'bruh',n:'bruh',t:'glitch',s:'mac',tags:'bruh seriously really',moods:'eyeroll raised angry',st:{bg:'#5B5E66',fg:'#fff',c1:'#AA00FF',c2:'#00FFFF'}},
+ {id:'w',n:'W',t:'sticker',s:'sticker',tags:'w win yes nice',moods:'happy',round:1,big:1,st:{c1:'#00C853',fg:'#fff'}},
+ {id:'l',n:'L',t:'sticker',s:'sticker',tags:'l loss fail sad',moods:'sad',round:1,big:1,st:{c1:'#FF3B30',fg:'#fff'}},
+ {id:'send-help',n:'send help',t:'type',s:'giphy',k:'gif',tags:'send help sos stressed',moods:'sad shocked',st:{fg:'#FF8A80'}},
+ {id:'deal',n:'deal with it',t:'drop',s:'classic',tags:'deal with it cool smug',moods:'smirk wink',cls:'sm',st:{bg:'#0A84FF',fg:'#fff'}},
+ {id:'ugh',n:'ugh',t:'drift',s:'mac',dz:'…',tags:'ugh annoyed tired',moods:'eyeroll angry',cls:'xl',st:{bg:'#3A3A3C',fg:'#fff',c1:'#8E8E93'}},
+ {id:'lol',n:'lol',t:'bounce',s:'giphy',k:'gif',tags:'lol funny haha laughing',moods:'happy tongue',cls:'xl',st:{bg:'#FF9A5C',fg:'#1a0b02'}},
+ {id:'wow',n:'wow',t:'sparkle',s:'classic',tags:'wow amazing nice shocked',moods:'shocked happy',cls:'xl',st:{bg:'#1A1206',fg:'#FFC94D',c1:'#FFE27A'}},
+ {id:'say-less',n:'say less',t:'type',s:'giphy',k:'gif',tags:'say less ok understood bet',moods:'wink smirk',st:{fg:'#7CF2C8'}},
+ {id:'awkward',n:'awkward',t:'wave',s:'mac',txt:'awkward…',tags:'awkward cringe uh',moods:'raised sad',cls:'sm',st:{bg:'#E4E6EB',fg:'#2C2C2E'}},
+ {id:'rent-free',n:'rent free',t:'stamp',s:'classic',tags:'rent free obsessed thinking',moods:'wink smirk',cls:'sm',st:{bg:'#0E3B2E',fg:'#7CF2C8'}},
+ {id:'cringe',n:'cringe',t:'shake',s:'giphy',k:'gif',tags:'cringe awkward yikes',moods:'eyeroll tongue',cls:'sm',st:{bg:'#B6FF3B',fg:'#111',c1:'#FF2D78',c2:'#3D0AFF'}},
+ {id:'its-giving',n:"it's giving",t:'sticker',s:'sticker',tags:'its giving vibe slay',moods:'wink smirk duck',st:{c1:'#8E3FA0',fg:'#FFE27A'}},
+ {id:'not-today',n:'not today',t:'tape',s:'mac',tags:'not today no nope angry',moods:'angry',cls:'sm',st:{c1:'#2a2a2e',c2:'#111',fg:'#fff',fg2:'#FF3B30'}},
+ {id:'thank-u',n:'thank u',t:'pulse',s:'giphy',k:'gif',tags:'thank you thanks love',moods:'happy',st:{bg:'#FF4D6D',fg:'#fff',c1:'#fff'}},
+ {id:'mic-drop',n:'mic drop',t:'drop',s:'classic',tags:'mic drop done boom',moods:'smirk',st:{bg:'#111',fg:'#FF9A5C'}},
+ {id:'blep',n:'blep',t:'sticker',s:'sticker',tags:'blep tongue out silly',moods:'tongue',round:1,st:{c1:'#FF7A66',fg:'#fff'}},
+ {id:'serving',n:'serving',t:'sparkle',s:'mac',tags:'serving pose look duck face',moods:'duck wink',st:{bg:'#FF4FD8',fg:'#fff',c1:'#fff'}},
+];
+const BY = Object.fromEntries(M.map(m => [m.id, m]));
+const FAV = new Set(['fine','omg','same','slay','lol']);
+const RECENT = ['fine','omg','same','lets-go','nope','slay','big-mood','sus','facts','party','i-cant','yikes','chefs-kiss','mind-blown','say-less'];
+
+function letters(s){ return [...s].map((c,k) => c === ' ' ? ' ' : `<span style="--k:${k}">${esc(c)}</span>`).join(''); }
+function artHTML(m, extra = ''){
+  const st = m.st || {};
+  const vars = Object.entries({bg:st.bg,fg:st.fg,c1:st.c1,c2:st.c2,c3:st.c3,fg2:st.fg2}).filter(([,v]) => v).map(([k,v]) => `--${k}:${v}`).join(';');
+  const txt = m.txt || m.n; const cls = m.cls || '';
+  const tx = (c = cls, inner = esc(txt)) => `<span class="tx ${c}" data-t="${esc(txt)}">${inner}</span>`;
+  let h = '';
+  switch (m.t) {
+    case 'fire': h = '<i class="fl"></i><i class="fl"></i><i class="fl"></i>' + tx('lc'); break;
+    case 'burst': h = '<i class="rg"></i><i class="rg"></i><i class="rg"></i>' + tx(); break;
+    case 'tape': h = '<i class="bar"></i>' + tx(); break;
+    case 'bounce': case 'wave': h = tx(cls, letters(txt)); break;
+    case 'sparkle': h = '<i class="st"></i><i class="st"></i><i class="st"></i><i class="st"></i>' + tx(); break;
+    case 'type': h = `<span class="tx"><span class="rv">${esc(txt)}</span><span class="cur"></span></span>`; break;
+    case 'drift': { const z = m.dz || 'z'; h = `<i class="dz">${z}</i><i class="dz">${z}</i><i class="dz">${z}</i>` + tx(); break; }
+    case 'pulse': h = '<i class="ht"></i>' + tx('lc'); break;
+    case 'split': h = `<span class="hf">${esc(txt)}</span><span class="hf">${esc(txt)}</span>`; break;
+    case 'sticker': h = `<span class="stk${m.round ? ' round' : ''}"><span class="tx${m.big ? ' xl' : (txt.length > 6 ? ' sm' : '')}">${esc(txt)}</span></span>`; break;
+    default: h = tx();
+  }
+  return `<div class="art t-${m.t} ${extra}" style="${vars}">${h}</div>`;
+}
+const fixType = () => $$('.t-type .rv').forEach(el => el.style.backgroundImage = 'linear-gradient(90deg,var(--fg,#F5F5F7) 50%,transparent 50%)');
+
+const BADGE = {
+  giphy: '<span class="badge g" title="GIPHY">G</span>',
+  mac: '<span class="badge" title="On My Mac"><svg width="10" height="8" viewBox="0 0 10 8" fill="currentColor"><rect x="1" y="0" width="8" height="5.6" rx="1"/><rect x="0" y="6.4" width="10" height="1.4" rx=".7"/></svg></span>',
+  sticker: '<span class="badge" title="Sticker"><svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><path d="M5 0a5 5 0 0 0 0 10h.3L10 5.3V5A5 5 0 0 0 5 0zm.6 9.2V7a1.4 1.4 0 0 1 1.4-1.4h2.2z"/></svg></span>',
+  classic: '<span class="badge" title="Classic meme"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.3"><rect x=".7" y=".7" width="8.6" height="8.6" rx="1.6"/><path d="M2.6 3.2h4.8M2.6 6.8h4.8"/></svg></span>',
+};
+
+/* ---------------- the face sketch: landmark dots, no character ---------------- */
+const BASE = {browL:0,browR:0,knit:0,eyeL:1,eyeR:1,gaze:0,open:.04,mouthW:1,smileL:0,smileR:0,tongue:0,pose:0};
+const EXPR = {
+  neutral:{word:'',p:{}},
+  shocked:{word:'shocked',from:'brows up, eyes wide, mouth open',p:{browL:.95,browR:.95,eyeL:1.4,eyeR:1.4,open:1,mouthW:.72}},
+  happy:{word:'happy',from:'a big smile',p:{browL:.2,browR:.2,eyeL:.72,eyeR:.72,open:.42,mouthW:1.3,smileL:1,smileR:1}},
+  wink:{word:'wink',from:'one eye shut',p:{browL:.15,browR:-.25,eyeL:1,eyeR:.04,open:.12,mouthW:1.15,smileL:.75,smileR:.55}},
+  tongue:{word:'tongue out',from:'your tongue',p:{eyeL:.85,eyeR:.85,open:.55,mouthW:1.05,smileL:.35,smileR:.35,tongue:1}},
+  eyeroll:{word:'eye roll',from:'eyes looking up',p:{browL:.35,browR:.35,eyeL:.95,eyeR:.95,gaze:-1,mouthW:.92,smileL:-.25,smileR:-.25}},
+  raised:{word:'raised eyebrow',from:'one brow up',p:{browL:-.25,browR:1,eyeL:.85,eyeR:1.12,mouthW:.95,smileL:.1,smileR:-.15}},
+  smirk:{word:'smirk',from:'one corner up',p:{eyeL:.9,eyeR:.9,mouthW:1.02,smileL:-.1,smileR:.95}},
+  sad:{word:'sad',from:'brows in, corners down',p:{browL:.15,browR:.15,knit:-7,eyeL:.8,eyeR:.8,mouthW:.95,smileL:-.85,smileR:-.85}},
+  angry:{word:'angry',from:'brows down',p:{browL:-.85,browR:-.85,knit:7,eyeL:.78,eyeR:.78,mouthW:.92,smileL:-.45,smileR:-.45}},
+  duck:{word:'duck face',from:'lips pursed',p:{eyeL:.9,eyeR:.9,browL:.2,browR:.2,mouthW:.5,open:.2}},
+  celebrate:{word:'celebrate',from:'both arms up',pose:'celebrate'},
+  mindblown:{word:'mind blown',from:'hands at your temples',pose:'mindblown'},
+  facepalm:{word:'facepalm',from:'a hand over your face',pose:'facepalm'},
+  shrug:{word:'shrug',from:'palms out, shoulders up',pose:'shrug'},
+  tpose:{word:'t-pose',from:'arms straight out',pose:'tpose'},
+  flex:{word:'flex',from:'both biceps up',pose:'flex'},
+};
+const POSES = {
+  rest:{le:[70,112],re:[130,112],lw:[66,146],rw:[134,146],sh:0},
+  celebrate:{le:[64,52],re:[136,52],lw:[56,22],rw:[144,22],sh:0},
+  mindblown:{le:[58,62],re:[142,62],lw:[84,46],rw:[116,46],sh:0},
+  facepalm:{le:[70,112],re:[128,98],lw:[66,146],rw:[103,56],sh:0},
+  shrug:{le:[66,104],re:[134,104],lw:[46,86],rw:[154,86],sh:-6},
+  tpose:{le:[50,80],re:[150,80],lw:[22,80],rw:[178,80],sh:0},
+  flex:{le:[46,72],re:[154,72],lw:[60,44],rw:[140,44],sh:0},
+};
+function Sketch(svg, opt = {}){
+  const NS = 'http://www.w3.org/2000/svg';
+  const mk = (t, a, p = svg) => { const e = document.createElementNS(NS, t); for (const k in a) e.setAttribute(k, a[k]); p.appendChild(e); return e; };
+  const dotR = opt.dot || 1.9;
+  const faceG = mk('g', {}), poseG = mk('g', {opacity:0});
+  // face outline
+  const oval = mk('g', {fill:'#fff', opacity:.28}, faceG);
+  for (let i = 0; i < 46; i++){ const a = i / 46 * Math.PI * 2; mk('circle', {cx:100 + Math.cos(a) * 60, cy:104 + Math.sin(a) * 76, r:1.1}, oval); }
+  const nose = mk('g', {fill:'#fff', opacity:.35}, faceG);
+  [[100,106],[100,114],[95,122],[100,124],[105,122]].forEach(([x,y]) => mk('circle', {cx:x, cy:y, r:1.3}, nose));
+  const parts = {};
+  const part = name => { const g = mk('g', {}, faceG); const line = mk('path', {fill:'none', stroke:'#fff', 'stroke-opacity':.38, 'stroke-width':1.3, 'stroke-linejoin':'round'}, g); const dots = mk('g', {fill:'#fff'}, g); parts[name] = {g, line, dots, n:0}; return parts[name]; };
+  ['browL','browR','eyeL','eyeR','mouth'].forEach(part);
+  const pupils = [mk('circle', {r:2.6, fill:'#fff'}, faceG), mk('circle', {r:2.6, fill:'#fff'}, faceG)];
+  const tongue = mk('ellipse', {fill:'#FF7A66', opacity:0}, faceG);
+  faceG.insertBefore(tongue, parts.mouth.g);
+  // pose skeleton
+  const pLine = mk('path', {fill:'none', stroke:'#fff', 'stroke-opacity':.55, 'stroke-width':2.2, 'stroke-linecap':'round', 'stroke-linejoin':'round'}, poseG);
+  const pDots = mk('g', {fill:'#fff'}, poseG);
+  const head = mk('g', {fill:'#fff', opacity:.6}, poseG);
+  for (let i = 0; i < 22; i++){ const a = i / 22 * Math.PI * 2; mk('circle', {cx:100 + Math.cos(a) * 15, cy:50 + Math.sin(a) * 17, r:1.2}, head); }
+
+  let cur = {...BASE}, from = {...BASE}, to = {...BASE}, t0 = 0, dur = 1;
+  let pcur = JSON.parse(JSON.stringify(POSES.rest)), pfrom = pcur, pto = pcur;
+  let mode = 'face', modeT = 1, lean = null, blinkAt = performance.now() + 2500, glow = {brows:0,eyes:0,mouth:0};
+  const setDots = (p, pts, closed) => {
+    while (p.n < pts.length){ const c = document.createElementNS(NS, 'circle'); c.setAttribute('r', dotR); p.dots.appendChild(c); p.n++; }
+    [...p.dots.children].forEach((c, i) => { if (i < pts.length){ c.setAttribute('cx', pts[i][0].toFixed(2)); c.setAttribute('cy', pts[i][1].toFixed(2)); c.style.display = ''; } else c.style.display = 'none'; });
+    p.line.setAttribute('d', 'M' + pts.map(q => q[0].toFixed(1) + ' ' + q[1].toFixed(1)).join('L') + (closed ? 'Z' : ''));
   };
-  const lerpFace = (a, b, t) => { const o = {}; for (const k of KEYS) o[k] = a[k] + (b[k] - a[k]) * t; return o; };
-
-  const INK = "#1C1A22";
-  function shade(hex, amt) {
-    const v = parseInt(hex.slice(1), 16);
-    const t = amt < 0 ? 0 : 255, k = Math.abs(amt);
-    const ch = s => Math.round(((v >> s) & 255) + (t - ((v >> s) & 255)) * k);
-    return "#" + ((1 << 24) + (ch(16) << 16) + (ch(8) << 8) + ch(0)).toString(16).slice(1);
-  }
-  function silhouette(o) {
-    const s = [];
-    if (o.species === "person" && o.body !== false) s.push(["path", 'd="M10 106 C12 85 29 76 50 76 C71 76 88 85 90 106 Z"', o.shirt || "#3E4C70"]);
-    if (o.species === "cat") s.push(["path", 'd="M23 46 L26 15 L47 31 Z"', o.skin], ["path", 'd="M77 46 L74 15 L53 31 Z"', o.skin]);
-    s.push(o.species === "person" ? ["ellipse", 'cx="50" cy="51" rx="25" ry="28"', o.skin] : ["ellipse", 'cx="50" cy="56" rx="30" ry="26"', o.skin]);
-    if (o.species === "dog") {
-      const e = o.ear || shade(o.skin, -.3);
-      s.push(["ellipse", 'cx="23" cy="54" rx="9" ry="18" transform="rotate(14 23 54)"', e], ["ellipse", 'cx="77" cy="54" rx="9" ry="18" transform="rotate(-14 77 54)"', e]);
-    }
-    if (o.species === "person" && o.hair) s.push(["path", 'd="M25 50 C21 27 35 19 50 19 C65 19 79 27 75 50 C72 37 62 30 50 30 C38 30 28 37 25 50 Z"', o.hair]);
-    return s;
-  }
-  function eyesMarkup(p, cx, cy, dx, skin, lookY) {
-    const e = clamp(p.eye, 0, 1);
-    let s = "";
-    for (const side of [-1, 1]) {
-      const x = cx + side * dx;
-      if (e < .12) {
-        s += p.smile > .3
-          ? `<path d="M${x - 5.5} ${cy + 1.5} Q${x} ${cy - 5} ${x + 5.5} ${cy + 1.5}" fill="none" stroke="${INK}" stroke-width="2.6" stroke-linecap="round"/>`
-          : `<path d="M${x - 5} ${cy} L${x + 5} ${cy}" stroke="${INK}" stroke-width="2.6" stroke-linecap="round"/>`;
-        continue;
-      }
-      const ry = 1.8 + 5.4 * e, rx = 5.2 + 1.3 * e;
-      const pr = Math.min(e > .88 ? 2.3 : 3, ry - .3);
-      const px = clamp(p.look * 3.4, -(rx - pr - .6), rx - pr - .6);
-      const py = clamp(lookY * 1.8, -(ry - pr - .2), Math.max(0, ry - pr - .2));
-      s += `<ellipse cx="${x}" cy="${cy}" rx="${n1(rx)}" ry="${n1(ry)}" fill="#fff" stroke="${INK}" stroke-width="2"/>`;
-      s += `<circle cx="${n1(x + px)}" cy="${n1(cy + py)}" r="${n1(pr)}" fill="${INK}"/>`;
-      if (e < .55) {
-        const lid = cy - ry * .25;
-        s += `<rect x="${n1(x - rx - 1.6)}" y="${n1(cy - ry - 1.8)}" width="${n1(2 * rx + 3.2)}" height="${n1(lid - (cy - ry - 1.8))}" fill="${skin}"/>`;
-        s += `<path d="M${n1(x - rx - .4)} ${n1(lid)} L${n1(x + rx + .4)} ${n1(lid)}" stroke="${INK}" stroke-width="2.2" stroke-linecap="round"/>`;
-      }
-    }
-    return s;
-  }
-  function mouthMarkup(p, cx, cy) {
-    const m = p.mouth, s = p.smile, k = p.smirk;
-    if (m > .22) {
-      const sp = Math.max(s, 0);
-      const wx = 5.5 + 7 * sp + 2.5 * m;
-      const yl = cy - sp * 1.5, yr = yl - k * 2.5;
-      const top = cy - (1 - sp) * 4.5 * m - 1;
-      const bot = cy + 4 + 11 * m - (s < 0 ? s * 2 : 0);
-      let out = `<path d="M${n1(cx - wx)} ${n1(yl)} Q${cx} ${n1(top)} ${n1(cx + wx)} ${n1(yr)} Q${cx} ${n1(bot + 3)} ${n1(cx - wx)} ${n1(yl)} Z" fill="#4A1C22" stroke="${INK}" stroke-width="2.2" stroke-linejoin="round"/>`;
-      if (sp > .5) out += `<ellipse cx="${cx}" cy="${n1((cy + bot + 3) / 2 - 2.6)}" rx="${n1(wx * .42)}" ry="${n1(1.8 + 1.6 * m)}" fill="#E0707A"/>`;
-      return out;
-    }
-    const w = 7.5 + 3 * Math.abs(s);
-    const yl = cy - s * 2.5, yr = yl - k * 4;
-    return `<path d="M${n1(cx - w)} ${n1(yl)} Q${cx} ${n1(cy + s * 6)} ${n1(cx + w)} ${n1(yr)}" fill="none" stroke="${INK}" stroke-width="2.6" stroke-linecap="round"/>`;
-  }
-  function features(p, o) {
-    const person = o.species === "person";
-    const ey = person ? 50 : 53, dx = person ? 10.5 : 11.5;
-    const by = (person ? 38 : 41) - p.brow * 4.5;
-    const my = person ? 65 : o.species === "dog" ? 73 : 70;
-    let s = "";
-    if (o.species === "dog") s += `<ellipse cx="50" cy="68" rx="14" ry="10" fill="${shade(o.skin, .35)}"/><ellipse cx="50" cy="62.5" rx="5" ry="3.6" fill="${INK}"/>`;
-    if (o.species === "cat") s += `<path d="M46.5 62 L53.5 62 L50 65.5 Z" fill="#E58A93" stroke="${INK}" stroke-width="1.2" stroke-linejoin="round"/><path d="M31 64 L16 61 M31 68 L16 71 M69 64 L84 61 M69 68 L84 71" stroke="${INK}" stroke-width="1.3" stroke-linecap="round" opacity=".6"/>`;
-    s += eyesMarkup(p, 50, ey, dx, o.skin, o.lookY || 0);
-    const inner = p.brow < 0 ? -p.brow * 5 : 0, tl = -p.tilt * 4.5, tr = p.tilt * 2.5;
-    s += `<path d="M${50 - dx - 8} ${n1(by + tl)} L${50 - dx + 5} ${n1(by + tl + inner)} M${50 + dx - 5} ${n1(by + tr + inner)} L${50 + dx + 8} ${n1(by + tr)}" stroke="${INK}" stroke-width="2.6" stroke-linecap="round" fill="none"/>`;
-    s += mouthMarkup(p, 50, my);
-    if (o.blush) s += `<ellipse cx="${50 - dx - 4}" cy="${ey + 9}" rx="4.5" ry="2.4" fill="#F0806E" opacity=".4"/><ellipse cx="${50 + dx + 4}" cy="${ey + 9}" rx="4.5" ry="2.4" fill="#F0806E" opacity=".4"/>`;
-    if (o.tears) for (const x of [50 - dx - 7, 50 + dx + 7]) s += `<path d="M${x} ${ey + 2} c-2.4 4 -2.8 6.4 0 7.4 c2.8 -1 2.4 -3.4 0 -7.4z" fill="#8EC5F0" stroke="${INK}" stroke-width="1"/>`;
-    if (o.sweat) s += `<path d="M76 27 c-2.6 4.4 -3.2 7 0 8.2 c3.2 -1.2 2.6 -3.8 0 -8.2z" fill="#8EC5F0" stroke="${INK}" stroke-width="1.1"/>`;
-    return s;
-  }
-  function faceSVG(p, o = {}) {
-    o = { species: "person", skin: "#F5C451", ...o };
-    const parts = silhouette(o);
-    let s = '<svg viewBox="0 0 100 100" aria-hidden="true" focusable="false">';
-    if (o.bg) s += `<rect width="100" height="100" fill="${o.bg[0]}"/><rect y="80" width="100" height="20" fill="${o.bg[1]}"/>`;
-    s += '<g class="fg">';
-    if (o.cut) s += '<g class="cut">' + parts.map(([t, a]) => `<${t} ${a} fill="#fff" stroke="#fff" stroke-width="9" stroke-linejoin="round"/>`).join("") + "</g>";
-    s += parts.map(([t, a, fill]) => `<${t} ${a} fill="${fill}" stroke="${INK}" stroke-width="2.4" stroke-linejoin="round"/>`).join("");
-    s += features(p, o) + "</g>";
-    if (o.cap) s += `<text x="50" y="${o.capPos === "bottom" ? 95 : 17}" text-anchor="middle" font-family="Anton, Impact, 'Arial Narrow', sans-serif" font-size="${o.capSize || 15}" fill="#fff" stroke="#000" stroke-width="3.2" stroke-linejoin="round" paint-order="stroke" letter-spacing=".4">${o.cap}</text>`;
-    return s + "</svg>";
-  }
-
-  // ---------- Library (made-up examples, drawn here) ----------
-  const T = (id, title, kind, src, tags, p, o, friend) => ({ id, title, kind, src, tags, p: face(p), o, friend });
-  const TILES = [
-    T("t1", "Shocked cat", "own", "Downloads · Mar 2026", "cat shocked omg surprised", { brow: .9, eye: 1, mouth: .9 }, { species: "cat", skin: "#C9C3BA", bg: ["#9DB5E2", "#7E96C4"] }),
-    T("t2", "OMG", "gif", "GIPHY", "omg shocked wow gasp", { brow: 1, eye: .95, mouth: 1, smile: .1 }, { skin: "#F0C29E", hair: "#5A3A22", shirt: "#2F6F6A", bg: ["#F2A79F", "#D98A82"], cap: "OMG" }),
-    T("t3", "Jaw on the floor", "gif", "GIPHY", "dog shocked jaw drop", { brow: .75, eye: .9, mouth: 1, smile: -.15 }, { species: "dog", skin: "#D9B88C", bg: ["#B6DCB1", "#93C08D"] }),
-    T("t4", "Maya, mid-gasp", "sticker", "Sticker · Maya", "maya gasp shocked", { brow: .85, eye: .85, mouth: .7, smile: .15 }, { skin: "#A86E4A", hair: "#1F1A1C", shirt: "#E2725B", cut: true }, "Maya"),
-    T("t5", "Side eye", "own", "Desktop · Feb 2026", "side eye suspicious judging", { brow: -.4, tilt: .2, eye: .4, look: 1, smile: -.2 }, { skin: "#F5D0B5", hair: "#B5542E", shirt: "#4B5A8A", bg: ["#D5C6F0", "#B8A5DE"] }),
-    T("t6", "Hmm, suspicious", "gif", "GIPHY", "cat side eye suspicious", { brow: -.3, tilt: .4, eye: .48, look: .9, smile: -.35 }, { species: "cat", skin: "#E8A15A", bg: ["#F3D58C", "#E0BA62"] }),
-    T("t7", "Crying laughing", "own", "Screenshots · Jan 2026", "laughing crying lol dead", { brow: .4, eye: 0, mouth: .9, smile: 1 }, { skin: "#6E4630", hair: "#141014", shirt: "#C9A227", bg: ["#A7DAE2", "#85C2CB"], tears: true, cap: "I CAN’T", capPos: "bottom", capSize: 14 }),
-    T("t8", "Wheeze", "gif", "GIPHY", "dog laughing wheeze lol", { brow: .3, eye: .05, mouth: .75, smile: .95 }, { species: "dog", skin: "#E6C9A0", ear: "#9C7048", bg: ["#F2B88E", "#DF996B"] }),
-    T("t9", "Jordan, losing it", "sticker", "Sticker · Jordan", "jordan laughing lol", { brow: .25, eye: .08, mouth: .65, smile: .9 }, { skin: "#F2C7A5", hair: "#D9A84A", shirt: "#3E7A5A", cut: true }, "Jordan"),
-    T("t10", "Unimpressed dog", "own", "Downloads · Dec 2025", "dog unimpressed meh bored", { brow: -.25, eye: .34, smile: -.5 }, { species: "dog", skin: "#B98A62", ear: "#6E4A30", bg: ["#C7D2DF", "#A8B5C6"] }),
-    T("t11", "Cool story", "gif", "GIPHY", "unimpressed cool story bored", { brow: -.1, eye: .4, look: .2, smile: -.35 }, { skin: "#D9A47E", hair: "#2B2B2B", shirt: "#8A4F7D", bg: ["#B6C3A0", "#97A57F"], cap: "COOL STORY", capSize: 12 }),
-    T("t12", "Head tilt", "own", "Downloads · Feb 2026", "dog confused huh what", { brow: .35, tilt: .9, eye: .75, look: -.4, mouth: .1, smile: -.2, smirk: .3 }, { species: "dog", skin: "#EAD3B0", ear: "#B07F4E", bg: ["#EFC7D6", "#DBA6BB"] }),
-    T("t13", "Doing the math", "gif", "GIPHY", "confused math thinking", { brow: .4, tilt: 1, eye: .7, look: -.25, mouth: .18, smile: -.35, smirk: .5 }, { skin: "#F5D0B5", hair: "#3B2A20", shirt: "#2F4A7A", bg: ["#BDD5F4", "#9BBBE6"] }),
-    T("t14", "Smug cat", "own", "Desktop · Mar 2026", "cat smug proud", { brow: -.15, tilt: .4, eye: .38, look: .4, smile: .6, smirk: .9 }, { species: "cat", skin: "#55555F", bg: ["#E6D6A4", "#D0BC80"] }),
-    T("t15", "Told you so", "gif", "GIPHY", "smug told you so", { tilt: .5, eye: .5, look: .3, smile: .5, smirk: .7 }, { skin: "#A86E4A", hair: "#2A1C16", shirt: "#D9A03A", bg: ["#CDE6C7", "#ACD1A4"], cap: "TOLD YOU", capSize: 13 }),
-    T("t16", "Totally fine", "own", "Screenshots · Nov 2025", "nervous fine sweating", { brow: .5, eye: .8, mouth: .12, smile: .45 }, { skin: "#F2C7A5", hair: "#6B4A2E", shirt: "#C2563F", bg: ["#F6C49E", "#EAA57A"], sweat: true, cap: "IT’S FINE", capPos: "bottom", capSize: 14 }),
-    T("t17", "Deadpan", "own", "Downloads · Oct 2025", "deadpan blank neutral", { eye: .55 }, { skin: "#6E4630", hair: "#0F0D10", shirt: "#5A6472", bg: ["#D2D5DA", "#B4B9C1"] }),
-    T("t18", "Scream", "gif", "GIPHY", "cat scream shocked", { brow: .9, eye: .62, mouth: 1, smile: -.45 }, { species: "cat", skin: "#F1EEE9", bg: ["#F3A2A2", "#DF7E7E"] }),
-  ];
-  const KIND_WORDS = { own: "mine saved", gif: "gif giphy", sticker: "sticker friend" };
-  for (const t of TILES) t.hay = `${t.title} ${t.tags} ${KIND_WORDS[t.kind]} ${t.friend || ""}`.toLowerCase();
-  const byId = Object.fromEntries(TILES.map(t => [t.id, t]));
-  const tileSVG = t => faceSVG(t.p, t.o);
-
-  // ---------- Demo state ----------
-  const lid = $("#lid"), lp = $("#lp"), stage = $("#stage"), panel = $("#panel"), grid = $("#grid"), input = $("#q");
-  const mirror = $("#mirror"), ring = $("#ring"), searchBox = $("#searchBox"), focusText = $("#focusText");
-  const hintTitle = $("#hintTitle"), hintSub = $("#hintSub"), hintAction = $("#hintAction");
-  const closed = $("#closed"), closedMsg = $("#closedMsg"), smiley = $("#smiley"), live = $("#live");
-  const faceBtns = $$(".fs");
-  const S = { open: true, mode: "live", committed: "shocked", holding: null, pins: new Set(), shown: [], focus: 0, cur: { ...EXPR.shocked.p }, lookX: 0, lookY: 0, blink: false, lastType: 0 };
-
-  function dist(a, b) {
-    let d = 0;
-    for (const k of KEYS) { const w = S.pins.has(REGION[k]) ? 3 : 1, x = a[k] - b[k]; d += w * x * x; }
-    return d;
-  }
-  const rankFace = q => TILES.map(t => ({ t, d: dist(q, t.p) + (t.kind === "gif" ? .04 : 0) })).sort((a, b) => a.d - b.d).slice(0, 10).map(x => x.t);
-  function rankText(text) {
-    const words = text.toLowerCase().split(/\s+/).filter(Boolean);
-    const order = { own: 0, sticker: 1, gif: 2 };
-    return TILES.filter(t => words.every(w => t.hay.includes(w))).sort((a, b) => order[a.kind] - order[b.kind]).slice(0, 10);
-  }
-
-  // Tiles keep their DOM node, so re-ranking can slide them (FLIP) instead of redrawing.
-  const nodes = new Map();
-  function tileNode(t) {
-    if (nodes.has(t.id)) return nodes.get(t.id);
-    const li = document.createElement("li");
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = `tile ${t.kind}`;
-    b.dataset.id = t.id;
-    b.draggable = true;
-    const kindLabel = t.kind === "gif" ? "GIF from GIPHY" : t.kind === "sticker" ? `sticker of ${t.friend}` : "from your saved memes";
-    b.setAttribute("aria-label", `${t.title}, ${kindLabel}`);
-    b.innerHTML = `<span class="thumb">${tileSVG(t)}</span><span class="num" aria-hidden="true"></span>` +
-      (t.kind === "own" ? '<span class="own-dot" aria-hidden="true"></span>' : "") +
-      (t.kind === "sticker" ? '<span class="friend-ring" aria-hidden="true"></span>' : "") +
-      (t.kind === "gif" ? '<span class="gif-badge" aria-hidden="true">GIF</span>' : "");
-    li.append(b);
-    nodes.set(t.id, li);
-    return li;
-  }
-  function renderGrid(list, emptyText) {
-    const before = new Map();
-    for (const li of grid.children) if (li.firstChild && li.firstChild.dataset) before.set(li.firstChild.dataset.id, li.getBoundingClientRect());
-    S.shown = list;
-    S.focus = 0;
-    // Always ten slots, so the panel keeps its height while results change.
-    const items = list.map(tileNode);
-    for (let i = list.length; i < 10; i++) {
-      const ph = document.createElement("li");
-      ph.className = "ph";
-      ph.setAttribute("aria-hidden", "true");
-      items.push(ph);
-    }
-    if (!list.length) {
-      const li = document.createElement("li");
-      li.className = "empty";
-      li.textContent = emptyText;
-      items.unshift(li);
-    }
-    // Re-ranking moves the tile nodes; a tile that had keyboard focus keeps it.
-    const fid = grid.contains(document.activeElement) && document.activeElement.dataset ? document.activeElement.dataset.id : null;
-    grid.replaceChildren(...items);
-    if (fid) {
-      const i = list.findIndex(t => t.id === fid);
-      if (i >= 0) { nodes.get(fid).firstChild.focus({ preventScroll: true }); S.focus = i; }
-      else input.focus({ preventScroll: true });
-    }
-    list.forEach((t, i) => {
-      const li = nodes.get(t.id), num = li.querySelector(".num"), b = li.firstChild;
-      num.textContent = i < 9 ? String(i + 1) : "";
-      num.hidden = i >= 9;
-      const prev = before.get(t.id);
-      if (prev && !reduced) {
-        const now = li.getBoundingClientRect();
-        const dx = prev.left - now.left, dy = prev.top - now.top;
-        if (dx || dy) li.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }], { duration: 320, easing: "cubic-bezier(.3,.8,.3,1)" });
-      } else if (!prev && before.size) {
-        b.classList.add("arrived");
-        setTimeout(() => b.classList.remove("arrived"), 600);
-        if (!reduced) li.animate([{ opacity: 0, transform: "scale(.85)" }, { opacity: 1, transform: "none" }], { duration: 260, easing: "ease-out" });
-      }
+  const quad = (a, c, b, n) => { const r = []; for (let i = 0; i <= n; i++){ const t = i / n, u = 1 - t; r.push([u*u*a[0] + 2*u*t*c[0] + t*t*b[0], u*u*a[1] + 2*u*t*c[1] + t*t*b[1]]); } return r; };
+  function draw(p, now){
+    const breathe = opt.still ? 0 : Math.sin(now / 900) * .6;
+    // brows
+    const brow = (x0, x1, raise, side) => { const pts = []; for (let i = 0; i < 5; i++){ const t = i / 4; pts.push([x0 + (x1 - x0) * t, 72 - raise * 10 - Math.sin(Math.PI * t) * 3.6 + p.knit * t * .9 + breathe * .3]); } return pts; };
+    setDots(parts.browL, brow(62, 90, p.browL), false);
+    setDots(parts.browR, brow(138, 110, p.browR), false);
+    // eyes (blink)
+    let bl = 1; const since = now - blinkAt; if (!opt.still && since > 0 && since < 160) bl = Math.abs(since - 80) / 80; if (since > 160) blinkAt = now + 2600 + Math.random() * 2400;
+    const eye = (cx, open, k) => { const ry = Math.max(.5, 5.4 * open * bl), pts = []; for (let i = 0; i < 12; i++){ const a = i / 12 * Math.PI * 2; pts.push([cx + Math.cos(a) * 10.5, 94 + Math.sin(a) * ry - (open < .15 ? Math.sin(Math.PI * (i / 6 % 1)) * 0 : 0)]); }
+      setDots(parts[k], open < .12 ? quad([cx - 10.5, 94], [cx, 90], [cx + 10.5, 94], 6) : pts, open >= .12); return ry; };
+    const ryL = eye(78, p.eyeL, 'eyeL'), ryR = eye(122, p.eyeR, 'eyeR');
+    [[pupils[0], 78, ryL, p.eyeL], [pupils[1], 122, ryR, p.eyeR]].forEach(([c, x, ry, o]) => { c.setAttribute('cx', x); c.setAttribute('cy', 94 + p.gaze * Math.min(4, ry * .7)); c.style.opacity = o < .25 || bl < .4 ? 0 : 1; });
+    // mouth
+    const w = 17 * p.mouthW, cy = 146 + breathe * .2;
+    const lc = [100 - w, cy - p.smileL * 7], rc = [100 + w, cy - p.smileR * 7];
+    const sm = (p.smileL + p.smileR) / 2;
+    const upY = cy - 1 - p.open * 3 - Math.max(0, sm) * 1.5;
+    const loY = Math.max(upY + 1.5, cy + 2 + p.open * 19 + sm * 5);
+    const upper = quad(lc, [100, upY * 2 - (lc[1] + rc[1]) / 2], rc, 7);
+    const lower = quad(rc, [100, loY * 2 - (lc[1] + rc[1]) / 2], lc, 7).slice(1, -1);
+    setDots(parts.mouth, upper.concat(lower), true);
+    tongue.setAttribute('cx', 100); tongue.setAttribute('cy', loY + 3); tongue.setAttribute('rx', 8.5); tongue.setAttribute('ry', 2 + 8 * p.tongue); tongue.setAttribute('opacity', p.tongue > .05 ? .95 : 0);
+    // glow by how far each part moved
+    const g = {brows:Math.min(1, (Math.abs(p.browL) + Math.abs(p.browR)) / 1.4 + Math.abs(p.knit) / 9), eyes:Math.min(1, Math.max(Math.abs(p.eyeL - 1), Math.abs(p.eyeR - 1)) * 1.6 + Math.abs(p.gaze)), mouth:Math.min(1, p.open * 1.1 + (Math.abs(p.smileL) + Math.abs(p.smileR)) * .5 + p.tongue + Math.abs(p.mouthW - 1) * 1.6)};
+    glow = g;
+    const col = (k, part) => lean === part ? '#FF9A5C' : '#fff';
+    [['browL','brows'],['browR','brows'],['eyeL','eyes'],['eyeR','eyes'],['mouth','mouth']].forEach(([k, gp]) => {
+      parts[k].dots.setAttribute('fill', col(k, gp)); parts[k].line.setAttribute('stroke', col(k, gp));
+      parts[k].g.style.filter = g[gp] > .15 || lean === gp ? `drop-shadow(0 0 ${(2 + g[gp] * 5).toFixed(1)}px ${lean === gp ? 'rgba(255,154,92,.9)' : 'rgba(255,255,255,.75)'})` : '';
     });
-    renderFocus();
   }
-  function renderFocus() {
-    S.shown.forEach((t, i) => nodes.get(t.id).firstChild.classList.toggle("is-focus", i === S.focus));
-    const t = S.shown[S.focus];
-    focusText.textContent = t ? `↵ copies “${t.title}” · ${t.src}` : "Nothing to copy yet";
+  function drawPose(P){
+    const ls = [80, 80 + P.sh], rs = [120, 80 + P.sh], neck = [100, 70 + P.sh * .5], lh = [88, 142], rh = [112, 142];
+    const segs = [[neck, ls], [neck, rs], [ls, P.le], [P.le, P.lw], [rs, P.re], [P.re, P.rw], [neck, [100, 140]], [lh, rh], [lh, [86, 190]], [rh, [114, 190]]];
+    pLine.setAttribute('d', segs.map(([a, b]) => `M${a[0].toFixed(1)} ${a[1].toFixed(1)}L${b[0].toFixed(1)} ${b[1].toFixed(1)}`).join(''));
+    const pts = [neck, ls, rs, P.le, P.re, P.lw, P.rw, lh, rh];
+    while (pDots.children.length < pts.length) mk('circle', {r:3.2}, pDots);
+    pts.forEach((q, i) => { pDots.children[i].setAttribute('cx', q[0]); pDots.children[i].setAttribute('cy', q[1]); pDots.children[i].setAttribute('r', i >= 5 && i <= 6 ? 4.4 : 3); });
   }
+  const ease = t => t < .5 ? 4*t*t*t : 1 - Math.pow(-2*t + 2, 3) / 2;
+  function frame(now){
+    const t = clamp((now - t0) / dur, 0, 1), e = ease(t);
+    for (const k in cur) cur[k] = from[k] + (to[k] - from[k]) * e;
+    const lerp = (a, b) => [a[0] + (b[0] - a[0]) * e, a[1] + (b[1] - a[1]) * e];
+    pcur = {le:lerp(pfrom.le, pto.le), re:lerp(pfrom.re, pto.re), lw:lerp(pfrom.lw, pto.lw), rw:lerp(pfrom.rw, pto.rw), sh:pfrom.sh + (pto.sh - pfrom.sh) * e};
+    const target = mode === 'pose' ? 1 : 0; modeT += (target - modeT) * .14;
+    faceG.style.opacity = (1 - modeT).toFixed(3); poseG.style.opacity = modeT.toFixed(3);
+    if (modeT < .98) draw(cur, now);
+    if (modeT > .02) drawPose(pcur);
+    if (visible) requestAnimationFrame(frame); else running = false;
+  }
+  let visible = true, running = false;
+  const io = new IntersectionObserver(es => { visible = es.some(e => e.isIntersecting); if (visible && !running){ running = true; requestAnimationFrame(frame); } });
+  io.observe(svg);
+  draw(cur, performance.now()); drawPose(pcur);
+  return {
+    set(key, ms = 420){
+      const ex = EXPR[key] || EXPR.neutral;
+      from = {...cur}; pfrom = pcur; t0 = performance.now(); dur = reduce ? 1 : ms;
+      if (ex.pose){ mode = 'pose'; pto = POSES[ex.pose]; to = {...BASE}; }
+      else { mode = 'face'; to = {...BASE, ...ex.p}; pto = POSES.rest; }
+    },
+    lean(part){ lean = lean === part ? null : part; return lean; },
+    clearLean(){ lean = null; },
+    get glow(){ return glow; },
+    get params(){ return cur; },
+  };
+}
+const meterOf = g => ({brows:Math.round(g.brows * 5), eyes:Math.round(g.eyes * 5), mouth:Math.round(g.mouth * 5)});
+const paintMeter = (el, n) => el && [...el.children].forEach((i, k) => i.classList.toggle('on', k < n));
 
-  function renderMirror() {
-    const p = { ...S.cur, look: clamp(S.cur.look + S.lookX, -1.3, 1.3) };
-    if (S.blink && p.eye > .12) p.eye = .02;
-    mirror.innerHTML = faceSVG(p, { skin: "#F5C451", shirt: "#7AA2FF", lookY: S.lookY, blush: true });
-  }
-  let mirrorQueued = false;
-  const queueMirror = () => { if (!mirrorQueued) { mirrorQueued = true; requestAnimationFrame(() => { mirrorQueued = false; renderMirror(); }); } };
+/* ---------------- the demo ---------------- */
+const demo = $('#demo'), desk = $('#desk'), mm = $('#mm'), q = $('#q'), grid = $('#grid'), gridwrap = $('#gridwrap');
+const SRC = [['all','All Sources'],null,['fav','Favorites'],['mac','On My Mac'],['sticker','My Stickers'],null,['giphy','GIPHY GIFs'],['classic','Classic Memes']];
+const S = {open:false, q:'', faceOn:false, face:null, src:'all', sel:0, items:[], pending:null, menu:null, phase:'idle', user:false};
+const sk = Sketch($('#sk'));
 
-  function setHint() {
-    let title = "Make a face. Results follow it.", sub = "Click your eyes or mouth to make them count more.", action = null;
-    if (S.mode === "text") { title = "Searching by words"; sub = "Clear the box to go back to your face."; }
-    else if (S.pins.size) {
-      title = "Focusing on " + (S.pins.size === 2 ? "your eyes and mouth" : S.pins.has("eyes") ? "your eyes" : "your mouth");
-      sub = ""; action = "Clear";
-    } else if (S.holding) sub = "New face? Hold it for a beat.";
-    hintTitle.textContent = title;
-    hintSub.textContent = sub;
-    hintSub.hidden = !sub;
-    hintAction.hidden = !action;
-    if (action) hintAction.textContent = action;
-  }
+function fit(){ const w = $('#screen').clientWidth; desk.style.setProperty('--s', (w / 1440).toFixed(5)); }
+new ResizeObserver(fit).observe($('#screen'));
 
-  // Morph the mirror toward a face over a quarter second.
-  let morphRaf = 0;
-  function morphTo(target) {
-    cancelAnimationFrame(morphRaf);
-    if (reduced) { S.cur = { ...target }; renderMirror(); return; }
-    const from = { ...S.cur }, t0 = performance.now();
-    const step = now => {
-      const k = Math.min(1, (now - t0) / 260);
-      S.cur = lerpFace(from, target, ease(k));
-      renderMirror();
-      if (k < 1) morphRaf = requestAnimationFrame(step);
-    };
-    morphRaf = requestAnimationFrame(step);
+function results(){
+  let pool = M;
+  if (S.src === 'fav') pool = M.filter(m => FAV.has(m.id));
+  else if (S.src !== 'all') pool = M.filter(m => m.s === S.src);
+  const words = S.q.toLowerCase().trim().split(/\s+/).filter(Boolean);
+  if (words.length){
+    const scored = pool.map(m => { const n = m.n.toLowerCase(), hay = (n + ' ' + m.tags + ' ' + (m.k || '') + ' ' + m.s).toLowerCase().split(/\s+/); let sc = 0;
+      for (const w of words){ if (n.startsWith(w)) sc += 4; else if (hay.some(h => h.startsWith(w))) sc += 2; else if (n.includes(w)) sc += 1; else return [m, -1]; }
+      if (S.face && m.moods.includes(S.face)) sc += 1; return [m, sc]; }).filter(x => x[1] > 0).sort((a, b) => b[1] - a[1]).map(x => x[0]);
+    return {items:scored, title:`Results for “${esc(S.q.trim())}”${S.face ? ' <em>+ your face</em>' : ''}`};
   }
+  if (S.face){ const w = EXPR[S.face].word; return {items:pool.filter(m => m.moods.split(' ').includes(S.face)).concat(pool.filter(m => !m.moods.split(' ').includes(S.face)).slice(0, 4)), title:`Matching your ${EXPR[S.face].pose ? 'pose' : 'face'} · ${esc(w)}`}; }
+  if (S.src === 'all'){ const rec = RECENT.map(id => BY[id]); return {items:rec.concat(M.filter(m => !RECENT.includes(m.id))), title:'Recent in Messages'}; }
+  return {items:pool, title:SRC.find(s => s && s[0] === S.src)[1]};
+}
+function render(){
+  const r = results(); S.items = r.items.slice(0, 30); S.sel = clamp(S.sel, 0, Math.max(0, S.items.length - 1));
+  $('#gTitle').innerHTML = r.title;
+  $('#gCredit').textContent = S.items.some(m => m.s === 'giphy') && (S.src === 'all' || S.src === 'giphy') ? 'POWERED BY GIPHY' : '';
+  const mix = S.src === 'all' || S.src === 'fav';
+  grid.innerHTML = S.items.length ? S.items.map((m, i) => `<button class="tile${i === S.sel ? ' sel' : ''}" data-i="${i}" style="--i:${i}" tabindex="-1"><div class="sq">${artHTML(m)}${i < 9 ? `<span class="num">⌘${i + 1}</span>` : ''}${mix && m.k === 'gif' ? '<span class="tag-gif">GIF</span>' : ''}</div><div class="nm">${BADGE[m.s]}<span>${esc(m.n)}</span></div></button>`).join('')
+    : `<div class="empty">Nothing for “${esc(S.q)}” yet.<br>Try <b>fine</b>, <b>omg</b> or <b>party</b>, or press <b>⌘F</b> and make a face.</div>`;
+  fixType();
+  $('#rightIsland').style.visibility = S.items.length ? 'visible' : 'hidden';
+  scrollSel();
+}
+function select(i){
+  if (!S.items.length) return;
+  S.sel = clamp(i, 0, S.items.length - 1);
+  $$('.tile', grid).forEach((t, k) => t.classList.toggle('sel', k === S.sel));
+  scrollSel();
+}
+function scrollSel(){
+  const t = grid.children[S.sel]; if (!t || !t.classList.contains('tile')) return;
+  const top = t.offsetTop - 34, bot = t.offsetTop + t.offsetHeight + 80;
+  if (top < gridwrap.scrollTop) gridwrap.scrollTo({top, behavior:'smooth'});
+  else if (bot > gridwrap.scrollTop + gridwrap.clientHeight) gridwrap.scrollTo({top:bot - gridwrap.clientHeight, behavior:'smooth'});
+}
+function openPanel(focus){
+  if (S.open) return; S.open = true; S.q = ''; q.value = ''; S.src = 'all'; $('#srcName').textContent = 'All Sources'; S.sel = 0; S.face = null; $('#token').hidden = true;
+  setFace(false); mm.hidden = false; desk.dataset.state = 'open'; $('#mbIcon').setAttribute('aria-expanded', 'true');
+  hud(false); render(); gridwrap.scrollTop = 0;
+  if (focus) q.focus({preventScroll:true});
+  phase('open');
+}
+function closePanel(){
+  if (!S.open) return; S.open = false; mm.hidden = true; closeMenu(); cancelHold(); setFace(false); q.blur(); $('#mbIcon').setAttribute('aria-expanded', 'false');
+  if (!S.pending) { desk.dataset.state = 'idle'; phase(S.phase === 'done' ? 'done' : 'idle'); }
+}
+function setFace(on){
+  if (!on) cancelHold();
+  S.faceOn = on; mm.classList.toggle('face', on); $('#faceBtn').setAttribute('aria-pressed', on);
+  q.placeholder = on ? (S.face ? 'Add words to refine…' : 'Make a face, or type to search…') : 'Search GIFs, stickers and memes…';
+  if (on && !S.face){ sk.set('neutral'); $('#camWord').textContent = 'Make a face.'; $('#camFrom').textContent = 'Hold it and results follow.'; }
+  if (S.open) render();
+  if (S.open) phase(on ? 'face' : (S.q || S.face ? 'pick' : 'open'));
+}
+let holdTimer = 0;
+function cancelHold(){ clearTimeout(holdTimer); const r = $('#ringFill'); r.style.transition = 'none'; r.style.strokeDashoffset = 553; $('#camWord').style.opacity = 1; }
+function makeFace(key){
+  if (!S.open) openPanel(false);
+  if (!S.faceOn) setFace(true);
+  clearTimeout(holdTimer); sk.clearLean();
+  sk.set(key, 380);
+  const ex = EXPR[key];
+  $('#camWord').style.opacity = .45;
+  const ring = $('#ringFill'); ring.style.transition = 'none'; ring.style.strokeDashoffset = 553; ring.getBoundingClientRect();
+  holdTimer = setTimeout(() => {
+    ring.style.transition = 'stroke-dashoffset .6s linear'; ring.style.strokeDashoffset = 0;
+    holdTimer = setTimeout(() => {
+      S.face = key; S.q = ''; q.value = ''; S.sel = 0;
+      $('#tokenWord').textContent = ex.word; $('#token').hidden = false;
+      $('#camWord').textContent = ex.word; $('#camWord').style.opacity = 1;
+      $('#camFrom').textContent = ex.pose ? 'your pose' : 'your face';
+      q.placeholder = 'Add words to refine…';
+      ring.style.transition = 'stroke-dashoffset .5s ease, opacity .5s'; ring.style.strokeDashoffset = 553;
+      render(); gridwrap.scrollTop = 0; phase('pick');
+      if (!auto.on) q.focus({preventScroll:true});
+    }, 620);
+  }, 360);
+}
+function clearFace(){ S.face = null; $('#token').hidden = true; sk.set('neutral'); $('#camWord').textContent = 'Make a face.'; $('#camFrom').textContent = 'Hold it and results follow.'; render(); phase(S.faceOn ? 'face' : 'open'); }
 
-  // A new expression has to be held for a beat before it becomes the search.
-  let holdTimer = 0;
-  function setFace(key, user = true) {
-    if (user) stopAuto();
-    if (!S.open) openPanel(false);
-    if (S.mode === "text") { input.value = ""; searchBox.classList.remove("has-text"); S.mode = "live"; }
-    faceBtns.forEach(c => c.setAttribute("aria-pressed", String(c.dataset.face === key)));
-    morphTo(EXPR[key].p);
-    clearTimeout(holdTimer);
-    ring.classList.remove("filling");
-    if (key === S.committed) { S.holding = null; setHint(); renderGrid(rankFace(EXPR[key].p)); return; }
-    S.holding = key;
-    setHint();
-    if (reduced) { commitFace(key); return; }
-    void ring.getBoundingClientRect();
-    ring.classList.add("filling");
-    holdTimer = setTimeout(() => commitFace(key), 1000);
-  }
-  function commitFace(key) {
-    clearTimeout(holdTimer);
-    ring.classList.remove("filling");
-    S.holding = null;
-    S.committed = key;
-    setHint();
-    renderGrid(rankFace(EXPR[key].p));
-  }
-  function refreshResults() {
-    if (S.mode === "text") { const q = input.value.trim(); renderGrid(rankText(q), `Nothing called “${q}”. Try cat, dog, gif or Maya.`); }
-    else renderGrid(rankFace(EXPR[S.committed].p));
-  }
-  function togglePin(region) {
-    stopAuto();
-    if (S.pins.has(region)) S.pins.delete(region); else S.pins.add(region);
-    $$(".pin").forEach(b => b.setAttribute("aria-pressed", String(S.pins.has(b.dataset.pin))));
-    setHint();
-    refreshResults();
-  }
-  function clearPins() {
-    S.pins.clear();
-    $$(".pin").forEach(b => b.setAttribute("aria-pressed", "false"));
-    setHint();
-    refreshResults();
-  }
-  function escape() {
-    if (S.mode === "text") { input.value = ""; onType(); return; }
-    if (S.pins.size) { clearPins(); return; }
-    closePanel(null);
-  }
-  function onType() {
-    stopAuto();
-    S.lastType = performance.now();
-    const q = input.value.trim();
-    searchBox.classList.toggle("has-text", !!q);
-    if (q) {
-      if (S.mode !== "text") { S.mode = "text"; clearTimeout(holdTimer); ring.classList.remove("filling"); if (S.holding) S.committed = S.holding; S.holding = null; }
-    } else if (S.mode === "text") S.mode = "live";
-    setHint();
-    refreshResults();
-  }
+let hudT = 0;
+function hud(on, text){ const h = $('#hud'); if (text) $('#hudText').innerHTML = text; h.classList.toggle('on', !!on); clearTimeout(hudT); if (on) hudT = setTimeout(() => h.classList.remove('on'), 2600); }
+function copy(i = S.sel){
+  const m = S.items[i]; if (!m) return;
+  S.pending = m; closePanel(); desk.dataset.state = 'copied';
+  hud(true, `Copied “${esc(m.n)}”`);
+  phase('copied');
+}
+let replyT = [];
+const REPLIES = ['HAHA accurate', 'ok that is exactly it', 'screaming', 'saving this one', 'you are not wrong', 'LMAO', 'this is the one'];
+function paste(){
+  const m = S.pending; if (!m) return; S.pending = null; hud(false);
+  const box = $('#msgs');
+  const pic = document.createElement('div'); pic.className = 'm me pic play'; pic.innerHTML = artHTML(m, 'play'); box.appendChild(pic); fixType();
+  $('#lastPreview').textContent = 'You: ' + (m.k === 'gif' ? 'GIF' : 'Image');
+  desk.dataset.state = 'idle';
+  replyT.forEach(clearTimeout);
+  replyT = [setTimeout(() => { const who = document.createElement('div'); who.className = 'm-who'; who.textContent = Math.random() < .5 ? 'Jordan' : 'Priya'; const t = document.createElement('div'); t.className = 'm typing'; t.innerHTML = '<i></i><i></i><i></i>'; box.append(who, t); trim(); }, 700),
+    setTimeout(() => { const t = $('.m.typing', box); if (t){ t.className = 'm'; t.textContent = REPLIES[Math.floor(Math.random() * REPLIES.length)]; $('#lastPreview').textContent = t.textContent; } }, 2000)];
+  trim(); phase('done');
+}
+function trim(){ const box = $('#msgs'); while (box.children.length > 9) box.firstElementChild.remove(); }
 
-  // ---------- Copy, close and open ----------
-  function commit(t) {
-    if (!t) return;
-    stopAuto();
-    closePanel(t);
-  }
-  function closePanel(copied) {
-    if (!S.open) return;
-    S.open = false;
-    clearTimeout(holdTimer);
-    ring.classList.remove("filling");
-    // A face still being held counts once the visitor moves on, so the sticker and the results agree.
-    if (S.holding) S.committed = S.holding;
-    S.holding = null;
-    const hadFocus = panel.contains(document.activeElement);
-    stage.style.minHeight = stage.offsetHeight + "px";
-    smiley.setAttribute("aria-expanded", "false");
-    const done = () => {
-      panel.hidden = true;
-      panel.classList.remove("closing");
-      lp.classList.add("is-closed");
-      closedMsg.hidden = !copied;
-      if (copied) closedMsg.innerHTML = `<span class="thumb">${tileSVG(copied)}</span><span><b>Copied “${copied.title}”</b><span>Paste it with ⌘V. MemeMe never sends it for you.</span></span>`;
-      live.textContent = copied ? `Copied “${copied.title}”. Paste it with ⌘V.` : "Panel closed.";
-      closed.hidden = false;
-      if (hadFocus) $("#reopen").focus({ preventScroll: true });
-    };
-    if (reduced) done(); else { panel.classList.add("closing"); setTimeout(done, 230); }
-    setHint();
-  }
-  function openPanel(focus = true) {
-    if (S.open) { if (focus && finePointer) input.focus({ preventScroll: true }); return; }
-    S.open = true;
-    closed.hidden = true;
-    lp.classList.remove("is-closed");
-    live.textContent = "";
-    panel.hidden = false;
-    stage.style.minHeight = "";
-    smiley.setAttribute("aria-expanded", "true");
-    if (!reduced) panel.animate([{ transform: "translateY(-12px) scale(.97,.6)", opacity: 0 }, { transform: "none", opacity: 1 }], { duration: 260, easing: "cubic-bezier(.3,.8,.3,1)" });
-    input.value = "";
-    searchBox.classList.remove("has-text");
-    S.mode = "live";
-    setHint();
-    renderMirror();
-    refreshResults();
-    if (focus && finePointer) input.focus({ preventScroll: true });
-  }
-  $("#reopen").addEventListener("click", () => openPanel());
-  smiley.addEventListener("click", () => { stopAuto(); if (S.open) closePanel(null); else openPanel(); });
+/* menus */
+function closeMenu(){ S.menu = null; $('#srcMenu').hidden = true; $('#actMenu').hidden = true; $('#srcBtn').setAttribute('aria-expanded', 'false'); }
+function srcMenu(){
+  if (S.menu === 'src') return closeMenu(); closeMenu(); S.menu = 'src';
+  const el = $('#srcMenu'); el.innerHTML = SRC.map(s => s ? `<button role="menuitemradio" data-src="${s[0]}"><span class="chk">${S.src === s[0] ? '✓' : ''}</span>${s[1]}</button>` : '<hr>').join('');
+  el.hidden = false; $('#srcBtn').setAttribute('aria-expanded', 'true');
+}
+function actMenu(){
+  if (S.menu === 'act') return closeMenu(); closeMenu(); const m = S.items[S.sel]; if (!m) return; S.menu = 'act';
+  const own = m.s === 'mac' || m.s === 'sticker';
+  const rows = own ? [['copy','Copy','↩'],null,['fav', FAV.has(m.id) ? 'Remove from Favorites' : 'Add to Favorites','⌘S'],['more','More Like This','⌘M'],null,['finder','Show in Finder','⇧⌘R']]
+    : [['copy', m.k === 'gif' ? 'Copy GIF' : 'Copy Image','↩'],['link','Copy Link','⇧⌘C'],['md','Copy Markdown','⌥⌘C'],null,['open', m.s === 'giphy' ? 'Open on GIPHY' : 'Open in Browser','⌘O']];
+  const el = $('#actMenu'); el.innerHTML = `<div class="mh">${esc(m.n)}</div>` + rows.map(r => r ? `<button role="menuitem" data-act="${r[0]}">${r[1]}<span class="sc">${r[2]}</span></button>` : '<hr>').join('');
+  el.hidden = false;
+}
+$('#srcMenu').addEventListener('click', e => { const b = e.target.closest('[data-src]'); if (!b) return; S.src = b.dataset.src; $('#srcName').textContent = SRC.find(s => s && s[0] === S.src)[1]; S.sel = 0; closeMenu(); render(); gridwrap.scrollTop = 0; q.focus({preventScroll:true}); });
+$('#actMenu').addEventListener('click', e => {
+  const b = e.target.closest('[data-act]'); if (!b) return; const m = S.items[S.sel]; const a = b.dataset.act; closeMenu();
+  if (a === 'copy') return copy();
+  if (a === 'fav'){ FAV.has(m.id) ? FAV.delete(m.id) : FAV.add(m.id); hud(true, FAV.has(m.id) ? `Added “${esc(m.n)}” to Favorites` : 'Removed from Favorites'); }
+  else if (a === 'more'){ S.q = m.tags.split(' ')[0]; q.value = S.q; S.sel = 0; render(); }
+  else hud(true, {link:'Copied the link', md:'Copied as Markdown', open:'Opens in your browser', finder:'Shows it in Finder'}[a]);
+  q.focus({preventScroll:true});
+});
 
-  // ---------- Panel input ----------
-  panel.addEventListener("pointerdown", stopAuto);
-  lid.addEventListener("focusin", stopAuto);
-  input.addEventListener("input", onType);
-  hintAction.addEventListener("click", clearPins);
-  $$(".pin").forEach(b => b.addEventListener("click", () => togglePin(b.dataset.pin)));
-  grid.addEventListener("click", e => { const b = e.target.closest(".tile"); if (b) commit(byId[b.dataset.id]); });
-  grid.addEventListener("dragstart", e => {
-    const b = e.target.closest(".tile");
-    if (!b) return;
-    e.dataTransfer.setData("text/plain", byId[b.dataset.id].title);
-    e.dataTransfer.effectAllowed = "copy";
-  });
-  panel.addEventListener("keydown", e => {
-    if (e.metaKey || e.ctrlKey || e.altKey) return;
-    const k = e.key, n = S.shown.length;
-    if (/^[1-9]$/.test(k)) { e.preventDefault(); commit(S.shown[+k - 1]); return; }
-    if (k === "Escape") { e.preventDefault(); escape(); return; }
-    if (k === "Enter" && e.target === input) {
-      e.preventDefault();
-      if (performance.now() - S.lastType > 300) commit(S.shown[S.focus]);
-      return;
-    }
-    if (k === " " && e.target === input && !input.value) {
-      e.preventDefault();
-      if (S.holding) commitFace(S.holding);
-      return;
-    }
-    if (!n || e.target.classList.contains("pin")) return;
-    const typing = e.target === input && input.value;
-    let f = S.focus;
-    if (k === "ArrowRight" && !typing) f = Math.min(n - 1, f + 1);
-    else if (k === "ArrowLeft" && !typing) f = Math.max(0, f - 1);
-    else if (k === "ArrowDown") f = Math.min(n - 1, f + 5);
-    else if (k === "ArrowUp") f = Math.max(0, f - 5);
-    else return;
+/* input and keys */
+q.addEventListener('input', () => { cancelHold(); S.q = q.value; S.sel = 0; render(); gridwrap.scrollTop = 0; phase(S.q ? 'pick' : (S.faceOn ? 'face' : 'open')); });
+const cols = () => S.faceOn ? 4 : 5;
+q.addEventListener('keydown', e => {
+  userTouch();
+  const k = e.key, cmd = e.metaKey || e.ctrlKey;
+  if (k === 'Escape'){ e.preventDefault(); if (S.menu) closeMenu(); else closePanel(); return; }
+  if (S.menu && (k === 'ArrowDown' || k === 'ArrowUp' || k === 'Enter')){
     e.preventDefault();
-    stopAuto();
-    S.focus = f;
-    renderFocus();
-    if (e.target.classList.contains("tile")) nodes.get(S.shown[f].id).firstChild.focus();
-  });
-  // Keyboard focus on a tile and the panel's highlighted tile are the same tile.
-  grid.addEventListener("focusin", e => {
-    const b = e.target.closest(".tile");
-    const i = b ? S.shown.findIndex(t => t.id === b.dataset.id) : -1;
-    if (i >= 0 && i !== S.focus) { S.focus = i; renderFocus(); }
-  });
+    const items = $$('button', S.menu === 'src' ? $('#srcMenu') : $('#actMenu'));
+    const i = items.findIndex(b => b.classList.contains('hi'));
+    if (k === 'Enter'){ (items[i] || items[0]).click(); return; }
+    const n = k === 'ArrowDown' ? (i + 1) % items.length : (i <= 0 ? items.length - 1 : i - 1);
+    items.forEach((b, j) => b.classList.toggle('hi', j === n));
+    return;
+  }
+  if (k === 'ArrowRight' && !(q.value && q.selectionStart < q.value.length)){ e.preventDefault(); select(S.sel + 1); }
+  else if (k === 'ArrowLeft' && !(q.value && q.selectionStart > 0)){ e.preventDefault(); select(S.sel - 1); }
+  else if (k === 'ArrowDown'){ e.preventDefault(); select(S.sel + cols()); }
+  else if (k === 'ArrowUp'){ e.preventDefault(); select(S.sel - cols()); }
+  else if (k === 'Enter'){ e.preventDefault(); copy(); }
+  else if (cmd && /^[1-9]$/.test(k)){ e.preventDefault(); copy(+k - 1); }
+  else if (cmd && (k === 'f' || k === 'F')){ e.preventDefault(); setFace(!S.faceOn); }
+  else if (cmd && (k === 'k' || k === 'K')){ e.preventDefault(); actMenu(); }
+  else if (cmd && (k === 'p' || k === 'P')){ e.preventDefault(); srcMenu(); }
+  else if (k === 'Tab'){ e.preventDefault(); const list = SRC.filter(Boolean); const i = list.findIndex(s => s[0] === S.src); S.src = list[(i + (e.shiftKey ? list.length - 1 : 1)) % list.length][0]; $('#srcName').textContent = SRC.find(s => s && s[0] === S.src)[1]; S.sel = 0; render(); }
+  else if (k === 'Backspace' && !q.value && S.face){ clearFace(); }
+});
+document.addEventListener('keydown', e => { if (e.key === 'Meta' || e.key === 'Control') mm.classList.add('cmd'); });
+document.addEventListener('keyup', e => { if (e.key === 'Meta' || e.key === 'Control') mm.classList.remove('cmd'); });
+window.addEventListener('blur', () => mm.classList.remove('cmd'));
+document.addEventListener('keydown', e => {
+  const k = (e.key || '').toLowerCase();
+  if (e.ctrlKey && k === 'm'){ e.preventDefault(); userTouch(); ensureDemoInView(); S.open ? closePanel() : openPanel(true); return; }
+  if ((e.metaKey || e.ctrlKey) && k === 'v' && S.pending && document.activeElement !== q){ e.preventDefault(); userTouch(); paste(); return; }
+  if (S.open && e.target === document.body && k === 'escape') closePanel();
+});
+grid.addEventListener('click', e => { const t = e.target.closest('.tile'); if (!t) return; userTouch(); copy(+t.dataset.i); });
+grid.addEventListener('mousemove', e => { const t = e.target.closest('.tile'); if (t && +t.dataset.i !== S.sel && !auto.on) select(+t.dataset.i); });
+$('#mbIcon').addEventListener('click', e => { e.stopPropagation(); userTouch(); S.open ? closePanel() : openPanel(true); });
+$('#faceBtn').addEventListener('click', () => { userTouch(); setFace(!S.faceOn); q.focus({preventScroll:true}); });
+$('#tokenX').addEventListener('click', () => { userTouch(); clearFace(); q.focus({preventScroll:true}); });
+$('#copyBtn').addEventListener('click', () => { userTouch(); copy(); });
+$('#actBtn').addEventListener('click', () => { userTouch(); actMenu(); });
+$('#srcBtn').addEventListener('click', () => { userTouch(); srcMenu(); });
+$('#cutBtn').addEventListener('click', () => { userTouch(); closePanel(); hud(true, 'In the app, ⌃⌘S cuts a sticker from your screen'); });
+$$('.cue', mm).forEach(b => b.addEventListener('click', () => { userTouch(); if (!S.face) return; const l = sk.lean(b.dataset.part); $('#camFrom').textContent = l ? `Leaning on your ${l}. Click again to undo.` : 'your face'; }));
+desk.addEventListener('pointerdown', e => { userTouch(); if (S.open && !mm.contains(e.target) && !e.target.closest('#mbIcon')) closePanel(); else if (S.menu && !e.target.closest('.menu,.srcbtn,#actBtn')) closeMenu(); });
+setInterval(() => { if (!S.faceOn) return; const m = meterOf(sk.glow); paintMeter($('#mBrows'), m.brows); paintMeter($('#mEyes'), m.eyes); paintMeter($('#mMouth'), m.mouth); }, 120);
 
-  // ⌃⌘M toggles the panel, like the real thing.
-  document.addEventListener("keydown", e => {
-    if (e.ctrlKey && e.metaKey && !e.altKey && e.code === "KeyM") {
-      e.preventDefault();
-      stopAuto();
-      if (S.open) closePanel(null); else openPanel();
+/* the guide under the laptop */
+const kc = s => s.split(' ').map(x => `<span class="kc">${x}</span>`).join('');
+function phase(p){
+  S.phase = p;
+  const say = $('#gSay'), acts = $('#gActs'), step = $('#gStep');
+  const btn = (label, fn, pri) => { const b = document.createElement('button'); b.className = 'gbtn' + (pri ? ' pri' : ''); b.innerHTML = label; b.addEventListener('click', () => { userTouch(); fn(); }); acts.appendChild(b); };
+  acts.innerHTML = '';
+  if (auto.on){ step.textContent = 'Demo'; say.innerHTML = 'Playing by itself. Click the screen or press a key to try it.'; return; }
+  if (p === 'idle'){ step.textContent = S.user ? 'Your turn' : 'Try it'; say.innerHTML = `Press ${kc('⌃ ⌘ M')} or click the icon in the menu bar.`; btn('Open MemeMe ' + kc('⌃ ⌘ M'), () => { ensureDemoInView(); openPanel(true); }, true); }
+  else if (p === 'open'){ step.textContent = '1 · Search'; say.innerHTML = 'Type anything, or search with your face.'; ['fine','omg','nope','party'].forEach(w => btn(esc(w), () => { q.value = w; S.q = w; S.sel = 0; render(); q.focus({preventScroll:true}); phase('pick'); })); btn('Use your face ' + kc('⌘ F'), () => setFace(true)); }
+  else if (p === 'face'){ step.textContent = '1 · Make a face'; say.innerHTML = 'There is no camera here, so pick the face you would make:'; ['shocked','happy','wink','tongue','eyeroll','raised','celebrate'].forEach(k => btn(esc(EXPR[k].word), () => makeFace(k))); }
+  else if (p === 'pick'){ step.textContent = '2 · Pick'; say.innerHTML = `${kc('↩')} copies the one with the ring. Arrows move it, ${kc('⌘ 1')}–${kc('⌘ 9')} take any tile.`; btn('Copy ' + kc('↩'), () => copy(), true); if (S.faceOn) ['shocked','wink','tongue','celebrate'].filter(k => k !== S.face).slice(0, 3).forEach(k => btn(esc(EXPR[k].word), () => makeFace(k))); }
+  else if (p === 'copied'){ step.textContent = '3 · Paste'; say.innerHTML = 'It is on the clipboard and the panel is gone. Paste it into the chat.'; btn('Paste ' + kc('⌘ V'), paste, true); }
+  else if (p === 'done'){ step.textContent = 'Done'; say.innerHTML = 'That is the whole thing. The chat never lost focus.'; btn('Again ' + kc('⌃ ⌘ M'), () => openPanel(true), true); btn('With your face', () => { openPanel(true); setFace(true); }); }
+}
+
+/* autoplay until someone touches it */
+const auto = {on:false, run:0};
+let demoVisible = false;
+const sleep = (ms, id) => new Promise((res, rej) => setTimeout(() => (auto.on && auto.run === id) ? res() : rej(0), ms));
+async function typeIn(text, id){ for (const c of text){ await sleep(140, id); q.value += c; S.q = q.value; S.sel = 0; render(); } }
+async function autoplay(){
+  const id = ++auto.run; auto.on = true; phase(S.phase);
+  try {
+    while (true){
+      await sleep(1400, id); openPanel(false); await sleep(900, id);
+      await typeIn('fine', id); await sleep(1300, id);
+      copy(); await sleep(1500, id); paste(); await sleep(3600, id);
+      openPanel(false); await sleep(700, id); setFace(true); await sleep(900, id);
+      makeFace('shocked'); await sleep(2000, id);
+      select(1); await sleep(500, id); select(2); await sleep(900, id);
+      copy(); await sleep(1500, id); paste(); await sleep(3600, id);
+      openPanel(false); await sleep(700, id); setFace(true); await sleep(700, id);
+      makeFace('celebrate'); await sleep(2200, id); copy(); await sleep(1500, id); paste(); await sleep(4200, id);
     }
-  });
+  } catch (_) {}
+}
+function userTouch(){
+  if (S.user) return; S.user = true;
+  if (auto.on){ auto.on = false; auto.run++; closePanel(); S.pending = null; hud(false); desk.dataset.state = 'idle'; clearTimeout(holdTimer); }
+  phase(S.open ? (S.faceOn ? 'face' : 'open') : 'idle');
+}
+demo.addEventListener('pointerdown', e => { if (e.target.closest('.gbtn')) return; userTouch(); }, true);
+new IntersectionObserver(es => { demoVisible = es.some(e => e.isIntersecting && e.intersectionRatio > .35);
+  if (!reduce && demoVisible && !S.user && !auto.on && lidOpen()) autoplay();
+}, {threshold:[0, .35, .6]}).observe($('#screen'));
+function ensureDemoInView(){ const r = $('#screen').getBoundingClientRect(); if (r.top < 0 || r.bottom > innerHeight) $('#screen').scrollIntoView({behavior:reduce ? 'auto' : 'smooth', block:'center'}); if (hinged) setLid(0, 1); }
 
-  // The face stickers on the lid pick the face.
-  faceBtns.forEach(b => b.addEventListener("click", () => setFace(b.dataset.face)));
-
-  // The mirror's eyes follow the pointer, and it blinks now and then.
-  let heroVisible = true;
-  if ("IntersectionObserver" in window) new IntersectionObserver(es => { heroVisible = es[0].isIntersecting; }).observe(lid);
-  if (!reduced) {
-    addEventListener("pointermove", e => {
-      if (!heroVisible || !S.open) return;
-      const r = mirror.getBoundingClientRect();
-      S.lookX = clamp((e.clientX - (r.left + r.width / 2)) / 260, -1, 1) * .7;
-      S.lookY = clamp((e.clientY - (r.top + r.height / 2)) / 220, -1, 1);
-      queueMirror();
-    }, { passive: true });
-    const blink = () => {
-      if (S.open && heroVisible) {
-        S.blink = true; renderMirror();
-        setTimeout(() => { S.blink = false; renderMirror(); }, 120);
+/* ---------------- the page ---------------- */
+let hinged = false; const lidOpen = () => true; function setLid(){}
+function bindMirror(root, keys, chipsEl, opts = {}){
+  const s = Sketch($('svg.sk', root), opts);
+  const word = $('[data-word]', root), from = $('[data-from]', root), ring = $('.ring .fill', root);
+  let i = 0, hold = 0, timer = 0;
+  const show = k => {
+    s.set(k, 520); if (word){ word.style.opacity = .4; }
+    if (ring){ ring.style.transition = 'none'; ring.style.strokeDashoffset = 301.6; ring.getBoundingClientRect(); setTimeout(() => { ring.style.transition = 'stroke-dashoffset .6s linear'; ring.style.strokeDashoffset = 0; }, 380); setTimeout(() => { ring.style.transition = 'stroke-dashoffset .4s'; ring.style.strokeDashoffset = 301.6; }, 1100); }
+    setTimeout(() => { if (word){ word.textContent = EXPR[k].word; word.style.opacity = 1; } if (from) from.textContent = 'your ' + (EXPR[k].pose ? 'pose' : 'face'); }, 980);
+    if (chipsEl) $$('[data-k]', chipsEl).forEach(c => c.setAttribute('aria-pressed', c.dataset.k === k));
+  };
+  if (chipsEl && opts.chips !== false) chipsEl.innerHTML = keys.map(k => `<button class="chip" data-k="${k}" aria-pressed="false">${esc(EXPR[k].word)}</button>`).join('');
+  chipsEl && chipsEl.addEventListener('click', e => { const c = e.target.closest('[data-k]'); if (!c) return; hold = Date.now() + 9000; i = keys.indexOf(c.dataset.k); show(c.dataset.k); });
+  chipsEl && opts.hover && chipsEl.addEventListener('mouseover', e => { const c = e.target.closest('[data-k]'); if (!c || c.getAttribute('aria-pressed') === 'true') return; hold = Date.now() + 9000; i = keys.indexOf(c.dataset.k); show(c.dataset.k); });
+  const meters = $$('[data-m]', root);
+  if (meters.length) setInterval(() => { const m = meterOf(s.glow); meters.forEach(el => paintMeter(el, m[el.dataset.m])); }, 120);
+  show(keys[0]);
+  timer = setInterval(() => { if (Date.now() < hold || document.hidden) return; i = (i + 1) % keys.length; show(keys[i]); }, opts.every || 2800);
+  return s;
+}
+/* ---------------- plain drafts: shared content ---------------- */
+const kb = s => s.split(' ').map(x => `<span class="kb">${x}</span>`).join('');
+const REL = 'https://github.com/Michaell14/MemeMe';
+const BLOCKS = {
+  steps: `<ol class="steps">
+    <li><span><b>Press ${kb('⌃ ⌘ M')} in any app.</b> The panel opens over it, like Spotlight. The chat stays in front and keeps your draft. Your recent picks from that app are already there.</span></li>
+    <li><span><b>Type a word, or make a face.</b> Typing searches the text inside your memes, their names, GIPHY and the classic memes. ${kb('⌘ F')} turns on the camera instead.</span></li>
+    <li><span><b>Press ${kb('↩')}.</b> The selected result is copied and the panel closes. ${kb('⌘ 1')} to ${kb('⌘ 9')} copy any of the first nine.</span></li>
+    <li><span><b>Paste with ${kb('⌘ V')}.</b> MemeMe never pastes or sends anything for you.</span></li></ol>`,
+  sources: `<dl class="srcs">
+    <dt>On My Mac</dt><dd>Reaction images and GIFs in Downloads, Desktop and your screenshots, plus any folder you add. The text inside them is read, so you can search for what they say.</dd>
+    <dt>My Stickers</dt><dd>Stickers you cut out of anything on screen with ${kb('⌃ ⌘ S')}, and ones made from photos you drop on the menu-bar icon.</dd>
+    <dt>GIPHY</dt><dd>GIFs and stickers for your words or your face. They arrive in their own row and never reshuffle yours. You can turn GIPHY off in the menu.</dd>
+    <dt>Classic Memes</dt><dd>The popular templates, matched on your Mac.</dd>
+    <dt>Favorites, Recent</dt><dd>${kb('⌘ S')} stars one. Recent is kept per app, so ${kb('⌃ ⌘ M')} then ${kb('↩')} sends your last reaction to that chat again.</dd></dl>`,
+  shortcuts: `<table class="kbtable"><tbody>
+    <tr><td>${kb('⌃ ⌘ M')}</td><td>Open or close MemeMe, from any app</td></tr>
+    <tr><td>${kb('⌘ F')}</td><td>Search with your face</td></tr>
+    <tr><td>${kb('↩')}</td><td>Copy the selected result and close</td></tr>
+    <tr><td>${kb('⌘ 1')}–${kb('9')}</td><td>Copy a result by its position</td></tr>
+    <tr><td>${kb('← → ↑ ↓')}</td><td>Move the selection, even while you type</td></tr>
+    <tr><td>${kb('⌘ K')}</td><td>Actions: copy a link or Markdown, add to Favorites, more like this</td></tr>
+    <tr><td>${kb('⌘ P')}</td><td>Pick a source</td></tr>
+    <tr><td>${kb('⌃ ⌘ S')}</td><td>Cut a sticker out of the screen</td></tr>
+    <tr><td>${kb('esc')}</td><td>Close without copying</td></tr></tbody></table>`,
+  faq: `<div class="faq">
+    <details open><summary>Does it paste or send anything for me?</summary><p>No. It copies the image and closes. You paste it with ⌘V, so MemeMe never needs Accessibility access.</p></details>
+    <details><summary>Does my face leave my Mac?</summary><p>No. Faces are read with Apple's on-device frameworks. The camera runs only while face search is on and stops within a second of closing the panel. Your resting face is kept as about 20 numbers, never an image, and you can forget it from the menu.</p></details>
+    <details><summary>Do I have to use the camera?</summary><p>No. Typing works for everything. Face search is there when you want it.</p></details>
+    <details><summary>What permissions does it ask for?</summary><p>The camera, for face search. Screen Recording, only if you cut stickers from the screen, asked the first time you do.</p></details>
+    <details><summary>How do updates work?</summary><p>MemeMe checks for new versions and offers to install them. Releases are signed with a Developer ID and notarized by Apple.</p></details>
+    <details><summary>Does it cost anything?</summary><p>No. It's free, and the source code is on GitHub.</p></details></div>`,
+  changes: `<ul class="changes">
+    <li><time>Nov 16</time><span>The selected result gets a white ring. Orange is kept for the ↩ key.</span></li>
+    <li><time>Nov 16</time><span>Arrow keys move through the results while you type.</span></li>
+    <li><time>Nov 16</time><span>The panel, its buttons and menus are frosted glass.</span></li>
+    <li><time>Nov 15</time><span>Cut a sticker out of anything on screen with ⌃⌘S.</span></li>
+    <li><time>Nov 15</time><span>The panel opens on search, with a source menu, actions, and your face to refine.</span></li>
+    <li><time>Nov 8</time><span>Edit your face: drag, resize and draw on it to refine the search.</span></li>
+    <li><time>Oct 29</time><span>Poses without a word of their own are described and named on your Mac.</span></li></ul>`,
+  specs: `<dl class="specs">
+    <dt>Requires</dt><dd>macOS 14 Sonoma or later</dd>
+    <dt>Runs on</dt><dd>Apple silicon and Intel</dd>
+    <dt>Download</dt><dd>MemeMe.dmg, 2 MB</dd>
+    <dt>Built with</dt><dd>Swift and Apple frameworks. No third-party packages, no bundled ML models.</dd>
+    <dt>Asks for</dt><dd>Camera, for face search. Screen Recording, only to cut stickers. Never Accessibility.</dd>
+    <dt>Updates</dt><dd>Built in. Signed with a Developer ID and notarized by Apple.</dd>
+    <dt>Price</dt><dd>Free. Source code on GitHub.</dd></dl>`,
+};
+$$('[data-block]').forEach(el => { el.innerHTML = BLOCKS[el.dataset.block] || ''; });
+$$('[data-faces]').forEach(el => { el.innerHTML = el.dataset.faces.split(',').map(k => `<button type="button" data-k="${k}" aria-pressed="false">${esc(EXPR[k].word)}</button>`).join(''); });
+bindMirror($('#rFace'), $('#rFace [data-faces]').dataset.faces.split(','), $('#rFace [data-faces]'), {chips:false, every:3000});
+/* ---------------- chat family: the hero conversation plays out ---------------- */
+(() => {
+  const box = $('.R-convo'); if (!box) return;
+  $$('.picwrap [data-art]').forEach(el => { el.innerHTML = artHTML(BY[el.dataset.art], 'play'); });
+  const items = $$(':scope > .cv-who, :scope > .b, :scope > .cv-keys, :scope > .picwrap, :scope > .cv-read', box);
+  const keys = $$('.cv-keys .kb', box), typed = $('.cv-keys i', box), tap = $('.tap', box);
+  let run = 0, vis = false;
+  new IntersectionObserver(es => { vis = es.some(e => e.isIntersecting); if (vis && !run) loop(); }).observe(box);
+  const w = ms => new Promise(r => setTimeout(r, ms));
+  async function loop(){
+    if (reduce) return; const id = ++run;
+    while (vis){
+      items.forEach(el => el.classList.add('cv-off')); tap.classList.remove('on'); keys.forEach(k => k.classList.remove('down')); typed.textContent = '';
+      await w(700);
+      for (const el of items){
+        if (el.classList.contains('cv-keys')){
+          el.classList.remove('cv-off');
+          for (const k of keys.slice(0, 3)){ k.classList.add('down'); await w(160); }
+          await w(250); for (const c of typed.dataset.type){ typed.textContent += c; await w(120); }
+          await w(300); for (const k of keys.slice(3)){ k.classList.add('down'); await w(220); }
+          await w(250); continue;
+        }
+        if (el.classList.contains('them')){ el.classList.add('typing'); el.classList.remove('cv-off'); await w(850); el.classList.remove('typing'); await w(500); continue; }
+        el.classList.remove('cv-off');
+        if (el.classList.contains('picwrap')){ await w(700); tap.classList.add('on'); await w(500); }
+        else await w(el.classList.contains('cv-who') ? 120 : 450);
       }
-      setTimeout(blink, 2600 + Math.random() * 3400);
-    };
-    setTimeout(blink, 2200);
-  }
-
-  // Plays through the faces once, until the visitor touches anything.
-  const PLAYLIST = ["sideeye", "laughing", "smug", "confused", "unimpressed", "shocked"];
-  let autoOn = !reduced, autoIdx = 0, autoTimer = 0;
-  function stopAuto() { autoOn = false; clearTimeout(autoTimer); }
-  function autoStep() {
-    if (!autoOn) return;
-    if (heroVisible && S.open && S.mode === "live" && !document.hidden) {
-      setFace(PLAYLIST[autoIdx], false);
-      autoIdx += 1;
-      if (autoIdx >= PLAYLIST.length) { autoOn = false; return; }
+      await w(4200);
+      if (id !== run) return;
     }
-    autoTimer = setTimeout(autoStep, 4200);
+    run = 0;
   }
-
-  // ---------- Start ----------
-  setHint();
-  renderMirror();
-  renderGrid(rankFace(EXPR[S.committed].p));
-  if (autoOn) autoTimer = setTimeout(autoStep, 2600);
+})();
+$$('.faq details').forEach(d => { d.open = true; });
+fit(); fixType(); phase('idle');
 })();
 </script>
