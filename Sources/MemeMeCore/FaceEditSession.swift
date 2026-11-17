@@ -1,7 +1,7 @@
 import Foundation
 
 /// Editing the face the camera caught: the face editor shows the caught face drawn from its seven numbers, and what you
-/// drag, resize or draw on it changes the search. Holding a face still is how a search starts; this only refines one
+/// drag or resize on it changes the search. Holding a face still is how a search starts; this only refines one
 /// that was caught.
 ///
 /// - Dragging a feature (`FaceHandle`) changes its number: the feature follows the pointer (`FaceSketch`'s travels).
@@ -10,8 +10,6 @@ import Foundation
 /// - Each part (brows, eyes, mouth) counts 0 (ignored) to 5, starting from the automatic weights rounded
 ///   (`FeatureWeights.automatic`, 1…3). Its ring's handle steps it every `ringStepDistance` dragged; a pinch steps it
 ///   too; − and + step it by one.
-/// - A circle drawn around a part makes it count 5, a scribble over it 0; tears drawn make the word "crying"
-///   (`StrokeGesture`).
 /// - Every change can be undone; Reset goes back to the face as it was caught (and can be undone too).
 public struct FaceEditSession: Equatable, Sendable {
     public static let maxWeight = 5
@@ -25,7 +23,6 @@ public struct FaceEditSession: Equatable, Sendable {
     struct Snapshot: Equatable, Sendable {
         var face: FaceFeatures
         var weights: [FaceRegion: Int]
-        var tears: [[SketchPoint]]
         var tiltDirection: Double
         var featuresEdited: Bool
     }
@@ -42,8 +39,6 @@ public struct FaceEditSession: Equatable, Sendable {
     public private(set) var face: FaceFeatures
     /// How much each part counts, 0 (ignored) … `maxWeight`.
     public private(set) var weights: [FaceRegion: Int]
-    /// Tears drawn on the face (face space).
-    public private(set) var tears: [[SketchPoint]]
     /// The way the head tilts in the drawing (headTilt keeps no direction).
     public private(set) var tiltDirection: Double
     /// A feature was dragged: the face detail the camera read no longer counts.
@@ -65,10 +60,9 @@ public struct FaceEditSession: Equatable, Sendable {
         original = query
         self.face = face
         self.weights = weights
-        tears = []
         tiltDirection = 1
         featuresEdited = false
-        initial = Snapshot(face: face, weights: weights, tears: [], tiltDirection: 1, featuresEdited: false)
+        initial = Snapshot(face: face, weights: weights, tiltDirection: 1, featuresEdited: false)
     }
 
     // MARK: Reading it
@@ -107,9 +101,8 @@ public struct FaceEditSession: Equatable, Sendable {
         return automatic.overriding(weightValues)
     }
 
-    /// The search's word: tears make it "crying", else what the edited face reads as.
+    /// The search's word: what the edited face reads as.
     public func mood(baseline: RestingBaseline) -> Mood {
-        if !tears.isEmpty { return .crying }
         let edited = sample
         return MoodClassifier.mood(for: edited.face, pose: edited.pose, shape: edited.shape, baseline: baseline)
     }
@@ -190,22 +183,6 @@ public struct FaceEditSession: Equatable, Sendable {
         weights[region] = value
     }
 
-    /// Applies what a pen stroke meant; `stroke` is kept when it drew a tear.
-    public mutating func apply(_ gesture: StrokeGesture, stroke: [SketchPoint]) {
-        let before = snapshot
-        switch gesture {
-        case let .circle(region):
-            weights[region] = FaceEditSession.maxWeight
-        case let .scribble(region):
-            weights[region] = 0
-        case .tear:
-            tears.append(stroke)
-        }
-        if snapshot != before {
-            remember(before)
-        }
-    }
-
     /// Goes back one change; false when there is none.
     @discardableResult
     public mutating func undo() -> Bool {
@@ -226,7 +203,7 @@ public struct FaceEditSession: Equatable, Sendable {
     // MARK: Private
 
     private var snapshot: Snapshot {
-        Snapshot(face: face, weights: weights, tears: tears, tiltDirection: tiltDirection, featuresEdited: featuresEdited)
+        Snapshot(face: face, weights: weights, tiltDirection: tiltDirection, featuresEdited: featuresEdited)
     }
 
     private mutating func remember(_ snapshot: Snapshot) {
@@ -239,7 +216,6 @@ public struct FaceEditSession: Equatable, Sendable {
     private mutating func restore(_ snapshot: Snapshot) {
         face = snapshot.face
         weights = snapshot.weights
-        tears = snapshot.tears
         tiltDirection = snapshot.tiltDirection
         featuresEdited = snapshot.featuresEdited
     }

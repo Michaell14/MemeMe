@@ -87,8 +87,6 @@ private enum HintCopy {
     static let backToFaceAction = "Back to your face"
     /// Under the mirror while the face editor is open: the tiles follow your edit, not the camera.
     static let editingTitle = "Searching your edit"
-    /// A pen stroke that is none of the three.
-    static let strokeNotRead = "Circle a part, scribble one out, or draw a tear."
     static let cameraOffTitle = "No camera"
     static let cameraOffSubtitle = "Drop, paste or type instead."
     static let cameraOffAction = "Turn on camera"
@@ -236,11 +234,6 @@ private struct ClipWork: @unchecked Sendable {
     let result: CaptureResult
 }
 
-struct EditorNotice: Equatable {
-    let text: String
-    let undoable: Bool
-}
-
 /// The words a pose with no word of its own was searched by, kept for the query they were found for so re-showing it
 /// (Esc, a library change, back from typing or from the face editor) searches the same words and never asks the model
 /// again.
@@ -329,8 +322,6 @@ private struct DescribedPhrase {
     @Published private(set) var shownWeights: [FaceRegion: Double] = [:]
     /// The word an edit just replaced: beside the notch, struck out before the new one for a moment.
     @Published private(set) var replacedWord: String?
-    /// What the last pen stroke did ("Tears drawn. Now searching “crying”."), with Undo beside it.
-    @Published private(set) var editorNotice: EditorNotice?
     @Published private(set) var hint = PanelHint(title: HintCopy.promptTitle, subtitle: HintCopy.promptSubtitle, actionTitle: nil, action: nil)
     @Published private(set) var footer: FooterState = .hidden
     @Published private(set) var showSetupCard: Bool = false
@@ -1202,9 +1193,23 @@ private struct DescribedPhrase {
         alert.addButton(withTitle: "Delete")
         alert.addButton(withTitle: "Cancel")
         alert.buttons.first?.hasDestructiveAction = true
-        NSApp.activate(ignoringOtherApps: true)
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        guard AppModel.runInFront(alert) == .alertFirstButtonReturn else { return }
         removeSticker(id: item.id)
+    }
+
+    /// Runs `alert` above the panel, which floats over the menu bar: at its normal level it would open behind it.
+    static func runInFront(_ alert: NSAlert) -> NSApplication.ModalResponse {
+        let level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 3)
+        alert.window.level = level
+        // runModal may set its own level as it shows the window; raise it again once it is up.
+        RunLoop.main.perform(inModes: [.modalPanel, .default]) {
+            MainActor.assumeIsolated {
+                alert.window.level = level
+                alert.window.orderFrontRegardless()
+            }
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        return alert.runModal()
     }
 
     /// Deletes the sticker without asking (`deleteSticker` asks); the grid drops its tile.
@@ -1242,7 +1247,6 @@ private struct DescribedPhrase {
         guard canEditFace, let query = tracker.query,
               let session = FaceEditSession(query: query, baseline: tracker.baseline) else { return }
         faceEdit = session
-        editorNotice = nil
         clearReplacedWord()
         tracker.clearHold()
         if holdProgress != 0 { holdProgress = 0 }
@@ -1276,7 +1280,6 @@ private struct DescribedPhrase {
         guard var edit = faceEdit else { return }
         edit.beginDrag(handle)
         faceEdit = edit
-        editorNotice = nil
     }
 
     /// The pointer moved `movement` since the drag began and is at `pointer` (the drawing's space, 200 × 200). Your
@@ -1315,33 +1318,14 @@ private struct DescribedPhrase {
         edit.step(region, by: delta)
         guard edit != faceEdit else { return }
         faceEdit = edit
-        editorNotice = nil
         runExpressionSearch(animate: false)
         refreshHint()
-    }
-
-    /// A pen stroke drawn on the editor's face (face space): what it meant, or nil when it was none of the three.
-    @discardableResult
-    func drawOnFace(_ stroke: [SketchPoint]) -> StrokeGesture? {
-        guard var edit = faceEdit else { return nil }
-        guard let gesture = StrokeGesture.read(stroke, on: edit.sketch, weights: edit.weightValues) else {
-            editorNotice = EditorNotice(text: HintCopy.strokeNotRead, undoable: false)
-            return nil
-        }
-        edit.apply(gesture, stroke: stroke)
-        faceEdit = edit
-        editorNotice = EditorNotice(text: AppModel.notice(for: gesture, mood: edit.mood(baseline: tracker.baseline)),
-                                    undoable: true)
-        runExpressionSearch(animate: false)
-        refreshHint()
-        return gesture
     }
 
     /// ⌘Z, or Undo in the editor.
     func undoFaceEdit() {
         guard var edit = faceEdit, edit.undo() else { return }
         faceEdit = edit
-        editorNotice = nil
         runExpressionSearch(animate: false)
         refreshHint()
     }
@@ -1352,27 +1336,13 @@ private struct DescribedPhrase {
         edit.reset()
         guard edit != faceEdit else { return }
         faceEdit = edit
-        editorNotice = nil
         runExpressionSearch(animate: false)
         refreshHint()
-    }
-
-    /// What a pen stroke did, in the editor.
-    nonisolated static func notice(for gesture: StrokeGesture, mood: Mood) -> String {
-        switch gesture {
-        case let .circle(region):
-            return "Circled your \(region.rawValue): " + (region == .mouth ? "it counts most now." : "they count most now.")
-        case let .scribble(region):
-            return "Scribbled out your \(region.rawValue): " + (region == .mouth ? "it’s ignored now." : "they’re ignored now.")
-        case .tear:
-            return "Tears drawn. Now searching “\(mood.label)”."
-        }
     }
 
     /// Closes the editor without searching again (the panel closes, the mode changes, the capture view opens).
     private func endFaceEdit() {
         if faceEdit != nil { faceEdit = nil }
-        if editorNotice != nil { editorNotice = nil }
         clearReplacedWord()
     }
 
@@ -1612,8 +1582,7 @@ private struct DescribedPhrase {
         alert.informativeText = "MemeMe cuts out each person. Everything stays on this Mac."
         alert.addButton(withTitle: "Make Stickers")
         alert.addButton(withTitle: photos.count == 1 ? "Keep as Photo" : "Keep as Photos")
-        NSApplication.shared.activate()
-        return alert.runModal() == .alertFirstButtonReturn
+        return AppModel.runInFront(alert) == .alertFirstButtonReturn
     }
 
     // MARK: - App-shell helpers (used by the status item and the app delegate)
@@ -1696,8 +1665,7 @@ private struct DescribedPhrase {
         field.frame = NSRect(x: 0, y: 0, width: 240, height: 24)
         alert.accessoryView = field
         alert.window.initialFirstResponder = field
-        NSApp.activate(ignoringOtherApps: true)
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        guard AppModel.runInFront(alert) == .alertFirstButtonReturn else { return }
         let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, name != item.displayName else { return }
         item.displayName = name

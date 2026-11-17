@@ -2,31 +2,24 @@ import AppKit
 import MemeMeCore
 import SwiftUI
 
-/// Adjust drags the face's handles; Draw reads pen strokes.
-enum FaceEditorTool: Equatable {
-    case adjust, draw
-}
-
 /// The face editor, under the drawer's body while you edit the face the camera caught (`FaceEditSession`); the drawer
 /// grows down to make room, so the tiles above never move.
 ///
 /// Left, the face drawn from its seven numbers, the way the search reads it: round dots move a feature, the squares on
 /// the rings set how much a part counts (a ring glows brighter the more its part counts, dashed when it's ignored),
-/// the top dot tilts the head. With the pen a circle makes a part count most, a scribble ignores it, and tears make the
-/// word "crying". Middle, what counts, with − and + per part (the keyboard's and VoiceOver's way to the weights).
-/// Right, the tools, Reset and Undo. The tiles re-rank as you drag; GIPHY is searched once you let go.
+/// the top dot tilts the head. Middle, what counts, with − and + per part (the keyboard's and VoiceOver's way to the
+/// weights). Right, what the handles do, Reset and Undo. The tiles re-rank as you drag; GIPHY is searched once you let go.
 struct FaceEditorView: View {
     @ObservedObject var model: AppModel
-    @State private var tool: FaceEditorTool = .adjust
 
     var body: some View {
         if let edit = model.faceEdit {
             HStack(alignment: .top, spacing: 24) {
-                FaceCanvas(model: model, edit: edit, tool: tool)
+                FaceCanvas(model: model, edit: edit)
                     .frame(width: Theme.editorFaceSize, height: Theme.editorFaceSize)
                 WeightList(model: model, edit: edit)
                     .frame(width: 236, alignment: .topLeading)
-                EditorTools(model: model, edit: edit, tool: $tool)
+                EditorTools(model: model, edit: edit)
                     .frame(maxWidth: .infinity, minHeight: Theme.editorFaceSize, alignment: .topLeading)
             }
             .padding(.top, 4)
@@ -36,22 +29,16 @@ struct FaceEditorView: View {
 
 // MARK: - The face
 
-/// The editor's face: drawn with Canvas from `FaceSketch` (one point per unit at 200 points), taking the drags, the
-/// pinches and the pen.
+/// The editor's face: drawn with Canvas from `FaceSketch` (one point per unit at 200 points), taking the drags and the
+/// pinches.
 private struct FaceCanvas: View {
     @ObservedObject var model: AppModel
     let edit: FaceEditSession
-    let tool: FaceEditorTool
 
     /// The handle under the pointer: drawn larger, with a cursor that says what it does.
     @State private var hovered: FaceHandle?
     /// The drag in progress began on a handle (true) or on nothing (false: it does nothing); nil between drags.
     @State private var dragOnHandle: Bool?
-    /// The stroke being drawn with the pen (face space).
-    @State private var stroke: [SketchPoint] = []
-    /// A circle or scribble just read, fading out as it turns into the ring's change.
-    @State private var fading: [SketchPoint] = []
-    @State private var fadeOpacity: Double = 0
     @State private var pinchStarted = false
     @State private var pinchRegion: FaceRegion?
 
@@ -61,19 +48,10 @@ private struct FaceCanvas: View {
         let sketch = edit.sketch
         let weights = edit.weightValues
         let highlighted = edit.draggedHandle ?? hovered
-        let showsHandles = tool == .adjust
-        let tears = edit.tears
-        let drawing = stroke
         let ghost = FaceCanvas.ghost(of: edit)
         Canvas { context, size in
-            FaceCanvas.draw(sketch: sketch, weights: weights, tears: tears, stroke: drawing, handles: showsHandles,
-                            highlighted: highlighted, ghost: ghost, in: &context, size: size)
-        }
-        .overlay {
-            SketchStroke(points: fading, tiltDegrees: sketch.tiltDegrees)
-                .stroke(Theme.text, style: StrokeStyle(lineWidth: 2.6, lineCap: .round, lineJoin: .round))
-                .opacity(fadeOpacity)
-                .allowsHitTesting(false)
+            FaceCanvas.draw(sketch: sketch, weights: weights, highlighted: highlighted, ghost: ghost,
+                            in: &context, size: size)
         }
         .contentShape(Circle())
         .gesture(dragGesture(sketch: sketch, weights: weights))
@@ -93,43 +71,26 @@ private struct FaceCanvas: View {
     private func dragGesture(sketch: FaceSketch, weights: [FaceRegion: Double]) -> some Gesture {
         DragGesture(minimumDistance: 0, coordinateSpace: .local)
             .onChanged { value in
-                let pointer = point(value.location)
-                switch tool {
-                case .adjust:
-                    if dragOnHandle == nil {
-                        let start = sketch.toFace(point(value.startLocation))
-                        if let handle = sketch.handle(at: start, weights: weights) {
-                            dragOnHandle = true
-                            model.beginFaceDrag(handle)
-                            NSCursor.closedHand.set()
-                        } else {
-                            dragOnHandle = false
-                        }
+                if dragOnHandle == nil {
+                    let start = sketch.toFace(point(value.startLocation))
+                    if let handle = sketch.handle(at: start, weights: weights) {
+                        dragOnHandle = true
+                        model.beginFaceDrag(handle)
+                        NSCursor.closedHand.set()
+                    } else {
+                        dragOnHandle = false
                     }
-                    guard dragOnHandle == true else { return }
-                    let movement = SketchPoint(x: Double(value.translation.width / scale),
-                                               y: Double(value.translation.height / scale))
-                    model.dragFace(by: movement, pointer: pointer)
-                case .draw:
-                    let facePoint = sketch.toFace(pointer)
-                    if let last = stroke.last, last.distance(to: facePoint) < 1.5 { return }
-                    stroke.append(facePoint)
                 }
+                guard dragOnHandle == true else { return }
+                let movement = SketchPoint(x: Double(value.translation.width / scale),
+                                           y: Double(value.translation.height / scale))
+                model.dragFace(by: movement, pointer: point(value.location))
             }
             .onEnded { _ in
-                switch tool {
-                case .adjust:
-                    if dragOnHandle == true {
-                        model.endFaceDrag()
-                    }
-                    dragOnHandle = nil
-                case .draw:
-                    let drawn = stroke
-                    stroke = []
-                    if let gesture = model.drawOnFace(drawn), gesture != .tear {
-                        fade(drawn)
-                    }
+                if dragOnHandle == true {
+                    model.endFaceDrag()
                 }
+                dragOnHandle = nil
             }
     }
 
@@ -160,29 +121,12 @@ private struct FaceCanvas: View {
         switch phase {
         case let .active(location):
             guard dragOnHandle == nil else { return }
-            guard tool == .adjust else {
-                if hovered != nil { hovered = nil }
-                NSCursor.crosshair.set()
-                return
-            }
             let handle = sketch.handle(at: sketch.toFace(point(location)), weights: weights)
             if hovered != handle { hovered = handle }
             FaceCanvas.cursor(for: handle).set()
         case .ended:
             if hovered != nil { hovered = nil }
             NSCursor.arrow.set()
-        }
-    }
-
-    /// Shows a stroke that was just read for a moment, fading.
-    private func fade(_ points: [SketchPoint]) {
-        fading = points
-        fadeOpacity = 0.8
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 50_000_000)
-            withAnimation(.easeOut(duration: 0.7)) {
-                fadeOpacity = 0
-            }
         }
     }
 
@@ -208,10 +152,9 @@ private struct FaceCanvas: View {
 
     // MARK: Drawing
 
-    /// The well, the head, the rings, the dragged part's starting shape, the features, tears and the pen's stroke, then
-    /// the handles (Adjust only).
-    static func draw(sketch: FaceSketch, weights: [FaceRegion: Double], tears: [[SketchPoint]], stroke: [SketchPoint],
-                     handles: Bool, highlighted: FaceHandle?, ghost: (sketch: FaceSketch, region: FaceRegion)?,
+    /// The well, the head, the rings, the dragged part's starting shape, the features, then the handles.
+    static func draw(sketch: FaceSketch, weights: [FaceRegion: Double],
+                     highlighted: FaceHandle?, ghost: (sketch: FaceSketch, region: FaceRegion)?,
                      in context: inout GraphicsContext, size: CGSize) {
         let scale = size.width / CGFloat(FaceSketch.size)
         context.scaleBy(x: scale, y: scale)
@@ -224,12 +167,10 @@ private struct FaceCanvas: View {
         face.rotate(by: .degrees(sketch.tiltDegrees))
         face.translateBy(x: -center.x, y: -center.y)
 
-        if handles {
-            var stem = Path()
-            stem.move(to: CGPoint(x: 100, y: FaceSketch.tiltHandlePoint.y + 3))
-            stem.addLine(to: CGPoint(x: 100, y: FaceSketch.center.y - FaceSketch.headRadius))
-            face.stroke(stem, with: .color(Theme.line), lineWidth: 1.2)
-        }
+        var stem = Path()
+        stem.move(to: CGPoint(x: 100, y: FaceSketch.tiltHandlePoint.y + 3))
+        stem.addLine(to: CGPoint(x: 100, y: FaceSketch.center.y - FaceSketch.headRadius))
+        face.stroke(stem, with: .color(Theme.line), lineWidth: 1.2)
         face.stroke(circle(center, CGFloat(FaceSketch.headRadius)), with: .color(Theme.line), lineWidth: 2)
 
         // The rings: brighter the more their part counts, dashed when it's ignored.
@@ -284,15 +225,6 @@ private struct FaceCanvas: View {
         face.fill(mouth, with: .color(Theme.ground))
         face.stroke(mouth, with: .color(ink(.mouth)), style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
 
-        let pen = StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round)
-        for tear in tears {
-            face.stroke(polyline(tear), with: .color(Theme.text.opacity(0.95)), style: pen)
-        }
-        if !stroke.isEmpty {
-            face.stroke(polyline(stroke), with: .color(Theme.text.opacity(0.8)), style: pen)
-        }
-
-        guard handles else { return }
         for handle in FaceHandle.all {
             let spot = point(sketch.position(of: handle, weights: weights))
             let isHighlighted = handle == highlighted
@@ -345,32 +277,6 @@ private struct FaceCanvas: View {
 
     static func circle(_ center: CGPoint, _ radius: CGFloat) -> Path {
         Path(ellipseIn: CGRect(x: center.x - radius, y: center.y - radius, width: 2 * radius, height: 2 * radius))
-    }
-
-    static func polyline(_ points: [SketchPoint]) -> Path {
-        var path = Path()
-        guard let first = points.first else { return path }
-        path.move(to: point(first))
-        for next in points.dropFirst() {
-            path.addLine(to: point(next))
-        }
-        return path
-    }
-}
-
-/// A pen stroke in face space over the editor's face: a stroke just read, fading out.
-private struct SketchStroke: Shape {
-    let points: [SketchPoint]
-    let tiltDegrees: Double
-
-    func path(in rect: CGRect) -> Path {
-        let scale = rect.width / CGFloat(FaceSketch.size)
-        let center = CGPoint(x: FaceSketch.center.x, y: FaceSketch.center.y)
-        let tilt = CGAffineTransform(translationX: center.x, y: center.y)
-            .rotated(by: CGFloat(tiltDegrees * Double.pi / 180))
-            .translatedBy(x: -center.x, y: -center.y)
-        return FaceCanvas.polyline(points)
-            .applying(tilt.concatenating(CGAffineTransform(scaleX: scale, y: scale)))
     }
 }
 
@@ -485,44 +391,18 @@ private struct StepButton: View {
 
 // MARK: - Tools
 
-/// Adjust or Draw, what the tool does, the last stroke's notice, Reset and Undo, and the keys.
+/// What the handles do, Reset and Undo, and the keys.
 private struct EditorTools: View {
     @ObservedObject var model: AppModel
     let edit: FaceEditSession
-    @Binding var tool: FaceEditorTool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ToolPicker(tool: $tool)
-            Text(verbatim: tool == .adjust
-                ? "Drag a dot to push a feature further. Drag a square, or pinch on a part, to change how much it counts."
-                : "Circle a part to make it count most, scribble one out to ignore it, or draw what the camera missed.")
+            Text(verbatim: "Drag a dot to push a feature further. Drag a square, or pinch on a part, to change how much it counts.")
                 .font(.system(size: 11))
                 .foregroundColor(Theme.mutedText)
                 .lineSpacing(2)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 12)
-            if let notice = model.editorNotice {
-                // What the pen just did, with its own Undo when it changed something.
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(verbatim: notice.text)
-                        .font(.system(size: 12))
-                        .foregroundColor(Theme.text)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if showsNoticeUndo {
-                        Button("Undo") {
-                            model.undoFaceEdit()
-                        }
-                        .buttonStyle(PanelLinkButtonStyle(fontSize: 12))
-                        .help("Undo what the pen just did (⌘Z)")
-                    }
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.raised))
-                .padding(.top, 12)
-            }
             HStack(spacing: 12) {
                 Button {
                     model.resetFaceEdit()
@@ -535,15 +415,13 @@ private struct EditorTools: View {
                 .opacity(edit.isEdited ? 1 : 0.4)
                 .help("Back to the face the camera caught")
 
-                if !showsNoticeUndo {
-                    Button("Undo") {
-                        model.undoFaceEdit()
-                    }
-                    .buttonStyle(PanelLinkButtonStyle())
-                    .disabled(!edit.canUndo)
-                    .opacity(edit.canUndo ? 1 : 0.4)
-                    .help("Undo the last change (⌘Z)")
+                Button("Undo") {
+                    model.undoFaceEdit()
                 }
+                .buttonStyle(PanelLinkButtonStyle())
+                .disabled(!edit.canUndo)
+                .opacity(edit.canUndo ? 1 : 0.4)
+                .help("Undo the last change (⌘Z)")
             }
             .padding(.top, 12)
             Spacer(minLength: 10)
@@ -552,46 +430,6 @@ private struct EditorTools: View {
                 KeyHint(key: "⌘Z", text: "undo")
             }
         }
-    }
-
-    /// The pen's notice carries Undo (and the row below leaves it out) while it describes a change Undo takes back.
-    private var showsNoticeUndo: Bool {
-        (model.editorNotice?.undoable ?? false) && edit.canUndo
-    }
-}
-
-private struct ToolPicker: View {
-    @Binding var tool: FaceEditorTool
-
-    var body: some View {
-        HStack(spacing: 2) {
-            segment(.adjust, title: "Adjust", symbol: "arrow.up.and.down.and.arrow.left.and.right")
-            segment(.draw, title: "Draw", symbol: "pencil.tip")
-        }
-        .padding(2)
-        .frame(height: 30)
-        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.raised))
-    }
-
-    private func segment(_ value: FaceEditorTool, title: String, symbol: String) -> some View {
-        let selected = tool == value
-        return Button {
-            tool = value
-        } label: {
-            HStack(spacing: 5) {
-                Image(systemName: symbol)
-                    .font(.system(size: 10, weight: .semibold))
-                    .accessibilityHidden(true)
-                Text(verbatim: title)
-                    .font(.system(size: 12, weight: .medium))
-            }
-            .foregroundColor(selected ? Theme.text : Theme.mutedText)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(selected ? Theme.raised2 : Color.clear))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 

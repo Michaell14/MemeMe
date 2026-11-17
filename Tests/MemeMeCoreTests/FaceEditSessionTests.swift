@@ -150,25 +150,6 @@ final class FaceEditSessionTests: XCTestCase {
         XCTAssertFalse(session.undo(), "the step past 5 changed nothing, so there was nothing to undo")
     }
 
-    func testStrokesSetWeightsAndTearsMakeItCrying() throws {
-        var session = try makeSession(TestFaces.smile)
-        XCTAssertNotEqual(session.mood(baseline: baseline), .crying)
-
-        session.apply(.circle(.eyes), stroke: [])
-        XCTAssertEqual(session.weight(.eyes), 5)
-        session.apply(.scribble(.mouth), stroke: [])
-        XCTAssertEqual(session.weight(.mouth), 0)
-
-        let tear = [SketchPoint(x: 66, y: 108), SketchPoint(x: 64, y: 132)]
-        session.apply(.tear, stroke: tear)
-        XCTAssertEqual(session.tears, [tear])
-        XCTAssertEqual(session.mood(baseline: baseline), .crying)
-
-        XCTAssertTrue(session.undo())
-        XCTAssertTrue(session.tears.isEmpty)
-        XCTAssertNotEqual(session.mood(baseline: baseline), .crying)
-    }
-
     func testDraggingAFeatureDropsTheFaceDetailButResizingDoesNot() throws {
         let shape = FaceShape(tongue: 0.45)
         var session = try makeSession(TestFaces.smile, shape: shape)
@@ -199,18 +180,15 @@ final class FaceEditSessionTests: XCTestCase {
         var session = try makeSession(TestFaces.surprise)
         drag(&session, .lowerLip, by: SketchPoint(x: 0, y: 5))
         session.step(.eyes, by: 2)
-        session.apply(.tear, stroke: [SketchPoint(x: 66, y: 108), SketchPoint(x: 64, y: 132)])
         XCTAssertTrue(session.isEdited)
 
         session.reset()
         XCTAssertFalse(session.isEdited)
         XCTAssertEqual(session.face, TestFaces.surprise)
         XCTAssertEqual(session.weights, [.brows: 3, .eyes: 2, .mouth: 3])
-        XCTAssertTrue(session.tears.isEmpty)
 
         XCTAssertTrue(session.undo(), "Reset can be undone")
         XCTAssertTrue(session.isEdited)
         XCTAssertEqual(session.weight(.eyes), 4)
-        XCTAssertEqual(session.tears.count, 1)
     }
 }

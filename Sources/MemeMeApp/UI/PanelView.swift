@@ -35,6 +35,9 @@ struct PanelView: View {
             handleDrop(providers)
         }
         .environment(\.colorScheme, .dark)
+        // Pinned to the window's top. The window is resized to fit a moment after the content changes (the face
+        // editor opening or closing); until then a centered panel would jump by half the change and back.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onAppear {
             focus = .search
         }
