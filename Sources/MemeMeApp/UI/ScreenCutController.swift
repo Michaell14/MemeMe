@@ -15,7 +15,7 @@ enum ScreenCutStatus: Equatable {
 
 /// The screen cut (⌃⌘S, or ✂ in the panel): the screen freezes under a dim layer, the subject under the pointer lights
 /// up, and a click takes it (⇧-click adds another, ⌥-click takes one away); a box dragged around something lifts what is
-/// inside it. A card beside it names the sticker and saves it to My Stickers, or copies it.
+/// inside it. A card beside it names the sticker and saves it to My Stickers (copying it too), or only copies it.
 @MainActor final class ScreenCutModel: ObservableObject {
     @Published private(set) var status: ScreenCutStatus = .finding
     /// What the pointer is over, lit up but not taken.
@@ -313,15 +313,26 @@ private final class ScreenCutPanel: NSPanel {
             do {
                 let png = try ScreenSubjects.stickerPNG(of: piece)
                 let made = try await friends.makeScreenSticker(png: png, name: name, sourceApp: sourceApp)
+                // Saved and copied in one go, ready to paste.
+                var copied = true
+                do {
+                    try Clipboard.copy(fileURL: made.item.fileURL, item: made.item)
+                } catch {
+                    copied = false
+                    cutLog.error("Copying a saved screen sticker failed")
+                }
                 guard made.isNew else {
-                    HUDController.shared.show("Already one of your stickers", thumbnail: made.item.fileURL)
+                    HUDController.shared.show(copied ? "Already one of your stickers · copied, ⌘V to paste"
+                                                     : "Already one of your stickers",
+                                              thumbnail: made.item.fileURL)
                     return
                 }
                 let undo = HUDAction(title: "Undo") {
                     friends.removeOwnSticker(id: made.item.id)
                     HUDController.shared.show("Sticker removed")
                 }
-                HUDController.shared.show("Saved “\(made.item.displayName)” to My Stickers",
+                HUDController.shared.show(copied ? "Saved “\(made.item.displayName)” · copied, ⌘V to paste"
+                                                 : "Saved “\(made.item.displayName)” to My Stickers",
                                           thumbnail: made.item.fileURL, action: undo)
             } catch {
                 cutLog.error("Saving a screen sticker failed: \(error.localizedDescription, privacy: .public)")
@@ -536,7 +547,7 @@ private struct ScreenCutView: View {
                     .focused($nameFocused)
                     .accessibilityLabel("Sticker name")
             }
-            Text("Goes to My Stickers. Find it by its name, or by making the same face.")
+            Text("Goes to My Stickers and your clipboard. Find it by its name, or by making the same face.")
                 .font(.system(size: 11))
                 .foregroundColor(Theme.mutedText)
                 .fixedSize(horizontal: false, vertical: true)
