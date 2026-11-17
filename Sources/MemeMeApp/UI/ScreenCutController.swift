@@ -14,16 +14,17 @@ enum ScreenCutStatus: Equatable {
 }
 
 /// The screen cut (⌥S, or ✂ in the panel): the screen freezes under a dim layer, the subject under the pointer lights
-/// up, and a click takes it (⇧-click adds another, ⌥-click takes one away); a box dragged around something lifts what is
-/// inside it. A card beside it names the sticker and saves it to My Stickers, or copies it.
+/// up, and a click takes it alone. Drawing (a loop around it, or a scribble across it) adds the subjects it covers, or
+/// takes them away when they are all taken already; a drawing over nothing that was found lifts what stands out inside
+/// its box. A card beside it names the sticker and saves it to My Stickers, or copies it.
 @MainActor final class ScreenCutModel: ObservableObject {
     @Published private(set) var status: ScreenCutStatus = .finding
     /// What the pointer is over, lit up but not taken.
     @Published private(set) var hovered: ScreenPiece?
     /// What was taken.
     @Published private(set) var selection: ScreenPiece?
-    /// The box being dragged (normalized, origin top-left).
-    @Published private(set) var dragBox: CGRect?
+    /// The line being drawn (normalized, origin top-left); empty when not drawing.
+    @Published private(set) var drawing: [CGPoint] = []
     @Published var name: String = "" {
         didSet {
             if !isSettingName { nameEdited = true }
@@ -64,7 +65,7 @@ enum ScreenCutStatus: Equatable {
     // MARK: Pointer
 
     func hover(at point: CGPoint) {
-        guard status == .ready, dragBox == nil, let subjects else { return }
+        guard status == .ready, drawing.isEmpty, let subjects else { return }
         let instance = subjects.instance(at: point)
         guard instance != hoveredInstance else { return }
         hoveredInstance = instance
@@ -78,45 +79,62 @@ enum ScreenCutStatus: Equatable {
         }
     }
 
-    /// A click: takes the subject under it (⇧ adds it, ⌥ takes it away); on the background, nothing is taken.
-    func click(at point: CGPoint, adding: Bool, removing: Bool) {
+    /// A click: takes the subject under it, alone; on the background, nothing is taken.
+    func click(at point: CGPoint) {
         guard status == .ready, let subjects else { return }
         guard let instance = subjects.instance(at: point) else {
-            if !adding && !removing { clearSelection() }
+            clearSelection()
             return
         }
-        var wanted = (adding || removing) ? selectedInstances : IndexSet()
-        if removing {
-            wanted.remove(instance)
-        } else {
-            wanted.insert(instance)
-        }
-        select(wanted)
+        select(IndexSet(integer: instance))
     }
 
-    func drag(from start: CGPoint, to end: CGPoint) {
+    /// How wide the drawn line reaches, as a share of the screen's width: a scribble across a subject covers enough of it.
+    nonisolated static let penWidth: CGFloat = 0.02
+
+    /// The pointer moved while drawing.
+    func draw(from start: CGPoint, to point: CGPoint) {
         guard status == .ready else { return }
-        dragBox = CGRect(x: min(start.x, end.x), y: min(start.y, end.y),
-                         width: abs(end.x - start.x), height: abs(end.y - start.y))
-        hovered = nil
-        hoveredInstance = nil
+        if drawing.isEmpty {
+            drawing = [start]
+            hovered = nil
+            hoveredInstance = nil
+        }
+        if let last = drawing.last, hypot(point.x - last.x, point.y - last.y) < 0.002 { return }
+        drawing.append(point)
     }
 
-    /// A box let go: the subjects inside it, or the box itself.
-    func endDrag() {
-        guard let box = dragBox, let subjects else {
-            dragBox = nil
-            return
-        }
-        dragBox = nil
-        guard box.width > 0.005, box.height > 0.005 else { return }
-        selectedInstances = IndexSet()
+    /// A drawing let go: adds the subjects it covers, or takes them away when they were all taken; over nothing that
+    /// was found, what stands out inside its box (or the box itself).
+    func endDrawing() {
+        let points = drawing
+        drawing = []
+        guard status == .ready, points.count > 1, let subjects else { return }
+        let xs = points.map(\.x)
+        let ys = points.map(\.y)
+        let bounds = CGRect(x: xs.min() ?? 0, y: ys.min() ?? 0,
+                            width: (xs.max() ?? 0) - (xs.min() ?? 0), height: (ys.max() ?? 0) - (ys.min() ?? 0))
+        let taken = selectedInstances
         generation += 1
         let current = generation
         isWorking = true
         Task { [weak self] in
-            let piece = await Task.detached(priority: .userInitiated) { try? subjects.piece(inBox: box) }.value
+            let covered = await Task.detached(priority: .userInitiated) {
+                subjects.instances(coveredBy: points, penWidth: ScreenCutModel.penWidth)
+            }.value
             guard let self, current == self.generation else { return }
+            if !covered.isEmpty {
+                self.isWorking = false
+                self.select(covered.isSubset(of: taken) ? taken.subtracting(covered) : taken.union(covered))
+                return
+            }
+            guard bounds.width > 0.005, bounds.height > 0.005 else {
+                self.isWorking = false
+                return
+            }
+            let piece = await Task.detached(priority: .userInitiated) { try? subjects.piece(inBox: bounds) }.value
+            guard current == self.generation else { return }
+            self.selectedInstances = IndexSet()
             self.isWorking = false
             self.setSelection(piece)
         }
@@ -338,7 +356,6 @@ private final class ScreenCutPanel: NSPanel {
 private struct ScreenCutView: View {
     @ObservedObject var cut: ScreenCutModel
 
-    @State private var dragStart: CGPoint?
     @FocusState private var nameFocused: Bool
 
     init(cut: ScreenCutModel) {
@@ -359,11 +376,12 @@ private struct ScreenCutView: View {
                     pieceView(selection, size: size)
                         .allowsHitTesting(false)
                 }
-                if let box = cut.dragBox {
-                    Rectangle()
-                        .strokeBorder(Color.white, style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
-                        .frame(width: box.width * size.width, height: box.height * size.height)
-                        .offset(x: box.minX * size.width, y: box.minY * size.height)
+                if cut.drawing.count > 1 {
+                    let path = drawingPath(cut.drawing, size: size)
+                    path.fill(Color.white.opacity(0.08))
+                        .allowsHitTesting(false)
+                    path.stroke(Color.white, style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+                        .shadow(color: .black.opacity(0.5), radius: 3)
                         .allowsHitTesting(false)
                 }
                 hint
@@ -397,24 +415,27 @@ private struct ScreenCutView: View {
         .gesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { value in
-                    if dragStart == nil { dragStart = value.startLocation }
                     let distance = hypot(value.translation.width, value.translation.height)
-                    if distance > 6 {
-                        cut.drag(from: normalized(value.startLocation, in: size), to: normalized(value.location, in: size))
+                    if !cut.drawing.isEmpty || distance > 6 {
+                        cut.draw(from: normalized(value.startLocation, in: size), to: normalized(value.location, in: size))
                     }
                 }
                 .onEnded { value in
-                    dragStart = nil
-                    if cut.dragBox != nil {
-                        cut.endDrag()
+                    if cut.drawing.isEmpty {
+                        cut.click(at: normalized(value.location, in: size))
                     } else {
-                        let flags = NSEvent.modifierFlags
-                        cut.click(at: normalized(value.location, in: size), adding: flags.contains(.shift),
-                                  removing: flags.contains(.option))
+                        cut.endDrawing()
                     }
                 }
         )
-        .accessibilityLabel("Your screen. Click what you want as a sticker, or drag a box around it.")
+        .accessibilityLabel("Your screen. Click what you want as a sticker, or draw around it.")
+    }
+
+    /// The line being drawn, in the view's points.
+    private func drawingPath(_ points: [CGPoint], size: CGSize) -> Path {
+        var path = Path()
+        path.addLines(points.map { CGPoint(x: $0.x * size.width, y: $0.y * size.height) })
+        return path
     }
 
     private func normalized(_ point: CGPoint, in size: CGSize) -> CGPoint {
@@ -452,8 +473,6 @@ private struct ScreenCutView: View {
                     .foregroundColor(Theme.text)
             }
             HStack(spacing: 12) {
-                keyHint(["⇧"], "click to add")
-                keyHint(["⌥"], "click to remove")
                 keyHint(["esc"], "cancel")
             }
         }
@@ -472,8 +491,8 @@ private struct ScreenCutView: View {
         case .finding: return "Finding what’s on your screen…"
         case .ready:
             return cut.subjectCount == 0
-                ? "Drag a box around what you want as a sticker"
-                : "Click what you want as a sticker, or drag a box around it"
+                ? "Draw around what you want as a sticker"
+                : "Click or draw around what you want as a sticker. Draw over more to add it, or over what you took to take it out"
         case let .failed(message): return message
         }
     }

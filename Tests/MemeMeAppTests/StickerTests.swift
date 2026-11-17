@@ -87,3 +87,50 @@ final class StickerTests: XCTestCase {
         XCTAssertTrue(needsConsent, "Grouping consent has not been asked yet on a fresh library")
     }
 }
+
+/// The screen cut's drawing takes the subjects it covers, not exactly what was drawn.
+final class ScreenDrawingTests: XCTestCase {
+    /// A 100 × 100 instance mask: subject 1 in the box (10…29, 10…29), subject 2 in (60…89, 60…89).
+    private let size = 100
+    private lazy var labels: [UInt8] = {
+        var labels = [UInt8](repeating: 0, count: size * size)
+        for y in 10..<30 { for x in 10..<30 { labels[y * size + x] = 1 } }
+        for y in 60..<90 { for x in 60..<90 { labels[y * size + x] = 2 } }
+        return labels
+    }()
+
+    private func covered(_ points: [CGPoint], pen: CGFloat = 0.02) -> IndexSet {
+        ScreenSubjects.instances(in: labels, width: size, height: size, coveredBy: points, penWidth: pen)
+    }
+
+    func testALoopAroundASubjectTakesAllOfIt() {
+        let loop = [CGPoint(x: 0.05, y: 0.05), CGPoint(x: 0.35, y: 0.05), CGPoint(x: 0.35, y: 0.35),
+                    CGPoint(x: 0.05, y: 0.35), CGPoint(x: 0.05, y: 0.06)]
+        XCTAssertEqual(covered(loop), IndexSet(integer: 1))
+    }
+
+    func testALooseLoopThatGrazesANeighbourLeavesItOut() {
+        // Around subject 1, its far corner just reaching the edge of subject 2.
+        let loop = [CGPoint(x: 0.05, y: 0.05), CGPoint(x: 0.62, y: 0.05), CGPoint(x: 0.62, y: 0.62),
+                    CGPoint(x: 0.05, y: 0.62)]
+        XCTAssertEqual(covered(loop), IndexSet(integer: 1))
+    }
+
+    func testAScribbleAcrossASubjectReachesIt() {
+        let scribble = [CGPoint(x: 0.6, y: 0.62), CGPoint(x: 0.9, y: 0.65), CGPoint(x: 0.6, y: 0.70),
+                        CGPoint(x: 0.9, y: 0.75), CGPoint(x: 0.6, y: 0.80), CGPoint(x: 0.9, y: 0.85)]
+        XCTAssertEqual(covered(scribble, pen: 0.05), IndexSet(integer: 2))
+    }
+
+    func testOneLoopAroundBothTakesBoth() {
+        let loop = [CGPoint(x: 0.02, y: 0.02), CGPoint(x: 0.98, y: 0.02), CGPoint(x: 0.98, y: 0.98),
+                    CGPoint(x: 0.02, y: 0.98)]
+        XCTAssertEqual(covered(loop), IndexSet([1, 2]))
+    }
+
+    func testADrawingOverTheBackgroundTakesNothing() {
+        let line = [CGPoint(x: 0.4, y: 0.1), CGPoint(x: 0.5, y: 0.5), CGPoint(x: 0.4, y: 0.9)]
+        XCTAssertTrue(covered(line).isEmpty)
+        XCTAssertTrue(covered([CGPoint(x: 0.2, y: 0.2)]).isEmpty, "a single point is a click, not a drawing")
+    }
+}
