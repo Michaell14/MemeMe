@@ -835,10 +835,11 @@ function openPanel(focus){
   phase('open');
 }
 function closePanel(){
-  if (!S.open) return; S.open = false; mm.hidden = true; closeMenu(); setFace(false); q.blur(); $('#mbIcon').setAttribute('aria-expanded', 'false');
+  if (!S.open) return; S.open = false; mm.hidden = true; closeMenu(); cancelHold(); setFace(false); q.blur(); $('#mbIcon').setAttribute('aria-expanded', 'false');
   if (!S.pending) { desk.dataset.state = 'idle'; phase(S.phase === 'done' ? 'done' : 'idle'); }
 }
 function setFace(on){
+  if (!on) cancelHold();
   S.faceOn = on; mm.classList.toggle('face', on); $('#faceBtn').setAttribute('aria-pressed', on);
   q.placeholder = on ? (S.face ? 'Add words to refine…' : 'Make a face, or type to search…') : 'Search GIFs, stickers and memes…';
   if (on && !S.face){ sk.set('neutral'); $('#camWord').textContent = 'Make a face.'; $('#camFrom').textContent = 'Hold it and results follow.'; }
@@ -846,6 +847,7 @@ function setFace(on){
   if (S.open) phase(on ? 'face' : (S.q || S.face ? 'pick' : 'open'));
 }
 let holdTimer = 0;
+function cancelHold(){ clearTimeout(holdTimer); const r = $('#ringFill'); r.style.transition = 'none'; r.style.strokeDashoffset = 553; $('#camWord').style.opacity = 1; }
 function makeFace(key){
   if (!S.open) openPanel(false);
   if (!S.faceOn) setFace(true);
@@ -864,6 +866,7 @@ function makeFace(key){
       q.placeholder = 'Add words to refine…';
       ring.style.transition = 'stroke-dashoffset .5s ease, opacity .5s'; ring.style.strokeDashoffset = 553;
       render(); gridwrap.scrollTop = 0; phase('pick');
+      if (!auto.on) q.focus({preventScroll:true});
     }, 620);
   }, 360);
 }
@@ -918,12 +921,21 @@ $('#actMenu').addEventListener('click', e => {
 });
 
 /* input and keys */
-q.addEventListener('input', () => { S.q = q.value; S.sel = 0; render(); gridwrap.scrollTop = 0; phase(S.q ? 'pick' : (S.faceOn ? 'face' : 'open')); });
+q.addEventListener('input', () => { cancelHold(); S.q = q.value; S.sel = 0; render(); gridwrap.scrollTop = 0; phase(S.q ? 'pick' : (S.faceOn ? 'face' : 'open')); });
 const cols = () => S.faceOn ? 4 : 5;
 q.addEventListener('keydown', e => {
   userTouch();
   const k = e.key, cmd = e.metaKey || e.ctrlKey;
   if (k === 'Escape'){ e.preventDefault(); if (S.menu) closeMenu(); else closePanel(); return; }
+  if (S.menu && (k === 'ArrowDown' || k === 'ArrowUp' || k === 'Enter')){
+    e.preventDefault();
+    const items = $$('button', S.menu === 'src' ? $('#srcMenu') : $('#actMenu'));
+    const i = items.findIndex(b => b.classList.contains('hi'));
+    if (k === 'Enter'){ (items[i] || items[0]).click(); return; }
+    const n = k === 'ArrowDown' ? (i + 1) % items.length : (i <= 0 ? items.length - 1 : i - 1);
+    items.forEach((b, j) => b.classList.toggle('hi', j === n));
+    return;
+  }
   if (k === 'ArrowRight' && !(q.value && q.selectionStart < q.value.length)){ e.preventDefault(); select(S.sel + 1); }
   else if (k === 'ArrowLeft' && !(q.value && q.selectionStart > 0)){ e.preventDefault(); select(S.sel - 1); }
   else if (k === 'ArrowDown'){ e.preventDefault(); select(S.sel + cols()); }
@@ -955,7 +967,7 @@ $('#actBtn').addEventListener('click', () => { userTouch(); actMenu(); });
 $('#srcBtn').addEventListener('click', () => { userTouch(); srcMenu(); });
 $('#cutBtn').addEventListener('click', () => { userTouch(); closePanel(); hud(true, 'In the app, ⌃⌘S cuts a sticker from your screen'); });
 $$('.cue', mm).forEach(b => b.addEventListener('click', () => { userTouch(); if (!S.face) return; const l = sk.lean(b.dataset.part); $('#camFrom').textContent = l ? `Leaning on your ${l}. Click again to undo.` : 'your face'; }));
-desk.addEventListener('pointerdown', e => { userTouch(); if (S.open && !mm.contains(e.target)) closePanel(); else if (S.menu && !e.target.closest('.menu,.srcbtn,#actBtn')) closeMenu(); });
+desk.addEventListener('pointerdown', e => { userTouch(); if (S.open && !mm.contains(e.target) && !e.target.closest('#mbIcon')) closePanel(); else if (S.menu && !e.target.closest('.menu,.srcbtn,#actBtn')) closeMenu(); });
 setInterval(() => { if (!S.faceOn) return; const m = meterOf(sk.glow); paintMeter($('#mBrows'), m.brows); paintMeter($('#mEyes'), m.eyes); paintMeter($('#mMouth'), m.mouth); }, 120);
 
 /* the guide under the laptop */
@@ -1002,7 +1014,7 @@ function userTouch(){
 }
 demo.addEventListener('pointerdown', e => { if (e.target.closest('.gbtn')) return; userTouch(); }, true);
 new IntersectionObserver(es => { demoVisible = es.some(e => e.isIntersecting && e.intersectionRatio > .35);
-  if (demoVisible && !S.user && !auto.on && lidOpen()) autoplay();
+  if (!reduce && demoVisible && !S.user && !auto.on && lidOpen()) autoplay();
 }, {threshold:[0, .35, .6]}).observe($('#screen'));
 function ensureDemoInView(){ const r = $('#screen').getBoundingClientRect(); if (r.top < 0 || r.bottom > innerHeight) $('#screen').scrollIntoView({behavior:reduce ? 'auto' : 'smooth', block:'center'}); if (hinged) setLid(0, 1); }
 
