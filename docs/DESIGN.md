@@ -46,7 +46,7 @@ The panel opens on All Sources, on search, each time. Your things are ranked for
 |---|---|---|---|---|
 | prompt (first run, camera not decided) | silhouette | Make a face. | That’s the search. There’s no button to press. | — |
 | warming (camera starting) | silhouette | Starting camera… | Your recent picks are ready below. | — |
-| live, nothing read yet | live camera, 216 pt | Make a face or a pose. Results follow it. | Small changes count: a wink, one brow. | — |
+| live, nothing read yet | live camera, 216 pt | Make a face or a pose. Results follow it. | — | — |
 | live, the first face being held (216 pt mirror) | live + the ring filling; the parts being read glow by how much they moved; "Reading your face" (13 pt semibold, "Small changes count. Hold still and it searches.") takes the top row's place with the four strongest cues, each a five-step meter (18 × 6 pt, Text white on Line): "Brows up", "Eyes wide", "Mouth open", "Smile" or "Frown", "Wink", "Tongue out"…; the row under it dims to 45 % | Hold it… | Then it searches. | — |
 | live, a face or pose read | live camera | the readout instead of the hint: the word ("angry", "t-pose", "flexing"), then "your face", "your pose" or "your face and pose" | — | — |
 | live, an expression being held | live + amber ring filling (a hold that is lost winds the ring back) | (same; a readout's word dims to 45 %) | (same) | — |
