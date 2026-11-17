@@ -50,9 +50,11 @@ enum Theme {
     static let glassTint: Color = rgb(0x1E1E22, opacity: 0.62)
     /// Over a menu's blur.
     static let menuTint: Color = rgb(0x28282E, opacity: 0.7)
-    /// An island's film over the panel: white 8 %, its fill while on (signal 18 %).
-    static let islandTint: Color = Color.white.opacity(0.08)
-    static let islandOnTint: Color = rgb(0xFF9A5C, opacity: 0.18)
+    /// An island's smoked tint over the results (near-black 60 %), its fill while on (dark, warmed by the signal
+    /// color), and its edge.
+    static let islandTint: Color = rgb(0x0E0E10, opacity: 0.60)
+    static let islandOnTint: Color = rgb(0x2A1A10, opacity: 0.78)
+    static let islandEdge: Color = Color.white.opacity(0.10)
     /// Every glass surface's 1 px edge, and the brighter line along its top.
     static let glassEdge: Color = Color.white.opacity(0.14)
     static let glassHighlight: Color = Color.white.opacity(0.22)

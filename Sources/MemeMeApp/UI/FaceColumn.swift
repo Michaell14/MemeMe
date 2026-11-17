@@ -135,9 +135,15 @@ struct FaceColumn: View {
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
         }
+        .overlay {
+            // Clip me: the ring fills in the signal color while a moving sticker records, the picture flashes when
+            // it's taken, and dims while you're cut out.
+            ClipMirrorOverlay(capture: model.capture, isCutting: model.isCutting, ringInset: ringInset)
+        }
         .overlay(alignment: .bottomTrailing) {
-            if model.canOpenCapture {
-                captureButton
+            if model.faceSearchOn && model.mode == .live {
+                ClipMirrorButton(model: model, capture: model.capture)
+                    .offset(x: 2, y: 2)
             }
         }
         .overlay(alignment: .bottomLeading) {
@@ -173,25 +179,6 @@ struct FaceColumn: View {
         .offset(x: -2, y: 2)
         .help("Edit your face: push a feature further, or draw on it (⌘E)")
         .accessibilityLabel("Edit your face")
-    }
-
-    /// Opens the capture view (also ⇧Space).
-    private var captureButton: some View {
-        Button {
-            model.openCapture()
-        } label: {
-            Image(systemName: "camera.fill")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(Theme.text)
-                .frame(width: 28, height: 28)
-                .background(Circle().fill(Theme.glassFillStrong))
-                .overlay(Circle().strokeBorder(Theme.glassEdge, lineWidth: 1))
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .offset(x: 2, y: 2)
-        .help("Send yourself: a photo or GIF of you to paste (⇧Space)")
-        .accessibilityLabel("Send yourself")
     }
 
     @ViewBuilder
@@ -434,5 +421,91 @@ private struct SilhouetteShape: Shape {
         path.addQuadCurve(to: point(86, 100), control: point(84, 74))
         path.closeSubpath()
         return path
+    }
+}
+
+/// The mirror while Clip me works: the recording ring and its seconds, the shutter's flash, the dim while cutting.
+private struct ClipMirrorOverlay: View {
+    @ObservedObject var capture: CaptureModel
+    let isCutting: Bool
+    let ringInset: CGFloat
+    @State private var flash: Double = 0
+
+    var body: some View {
+        ZStack {
+            if case let .recording(progress) = capture.phase {
+                Circle()
+                    .trim(from: 0, to: CGFloat(min(1, max(0, progress))))
+                    .stroke(Theme.accent, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .padding(ringInset)
+                VStack {
+                    HStack(spacing: 5) {
+                        Circle().fill(Color.red).frame(width: 6, height: 6)
+                        Text(String(format: "%.1f s", progress * CaptureRenderer.maximumClipDuration))
+                            .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                            .foregroundColor(Theme.text)
+                    }
+                    .padding(.horizontal, 8)
+                    .frame(height: 20)
+                    .background(Capsule().fill(Color.black.opacity(0.55)))
+                    .padding(.top, 14)
+                    Spacer()
+                }
+            }
+            if isCutting || capture.phase == .saving {
+                Circle().fill(Color.black.opacity(0.45))
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(Theme.text)
+            }
+            Circle()
+                .fill(Color.white)
+                .opacity(flash)
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+        .onChange(of: capture.flashCount) { _, _ in
+            flash = 0.8
+            withAnimation(.easeOut(duration: 0.35)) { flash = 0 }
+        }
+    }
+}
+
+/// On the mirror's edge, while face search is on: Clip me. Tap for a still sticker; hold for a moving one.
+private struct ClipMirrorButton: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var capture: CaptureModel
+    @State private var pressed = false
+
+    var body: some View {
+        let recording: Bool = {
+            if case .recording = capture.phase { return true }
+            return false
+        }()
+        Image(systemName: recording ? "record.circle" : "scissors")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundColor(recording ? Theme.onAccent : Theme.text)
+            .frame(width: 28, height: 28)
+            .background(Circle().fill(recording ? Theme.accent : Theme.glassFillStrong))
+            .overlay(Circle().strokeBorder(Theme.glassEdge, lineWidth: 1))
+            .contentShape(Circle())
+            .opacity(model.canClip || capture.isBusy ? 1 : 0.5)
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in
+                        guard !pressed else { return }
+                        pressed = true
+                        model.clipPress(from: .mouse)
+                    }
+                    .onEnded { _ in
+                        pressed = false
+                        model.clipRelease(from: .mouse)
+                    }
+            )
+            .help("Clip me: tap for a sticker of your reaction, hold for a moving one (⌃⌘S, ⇧Space)")
+            .accessibilityLabel("Clip me")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { model.clipTap() }
     }
 }
