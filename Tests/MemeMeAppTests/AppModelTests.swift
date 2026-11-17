@@ -440,9 +440,79 @@ final class AppModelTests: XCTestCase {
 
     @MainActor
     func testEditorNoticesSayWhatAStrokeDid() {
-        XCTAssertEqual(AppModel.notice(for: .circle(.mouth), mood: .happy), "Circled your mouth: it counts most now.")
-        XCTAssertEqual(AppModel.notice(for: .circle(.eyes), mood: .happy), "Circled your eyes: they count most now.")
         XCTAssertEqual(AppModel.notice(for: .scribble(.brows), mood: .happy), "Scribbled out your brows: they’re ignored now.")
         XCTAssertEqual(AppModel.notice(for: .tear, mood: .crying), "Tears drawn. Now searching “crying”.")
+    }
+
+    @MainActor
+    func testStickerGroupsFilterMyStickersAndShowInTheActions() throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.remove() }
+        func sticker(_ name: String, _ hash: String) -> LibraryItem {
+            LibraryItem(fileURL: sandbox.file("\(name).png"), displayName: name, kind: .mine, tier: .meme,
+                        source: "Camera", addedAt: AppModelTests.march15, contentHash: hash, isSticker: true)
+        }
+        let shocked = sticker("You shocked", "hash-shocked")
+        let lgtm = sticker("LGTM", "hash-lgtm")
+        let items = fixtures(in: sandbox)
+        let model = try makeModel(in: sandbox, items: [shocked, lgtm, items.march])
+        model.panelWillShow(previousApp: nil)
+        defer {
+            model.panelDidHide()
+            model.saveNow()
+        }
+
+        model.selectSource(.myStickers)
+        let reactions = try XCTUnwrap(model.createGroup(named: "Reactions", adding: shocked.id))
+        XCTAssertEqual(model.stickerGroups.map(\.name), ["Reactions"])
+        XCTAssertEqual(model.createGroup(named: " reactions "), reactions, "the same name is the same group")
+        XCTAssertEqual(model.stickerCount(for: .all), 2, "stickers only")
+        XCTAssertEqual(model.stickerCount(for: .group(reactions)), 1)
+        XCTAssertEqual(model.stickerCount(for: .ungrouped), 1)
+
+        model.selectGroupFilter(.group(reactions))
+        XCTAssertEqual(model.results.map { $0.item.id }, [shocked.id])
+        XCTAssertEqual(model.layout.title, "Reactions")
+        model.selectGroupFilter(.ungrouped)
+        XCTAssertEqual(model.results.map { $0.item.id }, [lgtm.id])
+        XCTAssertEqual(model.layout.title, "Ungrouped")
+
+        // All shows a row per group, then Ungrouped, each on a row of its own.
+        model.selectGroupFilter(.all)
+        XCTAssertEqual(Set(model.results.map { $0.item.id }), [shocked.id, lgtm.id])
+        let sections = model.layout.sections
+        XCTAssertEqual(sections.map(\.title), ["Reactions", "Ungrouped"])
+        XCTAssertEqual(sections.map(\.count), [1, 1])
+        XCTAssertEqual(sections.map(\.firstRow), [0, 1])
+        XCTAssertEqual(sections.first?.filter, .group(reactions), "See all shows that group")
+        XCTAssertEqual(model.layout.pick(at: 0), .meme(shocked))
+        XCTAssertNil(model.layout.pick(at: 1), "the row ends with its group")
+        XCTAssertEqual(model.layout.pick(at: model.gridColumns), .meme(lgtm))
+        XCTAssertEqual(model.layout.filledSlot(1), model.gridColumns, "⌘2 is the second tile, on the next row")
+        model.moveFocus(dx: 0, dy: 1)
+        XCTAssertEqual(model.focusedPick, .meme(lgtm), "↓ goes to the next section")
+
+        // ⌘K on a sticker lists the groups, ticked where it is, and New Group….
+        let slot = try XCTUnwrap(model.layout.slot(of: .meme(lgtm)))
+        model.focusedIndex = slot
+        model.toggleMenu(.actions)
+        let groupRow = try XCTUnwrap(model.menuRows.first { $0.id == AppModel.groupRowPrefix + reactions.uuidString })
+        XCTAssertFalse(groupRow.isChecked)
+        XCTAssertEqual(groupRow.caption, "Groups")
+        XCTAssertTrue(model.menuRows.contains { $0.id == AppModel.newGroupRowID })
+        XCTAssertEqual(model.menuRows.last?.id, PickAction.showInFinder.rawValue, "Show in Finder stays last")
+        model.closeMenu()
+
+        model.toggleGroup(reactions, for: lgtm.id)
+        XCTAssertEqual(model.groups(containing: lgtm.id).map(\.id), [reactions])
+        model.selectGroupFilter(.group(reactions))
+        XCTAssertEqual(Set(model.results.map { $0.item.id }), [shocked.id, lgtm.id])
+
+        // Leaving My Stickers shows every sticker again next time.
+        model.selectSource(.all)
+        XCTAssertEqual(model.groupFilter, .all)
+        model.saveNow()
+        let reloaded = try LibraryStore(rootURL: sandbox.url.appendingPathComponent("Library", isDirectory: true))
+        XCTAssertEqual(reloaded.recents.group(id: reactions)?.members.count, 2, "groups are kept in recents.json")
     }
 }

@@ -2,8 +2,6 @@ import Foundation
 
 /// What a pen stroke drawn on the face editor means.
 public enum StrokeGesture: Equatable, Sendable {
-    /// A loop around a part: it counts the most.
-    case circle(FaceRegion)
     /// A scribble over a part, or a line through it: it's ignored.
     case scribble(FaceRegion)
     /// A line running down from under an eye: the face is crying.
@@ -12,10 +10,10 @@ public enum StrokeGesture: Equatable, Sendable {
     /// Strokes shorter than this are taps, not drawings.
     static let minimumLength: Double = 14
 
-    /// Reads a stroke drawn on `sketch` (face space, in the order drawn); nil when it is none of the three.
+    /// Reads a stroke drawn on `sketch` (face space, in the order drawn); nil when it is neither.
     ///
-    /// - circle: the ends meet (gap < 0.4 × the stroke's diagonal), the stroke is long for its size (> 1.6 × the
-    ///   diagonal) and it turns back fewer than 4 times (left and right, or up and down);
+    /// - a loop (the ends meet: gap < 0.4 × the stroke's diagonal, long for its size: > 1.6 × the diagonal, turning back
+    ///   fewer than 4 times) means nothing, so circling a part isn't misread as a scribble;
     /// - scribble: it turns back 3 times or more, or it is a flat line (2.5 × wider than tall) through a part;
     /// - tear: taller than wide, drawn downward, starting by an eye.
     ///
@@ -48,7 +46,7 @@ public enum StrokeGesture: Equatable, Sendable {
 
         let turns = max(turnsBack(points, along: \.x), turnsBack(points, along: \.y))
         if gap < diagonal * 0.4 && length > diagonal * 1.6 && turns < 4 {
-            return .circle(nearest)
+            return nil
         }
         if turns >= 3 {
             return .scribble(nearest)

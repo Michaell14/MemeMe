@@ -10,7 +10,7 @@ import Foundation
 /// - Each part (brows, eyes, mouth) counts 0 (ignored) to 5, starting from the automatic weights rounded
 ///   (`FeatureWeights.automatic`, 1…3). Its ring's handle steps it every `ringStepDistance` dragged; a pinch steps it
 ///   too; − and + step it by one.
-/// - A circle drawn around a part makes it count 5, a scribble over it 0; tears drawn make the word "crying"
+/// - A scribble drawn over a part makes it count 0; tears drawn make the word "crying"
 ///   (`StrokeGesture`).
 /// - Every change can be undone; Reset goes back to the face as it was caught (and can be undone too).
 public struct FaceEditSession: Equatable, Sendable {
@@ -194,8 +194,6 @@ public struct FaceEditSession: Equatable, Sendable {
     public mutating func apply(_ gesture: StrokeGesture, stroke: [SketchPoint]) {
         let before = snapshot
         switch gesture {
-        case let .circle(region):
-            weights[region] = FaceEditSession.maxWeight
         case let .scribble(region):
             weights[region] = 0
         case .tear:

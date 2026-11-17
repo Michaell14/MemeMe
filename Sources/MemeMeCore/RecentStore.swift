@@ -7,6 +7,8 @@ public struct RecentStore: Codable, Equatable, Sendable {
     /// Your things you saved, newest first (the Saved tab). Only your own: GIPHY's GIFs and the classic memes aren't
     /// kept.
     public private(set) var saved: [UUID]
+    /// Your sticker groups, in the order they were made (`StickerGroup`).
+    public internal(set) var groups: [StickerGroup]
 
     /// Key of the list that records every send regardless of app.
     public static let globalKey = "*"
@@ -17,6 +19,7 @@ public struct RecentStore: Codable, Equatable, Sendable {
     public init() {
         byApp = [:]
         saved = []
+        groups = []
     }
 
     public func isSaved(_ id: UUID) -> Bool {
@@ -70,6 +73,9 @@ public struct RecentStore: Codable, Equatable, Sendable {
         }
         byApp = updated
         saved.removeAll { ids.contains($0) }
+        for index in groups.indices {
+            groups[index].members.removeAll { ids.contains($0) }
+        }
     }
 
     private mutating func moveToFront(_ id: UUID, key: String) {
@@ -85,7 +91,7 @@ public struct RecentStore: Codable, Equatable, Sendable {
     // MARK: Codable
 
     private enum CodingKeys: String, CodingKey {
-        case byApp, saved
+        case byApp, saved, groups
     }
 
     public init(from decoder: Decoder) throws {
@@ -98,12 +104,16 @@ public struct RecentStore: Codable, Equatable, Sendable {
         byApp = capped
         var unique = Set<UUID>()
         saved = container.decodeLenient([UUID].self, forKey: .saved, default: []).filter { unique.insert($0).inserted }
+        var groupIDs = Set<UUID>()
+        groups = container.decodeLenient([StickerGroup].self, forKey: .groups, default: [])
+            .filter { groupIDs.insert($0.id).inserted }
     }
 
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(byApp, forKey: .byApp)
         try container.encode(saved, forKey: .saved)
+        try container.encode(groups, forKey: .groups)
     }
 }
 
