@@ -89,12 +89,13 @@ Every change to the app on the default branch is released automatically. When `S
 | ⌃⌘S, ⇧Space or ✂ Clip me (while face search is on) | Clip your reaction as a sticker: tap for a still one, hold for a moving one of up to 3 s. You are cut out on your Mac (Apple's subject lifting), saved to My Stickers and copied at once, ready to paste; **Rename** or **Undo** on the notice |
 | ↵, ⌘1–⌘9, click | Copy the focused, numbered or clicked result and close (⌘1–⌘9: the tiles in order, row by row) |
 | Arrow keys | Move the focus through the grid |
-| ⌘K | Actions for the selected result: Copy, Copy Link (⇧⌘C), Copy Markdown (⌥⌘C), Add to Favorites (⌘S), More Like This (⌘M), Show in Finder (⇧⌘R), Open on GIPHY (⌘O) |
+| ⌘K | Actions for the selected result: Copy, Copy Link (⇧⌘C), Copy Markdown (⌥⌘C), Add to Favorites (⌘S), More Like This (⌘M), Show in Finder (⇧⌘R), Open on GIPHY (⌘O), Delete Sticker (⌘⌫) |
 | ⌘P, or the source button | Where results come from: All Sources, Favorites, On My Mac, My Stickers, GIPHY GIFs, GIPHY Stickers, Classic Memes |
 | Typing | Search by words: text in images, labels, file names, sources, friends' names. Filter words: `mine`, `gif`, `sticker`, a friend's name. GIPHY's GIFs and the classic memes follow the words too ("sad", "guy looking back") |
 | ⌘V or drop an image on the panel | Search with that image. It is not saved unless you click **Keep it** |
 | Tab / Shift-Tab | The next / previous source (the panel opens on All Sources) |
 | ⌘S, or ☆ on a tile you point at | Add one of your things to Favorites (again takes it out). GIPHY's GIFs and the classic memes can't be kept |
+| ⌘⌫ (search field empty), or right-click a sticker → Delete Sticker… | Delete one of your stickers from My Stickers, file and all (it asks first) |
 | Right-click one of your memes | More like this; Esc goes back to your face |
 | ⌘E, the sliders button or a click on the mirror | Edit the face the camera caught. Your brows, eyes and mouth glow by how much each counts. Drag a round dot to push a feature further (a brow, an eyelid, a pupil, a mouth corner, the lower lip, or the dot above the head to tilt it). Drag a ring's square out or in, pinch on a part, or use − and +, to change how much that part counts (0 ignores it). With the pen, circle a part to make it count most, scribble one out to ignore it, or draw tears to search for "crying". Your memes re-rank as you go and GIPHY follows once you let go. ⌘Z undoes, Reset goes back to the caught face, Esc goes back to your face |
 | Esc | First closes a menu, then clears text, image or more-like, then turns face search off; then it closes |

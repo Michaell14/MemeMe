@@ -451,6 +451,7 @@ final class PanelController: NSObject {
         static let m: UInt16 = 46
         static let o: UInt16 = 31
         static let r: UInt16 = 15
+        static let delete: UInt16 = 51
         static let left: UInt16 = 123
         static let right: UInt16 = 124
         static let down: UInt16 = 125
@@ -582,6 +583,11 @@ final class PanelController: NSObject {
         case KeyCode.s where hasCommand && flags.intersection([.control, .option, .shift]).isEmpty:
             // ⌘S: add the focused tile to Favorites, or take it out.
             model.toggleSaveFocused()
+            return nil
+
+        case KeyCode.delete where hasCommand && flags.intersection([.control, .option, .shift]).isEmpty:
+            // ⌘⌫ with nothing typed: delete the focused sticker (it asks first). With text, the field's own ⌘⌫.
+            guard model.queryText.isEmpty, model.deleteFocusedSticker() else { return event }
             return nil
 
         case KeyCode.z where hasCommand && flags.intersection([.control, .option, .shift]).isEmpty && model.faceEdit != nil:

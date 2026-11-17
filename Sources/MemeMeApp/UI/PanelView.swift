@@ -382,7 +382,7 @@ struct PanelView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(IslandButtonStyle())
-        .help(on ? "Stop searching with your face (⌘F)" : "Make a face to search, and click part of it to lean on it (⌘F)")
+        .help(on ? "Stop searching with your face (⌘F)" : "Search with your face (⌘F)")
         .accessibilityLabel(on ? "Face search on" : "Search with your face")
         .accessibilityAddTraits(on ? .isSelected : [])
     }
