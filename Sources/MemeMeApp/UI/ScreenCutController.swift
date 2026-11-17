@@ -53,6 +53,10 @@ enum ScreenCutStatus: Equatable {
     private var drawingEpoch = 0
     /// The last drawing still being read; the next one waits for it.
     private var pendingDrawings: Task<Void, Never>?
+    /// Drawings let go and not yet applied.
+    private var drawingsInFlight = 0
+    /// The selection's cut-out is being made.
+    private var isRendering = false
 
     init(image: CGImage, sourceApp: String?) {
         screenshot = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
@@ -122,28 +126,31 @@ enum ScreenCutStatus: Equatable {
                             width: (xs.max() ?? 0) - (xs.min() ?? 0), height: (ys.max() ?? 0) - (ys.min() ?? 0))
         let epoch = drawingEpoch
         let previous = pendingDrawings
-        isWorking = true
+        drawingsInFlight += 1
+        updateWorking()
         pendingDrawings = Task { [weak self] in
             await previous?.value
             let covered = await Task.detached(priority: .userInitiated) {
                 subjects.instances(coveredBy: points, penWidth: ScreenCutModel.penWidth)
             }.value
-            guard let self, epoch == self.drawingEpoch else { return }
+            guard let self else { return }
+            // Save and Copy wait until every drawing let go has applied and its cut-out is made.
+            defer {
+                self.drawingsInFlight -= 1
+                self.updateWorking()
+            }
+            guard epoch == self.drawingEpoch else { return }
             if !covered.isEmpty {
                 let taken = self.selectedInstances
                 self.select(covered.isSubset(of: taken) ? taken.subtracting(covered) : taken.union(covered))
-                if self.selectedInstances.isEmpty { self.isWorking = false }
                 return
             }
-            guard bounds.width > 0.005, bounds.height > 0.005 else {
-                self.isWorking = false
-                return
-            }
+            guard bounds.width > 0.005, bounds.height > 0.005 else { return }
             let piece = await Task.detached(priority: .userInitiated) { try? subjects.piece(inBox: bounds) }.value
             guard epoch == self.drawingEpoch else { return }
             self.generation += 1
+            self.isRendering = false
             self.selectedInstances = IndexSet()
-            self.isWorking = false
             self.setSelection(piece)
         }
     }
@@ -168,7 +175,8 @@ enum ScreenCutStatus: Equatable {
         generation += 1
         selectedInstances = IndexSet()
         selection = nil
-        isWorking = false
+        isRendering = false
+        updateWorking()
     }
 
     private func select(_ instances: IndexSet) {
@@ -176,16 +184,25 @@ enum ScreenCutStatus: Equatable {
         generation += 1
         guard !instances.isEmpty else {
             selection = nil
+            isRendering = false
+            updateWorking()
             return
         }
         let current = generation
-        isWorking = true
+        isRendering = true
+        updateWorking()
         if hoveredInstance.map({ instances.contains($0) }) == true { hovered = nil }
         piece(for: instances) { [weak self] piece in
             guard let self, current == self.generation else { return }
-            self.isWorking = false
+            self.isRendering = false
+            self.updateWorking()
             self.setSelection(piece)
         }
+    }
+
+    private func updateWorking() {
+        let working = drawingsInFlight > 0 || isRendering
+        if isWorking != working { isWorking = working }
     }
 
     private func setSelection(_ piece: ScreenPiece?) {
