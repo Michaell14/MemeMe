@@ -477,10 +477,23 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(model.results.map { $0.item.id }, [lgtm.id])
         XCTAssertEqual(model.layout.title, "Ungrouped")
 
-        // ⌘K on a sticker lists the groups, ticked where it is, and New Group….
+        // All shows a row per group, then Ungrouped, each on a row of its own.
         model.selectGroupFilter(.all)
         XCTAssertEqual(Set(model.results.map { $0.item.id }), [shocked.id, lgtm.id])
-        let slot = try XCTUnwrap(model.layout.picks.firstIndex(of: .meme(lgtm)))
+        let sections = model.layout.sections
+        XCTAssertEqual(sections.map(\.title), ["Reactions", "Ungrouped"])
+        XCTAssertEqual(sections.map(\.count), [1, 1])
+        XCTAssertEqual(sections.map(\.firstRow), [0, 1])
+        XCTAssertEqual(sections.first?.filter, .group(reactions), "See all shows that group")
+        XCTAssertEqual(model.layout.pick(at: 0), .meme(shocked))
+        XCTAssertNil(model.layout.pick(at: 1), "the row ends with its group")
+        XCTAssertEqual(model.layout.pick(at: model.gridColumns), .meme(lgtm))
+        XCTAssertEqual(model.layout.filledSlot(1), model.gridColumns, "⌘2 is the second tile, on the next row")
+        model.moveFocus(dx: 0, dy: 1)
+        XCTAssertEqual(model.focusedPick, .meme(lgtm), "↓ goes to the next section")
+
+        // ⌘K on a sticker lists the groups, ticked where it is, and New Group….
+        let slot = try XCTUnwrap(model.layout.slot(of: .meme(lgtm)))
         model.focusedIndex = slot
         model.toggleMenu(.actions)
         let groupRow = try XCTUnwrap(model.menuRows.first { $0.id == AppModel.groupRowPrefix + reactions.uuidString })

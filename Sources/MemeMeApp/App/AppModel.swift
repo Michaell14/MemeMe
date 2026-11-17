@@ -173,7 +173,22 @@ enum Pick: Equatable {
 }
 
 /// What the grid shows for the source and search: every pick in order, `columns` to a row, under one title.
+/// A titled part of the grid (My Stickers' All: one per group, then Ungrouped). It starts on a row of its own.
+struct PickerSection: Equatable, Identifiable {
+    let title: String
+    /// How many it holds; the grid shows at most a row of them.
+    let count: Int
+    /// The chip that shows all of it ("See all").
+    let filter: StickerGroupFilter
+    /// Its first row in the grid.
+    let firstRow: Int
+    /// How many of it the grid shows.
+    let shown: Int
+    var id: Int { firstRow }
+}
+
 struct PickerLayout: Equatable {
+    /// Every pick, in order (a pick shown in two sections is here twice).
     let picks: [Pick]
     let columns: Int
     /// The rows' tiles for keyboard focus.
@@ -186,11 +201,17 @@ struct PickerLayout: Equatable {
     let showsGiphy: Bool
     /// Over the grid: "Recent", "Matching your face", "Results for “sad”".
     let title: String
+    /// The grid's titled parts; empty when it is one run of tiles.
+    let sections: [PickerSection]
+    /// The pick in each slot, row by row (`TileRows`' numbering); nil where a row ends early.
+    private let slotPicks: [Pick?]
 
     init(picks: [Pick], columns: Int, isLoading: Bool, message: String?, title: String) {
         let columns = max(1, columns)
         self.picks = picks
         self.columns = columns
+        sections = []
+        slotPicks = picks.map { Optional($0) }
         var counts: [Int] = []
         var remaining = picks.count
         while remaining > 0 {
@@ -204,9 +225,58 @@ struct PickerLayout: Equatable {
         self.title = title
     }
 
+    /// One titled part after another, each starting on a new row and showing at most a row of its picks (`count`:
+    /// how many it has in all). Sections with no picks are left out.
+    init(sections parts: [(title: String, count: Int, filter: StickerGroupFilter, picks: [Pick])], columns: Int,
+         message: String?, title: String) {
+        let columns = max(1, columns)
+        var all: [Pick] = []
+        var slots: [Pick?] = []
+        var counts: [Int] = []
+        var sections: [PickerSection] = []
+        for part in parts where !part.picks.isEmpty {
+            let shown = Array(part.picks.prefix(columns))
+            sections.append(PickerSection(title: part.title, count: part.count, filter: part.filter,
+                                          firstRow: counts.count, shown: shown.count))
+            all += shown
+            slots += shown.map { Optional($0) } + Array(repeating: nil, count: columns - shown.count)
+            counts.append(shown.count)
+        }
+        picks = all
+        self.columns = columns
+        rows = TileRows(columns: columns, counts: counts)
+        isLoading = false
+        self.message = all.isEmpty ? message : nil
+        showsGiphy = false
+        self.title = title
+        self.sections = sections
+        slotPicks = slots
+    }
+
     func pick(at slot: Int) -> Pick? {
-        guard slot >= 0, slot < picks.count else { return nil }
-        return picks[slot]
+        guard slot >= 0, slot < slotPicks.count else { return nil }
+        return slotPicks[slot]
+    }
+
+    /// The slot of the `n`th tile (from 0), row by row, skipping where rows end early (⌘1–⌘9).
+    func filledSlot(_ n: Int) -> Int? {
+        guard n >= 0 else { return nil }
+        var seen = 0
+        for (slot, pick) in slotPicks.enumerated() where pick != nil {
+            if seen == n { return slot }
+            seen += 1
+        }
+        return nil
+    }
+
+    /// The first slot showing `pick`.
+    func slot(of pick: Pick) -> Int? {
+        slotPicks.firstIndex(of: pick)
+    }
+
+    /// The section that starts on `row`.
+    func section(startingAt row: Int) -> PickerSection? {
+        sections.first { $0.firstRow == row }
     }
 }
 
@@ -1042,8 +1112,8 @@ private struct DescribedPhrase {
 
     /// Number keys pick any tile, 1–9 in order, row by row.
     func commitNumbered(index: Int) {
-        guard index >= 0, index < 9 else { return }
-        commit(index: index)
+        guard index >= 0, index < 9, let slot = makeLayout().filledSlot(index) else { return }
+        commit(index: slot)
     }
 
     func moveFocus(dx: Int, dy: Int) {
@@ -2660,6 +2730,7 @@ private struct DescribedPhrase {
             picks = ownPicks
             message = ownEmptyMessage
         case .myStickers:
+            if let sectioned = stickerSectionsLayout(columns: columns) { return sectioned }
             picks = ownPicks
             message = stickersEmptyMessage
         case .giphyGIFs:
@@ -2695,6 +2766,27 @@ private struct DescribedPhrase {
         }
         return PickerLayout(picks: picks, columns: columns, isLoading: loading, message: message,
                             title: sectionTitle)
+    }
+
+    /// My Stickers' All while you browse (no search): a row per group, in the order they were made, its newest first,
+    /// then Ungrouped, newest first; each says how many it has, and "See all" shows the rest. nil without groups.
+    private func stickerSectionsLayout(columns: Int) -> PickerLayout? {
+        let groups = store.recents.groups
+        guard source == .myStickers, groupFilter == .all, resultSource == .recent, !groups.isEmpty else { return nil }
+        let shown = sourceItems
+        var byID: [UUID: LibraryItem] = [:]
+        for item in shown { byID[item.id] = item }
+        var parts: [(title: String, count: Int, filter: StickerGroupFilter, picks: [Pick])] = []
+        for group in groups {
+            let members = group.members.compactMap { byID[$0] }
+            parts.append((title: group.name, count: members.count, filter: StickerGroupFilter.group(group.id),
+                          picks: members.map { Pick.meme($0) }))
+        }
+        let recents = store.recents
+        let ungrouped = shown.filter { recents.isUngrouped($0.id) }.sorted { $0.addedAt > $1.addedAt }
+        parts.append((title: "Ungrouped", count: ungrouped.count, filter: StickerGroupFilter.ungrouped,
+                      picks: ungrouped.map { Pick.meme($0) }))
+        return PickerLayout(sections: parts, columns: columns, message: stickersEmptyMessage, title: "Your stickers")
     }
 
     private static let webOffMessage = "Turn on Web Discover in the menu for GIPHY and the classic memes."

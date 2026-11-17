@@ -34,7 +34,10 @@ struct PickerGrid: View {
                 GroupFilterBar(model: model)
                     .padding(.top, 2)
             }
-            header(layout)
+            // Sections carry their own titles.
+            if layout.sections.isEmpty {
+                header(layout)
+            }
             if layout.picks.isEmpty && !layout.isLoading {
                 emptyState(layout)
             } else {
@@ -103,16 +106,21 @@ struct PickerGrid: View {
 
     private func grid(_ layout: PickerLayout, size: CGFloat) -> some View {
         let columns = layout.columns
-        let filledRows = (layout.picks.count + columns - 1) / columns
+        let filledRows = layout.rows.counts.count
         // While more is on its way, placeholders finish the last row and add one more.
         let rowCount = layout.isLoading ? filledRows + 1 : filledRows
         return ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: Theme.gridRowSpacing) {
                     ForEach(0..<rowCount, id: \.self) { row in
-                        HStack(alignment: .top, spacing: Theme.gridSpacing) {
-                            ForEach(0..<columns, id: \.self) { column in
-                                cell(row * columns + column, layout: layout, size: size)
+                        VStack(alignment: .leading, spacing: 0) {
+                            if let section = layout.section(startingAt: row) {
+                                sectionHeader(section)
+                            }
+                            HStack(alignment: .top, spacing: Theme.gridSpacing) {
+                                ForEach(0..<columns, id: \.self) { column in
+                                    cell(row * columns + column, layout: layout, size: size)
+                                }
                             }
                         }
                         .id(row)
@@ -138,6 +146,36 @@ struct PickerGrid: View {
                 proxy.scrollTo(0, anchor: .top)
             }
         }
+    }
+
+    /// A section's title over its row: "Reactions 13", and "See all" when the row can't show them all.
+    private func sectionHeader(_ section: PickerSection) -> some View {
+        HStack(spacing: 6) {
+            Text(verbatim: section.title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(Theme.text)
+                .lineLimit(1)
+                .accessibilityAddTraits(.isHeader)
+            Text(verbatim: "\(section.count)")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(Theme.mutedText)
+            Spacer(minLength: 8)
+            if section.count > section.shown {
+                Button {
+                    model.selectGroupFilter(section.filter)
+                } label: {
+                    HStack(spacing: 3) {
+                        Text("See all")
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 8, weight: .semibold))
+                    }
+                }
+                .buttonStyle(PanelLinkButtonStyle(fontSize: 11))
+                .accessibilityLabel(Text(verbatim: "See all of \(section.title)"))
+            }
+        }
+        .frame(height: headerHeight)
+        .padding(.bottom, 4)
     }
 
     @ViewBuilder

@@ -91,7 +91,7 @@ Every change to the app on the default branch is released automatically. When `S
 | Arrow keys | Move the focus through the grid |
 | ⌘K | Actions for the selected result: Copy, Copy Link (⇧⌘C), Copy Markdown (⌥⌘C), Add to Favorites (⌘S), More Like This (⌘M), Show in Finder (⇧⌘R), Open on GIPHY (⌘O) |
 | ⌘P, or the source button | Where results come from: All Sources, Favorites, On My Mac, My Stickers, GIPHY GIFs, GIPHY Stickers, Classic Memes |
-| Sticker groups | In My Stickers, chips over the grid show one group (All, each group, Ungrouped; + makes one; right-click a group to rename or delete it, its stickers stay). ⌘K on a sticker ticks it into groups or makes a New Group…; a sticker can be in several |
+| Sticker groups | In My Stickers, All shows a row per group (See all › for the rest) and Ungrouped; chips over the grid show one group (All, each group, Ungrouped; + makes one; right-click a group to rename or delete it, its stickers stay). ⌘K on a sticker ticks it into groups or makes a New Group…; a sticker can be in several |
 | Typing | Search by words: text in images, labels, file names, sources, friends' names. Filter words: `mine`, `gif`, `sticker`, a friend's name. GIPHY's GIFs and the classic memes follow the words too ("sad", "guy looking back") |
 | ⌘V or drop an image on the panel | Search with that image. It is not saved unless you click **Keep it** |
 | Tab / Shift-Tab | The next / previous source (the panel opens on All Sources) |
