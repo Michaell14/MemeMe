@@ -167,12 +167,10 @@ private struct FaceCanvas: View {
         face.rotate(by: .degrees(sketch.tiltDegrees))
         face.translateBy(x: -center.x, y: -center.y)
 
-        if handles {
-            var stem = Path()
-            stem.move(to: CGPoint(x: 100, y: FaceSketch.tiltHandlePoint.y + 3))
-            stem.addLine(to: CGPoint(x: 100, y: FaceSketch.center.y - FaceSketch.headRadius))
-            face.stroke(stem, with: .color(Theme.line), lineWidth: 1.2)
-        }
+        var stem = Path()
+        stem.move(to: CGPoint(x: 100, y: FaceSketch.tiltHandlePoint.y + 3))
+        stem.addLine(to: CGPoint(x: 100, y: FaceSketch.center.y - FaceSketch.headRadius))
+        face.stroke(stem, with: .color(Theme.line), lineWidth: 1.2)
         face.stroke(circle(center, CGFloat(FaceSketch.headRadius)), with: .color(Theme.line), lineWidth: 2)
 
         // The rings: brighter the more their part counts, dashed when it's ignored.
