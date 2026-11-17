@@ -271,7 +271,7 @@ import SwiftUI
 
         let open = makeItem("Open MemeMe", action: #selector(openMemeMe(_:)))
         open.keyEquivalent = "m"
-        open.keyEquivalentModifierMask = [.control, .command]
+        open.keyEquivalentModifierMask = [.option]
         menu.addItem(open)
 
         menu.addItem(.separator())
