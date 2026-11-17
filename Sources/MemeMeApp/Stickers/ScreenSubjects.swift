@@ -26,8 +26,8 @@ enum ScreenCutError: Error {
 }
 
 /// What is on a screen, split into subjects by Apple's subject lifting (`VNGenerateForegroundInstanceMaskRequest`,
-/// macOS 14): click one to take it; a box dragged around something lifts the subjects inside it (the box itself when
-/// there are none). Everything runs on this Mac. Heavy: never on the main thread.
+/// macOS 14): click one to take it; a drawing takes the subjects it covers; around nothing that was found, the subjects
+/// inside the drawing's box are lifted from that part of the screen alone (the box itself when there are none). Everything runs on this Mac. Heavy: never on the main thread.
 final class ScreenSubjects: @unchecked Sendable {
     let image: CGImage
     /// How many subjects were found on the whole screen.
@@ -103,6 +103,56 @@ final class ScreenSubjects: @unchecked Sendable {
         let y = min(labelsHeight - 1, Int(point.y * CGFloat(labelsHeight)))
         let label = Int(labels[y * labelsWidth + x])
         return label == 0 ? nil : label
+    }
+
+    /// The subjects a drawing covers (`instances(in:width:height:coveredBy:penWidth:)`).
+    func instances(coveredBy points: [CGPoint], penWidth: CGFloat) -> IndexSet {
+        ScreenSubjects.instances(in: labels, width: labelsWidth, height: labelsHeight, coveredBy: points,
+                                 penWidth: penWidth)
+    }
+
+    /// The subjects a drawing covers. `points` are normalized (origin top-left); the drawing is the shape they close,
+    /// filled, and the line itself drawn `penWidth` wide (a share of the width), so a loop around a subject and a
+    /// scribble across one both reach it. A subject counts once `coverage` of it is under the drawing, so a loose loop
+    /// that grazes a neighbour leaves it out.
+    static func instances(in labels: [UInt8], width: Int, height: Int, coveredBy points: [CGPoint],
+                          penWidth: CGFloat, coverage: Double = 0.15) -> IndexSet {
+        guard width > 0, height > 0, labels.count == width * height, points.count > 1 else { return IndexSet() }
+        var drawn = [UInt8](repeating: 0, count: width * height)
+        let painted = drawn.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8,
+                                          bytesPerRow: width, space: CGColorSpaceCreateDeviceGray(),
+                                          bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return false }
+            // Top-left origin, like the labels: the bitmap's first row is the top one.
+            context.translateBy(x: 0, y: CGFloat(height))
+            context.scaleBy(x: 1, y: -1)
+            let path = CGMutablePath()
+            path.addLines(between: points.map { CGPoint(x: $0.x * CGFloat(width), y: $0.y * CGFloat(height)) })
+            context.setFillColor(gray: 1, alpha: 1)
+            context.setStrokeColor(gray: 1, alpha: 1)
+            context.addPath(path)
+            context.fillPath()
+            context.addPath(path)
+            context.setLineWidth(max(1, penWidth * CGFloat(width)))
+            context.setLineCap(.round)
+            context.setLineJoin(.round)
+            context.strokePath()
+            return true
+        }
+        guard painted else { return IndexSet() }
+        var total = [Int](repeating: 0, count: 256)
+        var covered = [Int](repeating: 0, count: 256)
+        for index in 0..<labels.count {
+            let label = Int(labels[index])
+            guard label != 0 else { continue }
+            total[label] += 1
+            if drawn[index] > 127 { covered[label] += 1 }
+        }
+        var found = IndexSet()
+        for label in 1..<256 where total[label] > 0 && Double(covered[label]) >= coverage * Double(total[label]) {
+            found.insert(label)
+        }
+        return found
     }
 
     /// The subjects `instances`, cut out of the screen.

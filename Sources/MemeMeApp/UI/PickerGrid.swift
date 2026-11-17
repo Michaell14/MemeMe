@@ -111,7 +111,10 @@ struct PickerGrid: View {
             ScrollView(.vertical, showsIndicators: false) {
                 // Lazy: only the rows in view (two and a peek) are built and load their pictures; the rest as they
                 // scroll in. Rows keep their ids, so scrolling to the focused row still works.
-                LazyVStack(alignment: .leading, spacing: Theme.gridRowSpacing) {
+                // Each row carries half the row spacing above and below it: the room the focus ring and the hover
+                // lift need past a tile's edge. Scrolling to the focused row then brings that room into view too, so
+                // the ring is never clipped at the top or bottom.
+                LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(0..<rowCount, id: \.self) { row in
                         VStack(alignment: .leading, spacing: 8) {
                             if let section = layout.section(startingAt: row) {
@@ -124,13 +127,11 @@ struct PickerGrid: View {
                                 }
                             }
                         }
+                        .padding(.vertical, Theme.gridRowSpacing / 2)
                         .id(row)
                     }
                 }
-                // Room for the focus ring and the hover lift, which reach past a tile's edge.
                 .padding(.horizontal, gutter)
-                .padding(.top, 8)
-                .padding(.bottom, 8)
             }
             // The islands float over the grid's bottom: the results run on under them to the panel's edge, and the
             // last row (or the focused one) scrolls clear of them.
