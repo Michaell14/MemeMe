@@ -536,10 +536,6 @@ private struct ScreenCutView: View {
                     .focused($nameFocused)
                     .accessibilityLabel("Sticker name")
             }
-            Text("Goes to My Stickers. Find it by its name, or by making the same face.")
-                .font(.system(size: 11))
-                .foregroundColor(Theme.mutedText)
-                .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
                 Button {
                     cut.save()

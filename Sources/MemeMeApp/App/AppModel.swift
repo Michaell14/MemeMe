@@ -1202,9 +1202,23 @@ private struct DescribedPhrase {
         alert.addButton(withTitle: "Delete")
         alert.addButton(withTitle: "Cancel")
         alert.buttons.first?.hasDestructiveAction = true
-        NSApp.activate(ignoringOtherApps: true)
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        guard AppModel.runInFront(alert) == .alertFirstButtonReturn else { return }
         removeSticker(id: item.id)
+    }
+
+    /// Runs `alert` above the panel, which floats over the menu bar: at its normal level it would open behind it.
+    static func runInFront(_ alert: NSAlert) -> NSApplication.ModalResponse {
+        let level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 3)
+        alert.window.level = level
+        // runModal may set its own level as it shows the window; raise it again once it is up.
+        RunLoop.main.perform(inModes: [.modalPanel, .default]) {
+            MainActor.assumeIsolated {
+                alert.window.level = level
+                alert.window.orderFrontRegardless()
+            }
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        return alert.runModal()
     }
 
     /// Deletes the sticker without asking (`deleteSticker` asks); the grid drops its tile.
@@ -1612,8 +1626,7 @@ private struct DescribedPhrase {
         alert.informativeText = "MemeMe cuts out each person. Everything stays on this Mac."
         alert.addButton(withTitle: "Make Stickers")
         alert.addButton(withTitle: photos.count == 1 ? "Keep as Photo" : "Keep as Photos")
-        NSApplication.shared.activate()
-        return alert.runModal() == .alertFirstButtonReturn
+        return AppModel.runInFront(alert) == .alertFirstButtonReturn
     }
 
     // MARK: - App-shell helpers (used by the status item and the app delegate)
@@ -1696,8 +1709,7 @@ private struct DescribedPhrase {
         field.frame = NSRect(x: 0, y: 0, width: 240, height: 24)
         alert.accessoryView = field
         alert.window.initialFirstResponder = field
-        NSApp.activate(ignoringOtherApps: true)
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        guard AppModel.runInFront(alert) == .alertFirstButtonReturn else { return }
         let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, name != item.displayName else { return }
         item.displayName = name
