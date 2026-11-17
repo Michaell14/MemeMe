@@ -1,12 +1,14 @@
 import Foundation
 
-/// What was sent recently, per frontmost app and globally, newest first; and what you saved (the star on a tile),
-/// newest first.
+/// What was sent recently, per frontmost app and globally, newest first; what you saved (the star on a tile),
+/// newest first; and the groups you put your stickers in.
 public struct RecentStore: Codable, Equatable, Sendable {
     public private(set) var byApp: [String: [UUID]]
     /// Your things you saved, newest first (the Saved tab). Only your own: GIPHY's GIFs and the classic memes aren't
     /// kept.
     public private(set) var saved: [UUID]
+    /// Your sticker groups, in the order they were made (the order of My Stickers' chips).
+    public private(set) var groups: [StickerGroup]
 
     /// Key of the list that records every send regardless of app.
     public static let globalKey = "*"
@@ -17,6 +19,7 @@ public struct RecentStore: Codable, Equatable, Sendable {
     public init() {
         byApp = [:]
         saved = []
+        groups = []
     }
 
     public func isSaved(_ id: UUID) -> Bool {
@@ -70,6 +73,99 @@ public struct RecentStore: Codable, Equatable, Sendable {
         }
         byApp = updated
         saved.removeAll { ids.contains($0) }
+        for index in groups.indices {
+            groups[index].remove(ids)
+        }
+    }
+
+    // MARK: Sticker groups
+
+    public func group(id: UUID) -> StickerGroup? {
+        groups.first { $0.id == id }
+    }
+
+    /// The group named `name`, ignoring case and surrounding white space.
+    public func group(named name: String) -> StickerGroup? {
+        guard let clean = StickerGroup.cleanName(name) else { return nil }
+        return groups.first { $0.name.compare(clean, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame }
+    }
+
+    /// The groups `stickerID` is in, in the groups' order.
+    public func groups(containing stickerID: UUID) -> [StickerGroup] {
+        groups.filter { $0.contains(stickerID) }
+    }
+
+    /// Whether `stickerID` is in any group.
+    public func isGrouped(_ stickerID: UUID) -> Bool {
+        groups.contains { $0.contains(stickerID) }
+    }
+
+    /// Up to `limit` groups, the latest used first (ties: the order they were made).
+    public func recentGroups(limit: Int) -> [StickerGroup] {
+        guard limit > 0 else { return [] }
+        let ordered = groups.enumerated().sorted { lhs, rhs in
+            if lhs.element.lastUsedAt != rhs.element.lastUsedAt { return lhs.element.lastUsedAt > rhs.element.lastUsedAt }
+            return lhs.offset < rhs.offset
+        }
+        return Array(ordered.prefix(limit).map { $0.element })
+    }
+
+    /// Makes a group named `name` (after the others), or returns the one already named so. nil when the name is empty.
+    @discardableResult
+    public mutating func addGroup(named name: String, now: Date = Date()) -> StickerGroup? {
+        if let existing = group(named: name) { return existing }
+        guard let clean = StickerGroup.cleanName(name) else { return nil }
+        let made = StickerGroup(name: clean, lastUsedAt: now)
+        groups.append(made)
+        return made
+    }
+
+    /// Renames the group; false when the name is empty or another group has it.
+    @discardableResult
+    public mutating func renameGroup(_ id: UUID, to name: String) -> Bool {
+        guard let clean = StickerGroup.cleanName(name), let index = groups.firstIndex(where: { $0.id == id }) else {
+            return false
+        }
+        if let other = group(named: clean), other.id != id { return false }
+        groups[index].name = clean
+        return true
+    }
+
+    /// Deletes the group (its stickers stay); returns it and where it was, for Undo (`restoreGroup`).
+    @discardableResult
+    public mutating func removeGroup(_ id: UUID) -> (group: StickerGroup, index: Int)? {
+        guard let index = groups.firstIndex(where: { $0.id == id }) else { return nil }
+        return (groups.remove(at: index), index)
+    }
+
+    /// Puts back a group `removeGroup` took out, where it was (stickers deleted since stay out of it).
+    public mutating func restoreGroup(_ group: StickerGroup, at index: Int, keeping existing: Set<UUID>? = nil) {
+        guard self.group(id: group.id) == nil else { return }
+        var restored = group
+        if let existing {
+            restored.remove(Set(group.stickerIDs).subtracting(existing))
+        }
+        groups.insert(restored, at: min(max(0, index), groups.count))
+    }
+
+    /// Files the sticker in the group (first), or takes it out. Filing it counts as using the group.
+    public mutating func setSticker(_ stickerID: UUID, inGroup groupID: UUID, _ isIn: Bool, now: Date = Date()) {
+        guard let index = groups.firstIndex(where: { $0.id == groupID }) else { return }
+        if isIn {
+            groups[index].insert(stickerID)
+            groups[index].lastUsedAt = now
+        } else {
+            groups[index].remove(stickerID)
+        }
+    }
+
+    /// Files the sticker in the group, or takes it out when it is in it. Returns whether it is in it now.
+    @discardableResult
+    public mutating func toggleSticker(_ stickerID: UUID, inGroup groupID: UUID, now: Date = Date()) -> Bool {
+        guard let group = group(id: groupID) else { return false }
+        let isIn = !group.contains(stickerID)
+        setSticker(stickerID, inGroup: groupID, isIn, now: now)
+        return isIn
     }
 
     private mutating func moveToFront(_ id: UUID, key: String) {
@@ -85,7 +181,7 @@ public struct RecentStore: Codable, Equatable, Sendable {
     // MARK: Codable
 
     private enum CodingKeys: String, CodingKey {
-        case byApp, saved
+        case byApp, saved, groups
     }
 
     public init(from decoder: Decoder) throws {
@@ -98,12 +194,19 @@ public struct RecentStore: Codable, Equatable, Sendable {
         byApp = capped
         var unique = Set<UUID>()
         saved = container.decodeLenient([UUID].self, forKey: .saved, default: []).filter { unique.insert($0).inserted }
+        // Files from before groups have none.
+        var groupIDs = Set<UUID>()
+        // An unreadable group is dropped, not the others.
+        groups = container.decodeLenient([LossyDecodable<StickerGroup>].self, forKey: .groups, default: [])
+            .compactMap { $0.value }
+            .filter { groupIDs.insert($0.id).inserted }
     }
 
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(byApp, forKey: .byApp)
         try container.encode(saved, forKey: .saved)
+        try container.encode(groups, forKey: .groups)
     }
 }
 

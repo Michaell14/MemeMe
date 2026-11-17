@@ -440,6 +440,87 @@ final class AppModelTests: XCTestCase {
         XCTAssertFalse(model.canDeleteSticker(.meme(sticker)))
     }
 
+    /// My Stickers with groups: chips (All, each group, Ungrouped), a row per group then Ungrouped, each from its own
+    /// row, so the arrow keys and ⌘1–⌘9 skip where a row ends early; a chip shows one group; ⌘K files a sticker.
+    @MainActor
+    func testMyStickersShowsARowPerGroupThenUngrouped() throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.remove() }
+        let folder = try sandbox.directory("Library/Stickers")
+        func sticker(_ name: String, day: Double) throws -> LibraryItem {
+            let fileURL = folder.appendingPathComponent("sticker-\(name).png", isDirectory: false)
+            try Data([0x89, 0x50, 0x4E, 0x47]).write(to: fileURL)
+            return LibraryItem(fileURL: fileURL, displayName: name, kind: .mine, tier: .meme, source: "Camera",
+                               addedAt: AppModelTests.march15.addingTimeInterval(day * 86_400),
+                               contentHash: "hash-\(name)", isSticker: true)
+        }
+        let a = try sticker("a", day: 0)
+        let b = try sticker("b", day: 1)
+        let c = try sticker("c", day: 2)
+        let d = try sticker("d", day: 3)
+        let model = try makeModel(in: sandbox, items: [a, b, c, d])
+        var recents = model.store.recents
+        let reactions = try XCTUnwrap(recents.addGroup(named: "Reactions"))
+        let work = try XCTUnwrap(recents.addGroup(named: "Work"))
+        recents.setSticker(a.id, inGroup: reactions.id, true)
+        recents.setSticker(b.id, inGroup: reactions.id, true)
+        recents.setSticker(a.id, inGroup: work.id, true)
+        model.store.recents = recents
+
+        model.panelWillShow(previousApp: nil)
+        defer {
+            model.panelDidHide()
+            model.saveNow()
+        }
+        model.selectSource(.myStickers)
+        XCTAssertEqual(model.groupChips.map(\.title), ["All", "Reactions", "Work", "Ungrouped"])
+        XCTAssertEqual(model.groupChips.map(\.count), [nil, 2, 1, 2])
+
+        let layout = model.layout
+        XCTAssertEqual(layout.sections.map(\.title), ["Reactions", "Work", "Ungrouped"])
+        XCTAssertEqual(layout.sections.map(\.total), [2, 1, 2])
+        XCTAssertEqual(layout.rows.counts, [2, 1, 2], "each group starts on its own row")
+        XCTAssertEqual(layout.pick(at: 0), .meme(b), "a group's latest filed first")
+        XCTAssertEqual(layout.pick(at: 1), .meme(a))
+        XCTAssertNil(layout.pick(at: 2), "the row ends early")
+        XCTAssertEqual(layout.pick(at: 5), .meme(a), "a sticker in two groups shows in both")
+        XCTAssertEqual(layout.pick(at: 10), .meme(d), "Ungrouped, newest first")
+        XCTAssertEqual(layout.pick(at: 11), .meme(c))
+        XCTAssertEqual(layout.slot(ofTile: 2), 5, "⌘3 is the third tile, past the gap")
+        XCTAssertEqual(model.focusedPick, .meme(b))
+        model.moveFocus(dx: 0, dy: 1)
+        XCTAssertEqual(model.focusedPick, .meme(a), "down goes to the next group's row")
+
+        model.selectGroupFilter(.group(reactions.id))
+        XCTAssertTrue(model.layout.sections.isEmpty, "one group: a plain grid")
+        XCTAssertEqual(model.layout.title, "Reactions")
+        XCTAssertEqual(Set(model.results.map { $0.item.id }), [a.id, b.id])
+        model.selectGroupFilter(.ungrouped)
+        XCTAssertEqual(Set(model.results.map { $0.item.id }), [c.id, d.id])
+        model.selectGroupFilter(.all)
+
+        model.hover(index: 10)
+        XCTAssertEqual(model.focusedPick, .meme(d))
+        model.toggleMenu(.actions)
+        let groupRows = model.menuRows.filter { $0.id.hasPrefix(AppModel.groupRowPrefix) }
+        XCTAssertEqual(groupRows.map(\.title), ["Reactions", "Work"], "⌘K lists the groups")
+        XCTAssertEqual(groupRows.first?.heading, "Groups")
+        XCTAssertEqual(groupRows.map(\.isChecked), [false, false])
+        XCTAssertTrue(model.menuRows.contains { $0.id == AppModel.newGroupRowID })
+        let workRow = try XCTUnwrap(model.menuRows.firstIndex { $0.id == AppModel.groupRowPrefix + work.id.uuidString })
+        model.performMenuRow(at: workRow)
+        XCTAssertEqual(model.store.recents.group(id: work.id)?.stickerIDs, [d.id, a.id], "filed first")
+        XCTAssertEqual(model.layout.sections.map(\.total), [2, 2, 1])
+        XCTAssertEqual(model.focusedPick, .meme(d), "the focus stays on it")
+
+        model.selectSource(.all)
+        model.selectSource(.myStickers)
+        XCTAssertEqual(model.groupFilter, .all, "the source opens on All")
+
+        model.removeSticker(id: d.id)
+        XCTAssertEqual(model.store.recents.group(id: work.id)?.stickerIDs, [a.id], "a deleted sticker leaves its groups")
+    }
+
     @MainActor
     func testEscapeWithNothingToClearCloses() throws {
         let sandbox = try TestSandbox()

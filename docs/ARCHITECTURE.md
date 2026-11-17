@@ -625,6 +625,19 @@ public struct TileRows: Equatable, Sendable {
 ```
 Keyboard focus over the panel's tiles: rows of `columns` slots numbered row by row from 0, each filled from the left; empty rows are skipped. The grid has rows of 5 (of 4 beside the camera's column, `AppModel.gridColumns`).
 
+```swift
+public struct SectionedSlots: Equatable, Sendable {
+    public let rows: TileRows
+    public let firstRows: [Int]                      // the first row of each section
+    public let firstPicks: [Int]                     // the first pick of each section
+    public init(columns: Int, counts: [Int])         // picks per section; each starts on its own row
+    public func pick(at slot: Int) -> Int?           // nil for a gap where a section's row ends early
+    public func slot(ofPick index: Int) -> Int?      // ⌘1–⌘9 count picks, not slots
+    public func section(ofRow row: Int) -> Int?
+}
+```
+My Stickers' row per group: picks in sections, each from its own row, so slots and picks stop lining up; `PickerLayout` keeps one and goes through it (one section for a plain grid).
+
 ### PickerSource.swift
 
 ```swift
@@ -733,7 +746,26 @@ public struct RecentStore: Codable, Equatable, Sendable {
     public func recent(appBundleID: String?) -> [UUID]
     public func isSaved(_ id: UUID) -> Bool
     @discardableResult public mutating func toggleSaved(_ id: UUID) -> Bool   // to the front, or out; whether it is saved now
-    public mutating func remove(_ ids: Set<UUID>)  // from every list, saved too
+    public mutating func remove(_ ids: Set<UUID>)  // from every list, saved and groups too
+    public private(set) var groups: [StickerGroup]   // "groups" in recents.json, element by element lenient; none in older files
+    public func group(id: UUID) -> StickerGroup?
+    public func group(named name: String) -> StickerGroup?           // any case
+    public func groups(containing stickerID: UUID) -> [StickerGroup]
+    public func isGrouped(_ stickerID: UUID) -> Bool
+    public func recentGroups(limit: Int) -> [StickerGroup]           // latest used first (ties: the order made)
+    @discardableResult public mutating func addGroup(named name: String, now: Date = Date()) -> StickerGroup?   // a name taken is that group
+    @discardableResult public mutating func renameGroup(_ id: UUID, to name: String) -> Bool
+    @discardableResult public mutating func removeGroup(_ id: UUID) -> (group: StickerGroup, index: Int)?      // its stickers stay
+    public mutating func restoreGroup(_ group: StickerGroup, at index: Int, keeping existing: Set<UUID>? = nil) // Undo
+    public mutating func setSticker(_ stickerID: UUID, inGroup groupID: UUID, _ isIn: Bool, now: Date = Date()) // filing it is using the group
+    @discardableResult public mutating func toggleSticker(_ stickerID: UUID, inGroup groupID: UUID, now: Date = Date()) -> Bool
+}
+/// A named group of your stickers; a sticker can be in several (StickerGroup.swift).
+public struct StickerGroup: Codable, Equatable, Identifiable, Sendable {
+    public let id: UUID
+    public var name: String                          // StickerGroup.cleanName: trimmed, one space between words, ≤ 40 characters
+    public private(set) var stickerIDs: [UUID]       // the latest filed first
+    public var lastUsedAt: Date
 }
 /// The Frequent row: your things sent ≥ minimumSends (2) times, most sent first (ties: latest sent, then name), not
 /// GIPHY's, not skipped, without `excluded`.
@@ -1604,7 +1636,9 @@ enum DropOutcome { case kept(IndexBatch), stickers(StickerBatch), nothing }
 enum Pick: Equatable { case meme(LibraryItem), gif(WebGIF), giphySticker(WebGIF), template(MemeTemplate); var title: String { get }; var copyNoun: String { get }; var isFromGiphy: Bool { get } }
 enum PanelMenu: Equatable { case sources, actions }
 enum PickAction: String, CaseIterable, Equatable { case copy, copyLink, copyMarkdown, toggleFavorite, moreLikeThis, showInFinder, openInBrowser }
-struct MenuRow: Identifiable, Equatable { let id, title: String; let symbol, letter: String?; let keys: [String]; let isChecked, startsGroup: Bool }
+struct MenuRow: Identifiable, Equatable { let id, title: String; let symbol, letter: String?; let keys: [String]; let isChecked, startsGroup: Bool; var heading: String? = nil }   // heading: "Groups" in ⌘K
+enum StickerGroupFilter: Hashable { case all, group(UUID), ungrouped }          // My Stickers' chip
+struct PickerSection: Equatable { let title: String; let total: Int; let filter: StickerGroupFilter; let range: Range<Int>; let firstRow: Int }
 struct PickerLayout: Equatable {
     let picks: [Pick]                                // in order, `columns` to a row
     let columns: Int
@@ -1613,8 +1647,12 @@ struct PickerLayout: Equatable {
     let message: String?                             // with no picks and nothing loading
     let showsGiphy: Bool                             // GIPHY's credit
     let title: String                                // over the grid
+    let sections: [PickerSection]                    // My Stickers' rows per group; empty for a plain grid
     init(picks: [Pick], columns: Int, isLoading: Bool, message: String?, title: String)
-    func pick(at slot: Int) -> Pick?
+    init(sectioned: [(title: String, total: Int, filter: StickerGroupFilter, picks: [Pick])], columns: Int, message: String?, title: String)
+    func pick(at slot: Int) -> Pick?                 // through the slot-to-pick map
+    func slot(ofTile index: Int) -> Int?             // ⌘1–⌘9
+    func section(startingAt row: Int) -> PickerSection?
 }
 
 @MainActor final class AppModel: ObservableObject {
