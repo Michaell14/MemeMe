@@ -2091,6 +2091,8 @@ private struct DescribedPhrase {
             }
             self.userInteracted = true
             self.focusedIndex = 0
+            // In My Stickers' row per group the new sticker isn't first: select it where it is.
+            self.focus(onItem: made.item.id)
         }
     }
 

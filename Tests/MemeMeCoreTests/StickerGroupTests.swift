@@ -101,6 +101,23 @@ final class StickerGroupTests: XCTestCase {
         XCTAssertEqual(store.groups.count, 2, "restoring twice adds nothing")
     }
 
+    func testUndoNumbersAGroupWhoseNameWasTakenSince() throws {
+        var store = RecentStore()
+        let work = try XCTUnwrap(store.addGroup(named: "Work"))
+        let other = try XCTUnwrap(store.addGroup(named: "Other"))
+        let a = UUID(), b = UUID()
+        store.setSticker(a, inGroup: work.id, true)
+        store.setSticker(b, inGroup: other.id, true)
+        let removed = try XCTUnwrap(store.removeGroup(work.id))
+        XCTAssertTrue(store.renameGroup(other.id, to: "work"))
+
+        store.restoreGroup(removed.group, at: removed.index)
+        XCTAssertEqual(store.groups.map(\.name), ["Work 2", "work"], "both kept, under different names")
+        XCTAssertEqual(store.group(id: work.id)?.stickerIDs, [a])
+        XCTAssertEqual(store.group(id: other.id)?.stickerIDs, [b])
+        XCTAssertEqual(store.group(named: "Work")?.id, other.id)
+    }
+
     func testRemovingStickersTakesThemOutOfTheirGroups() throws {
         var store = RecentStore()
         let reactions = try XCTUnwrap(store.addGroup(named: "Reactions"))

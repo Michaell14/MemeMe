@@ -139,13 +139,27 @@ public struct RecentStore: Codable, Equatable, Sendable {
     }
 
     /// Puts back a group `removeGroup` took out, where it was (stickers deleted since stay out of it).
+    /// A group given the name since is left as it is: the restored one is numbered ("Work 2").
     public mutating func restoreGroup(_ group: StickerGroup, at index: Int, keeping existing: Set<UUID>? = nil) {
         guard self.group(id: group.id) == nil else { return }
         var restored = group
         if let existing {
             restored.remove(Set(group.stickerIDs).subtracting(existing))
         }
+        restored.name = unusedName(like: group.name)
         groups.insert(restored, at: min(max(0, index), groups.count))
+    }
+
+    /// `name`, or the first of "name 2", "name 3"… no group has.
+    private func unusedName(like name: String) -> String {
+        guard group(named: name) != nil else { return name }
+        var number = 2
+        while true {
+            let suffix = " \(number)"
+            let candidate = String(name.prefix(StickerGroup.maxNameLength - suffix.count)) + suffix
+            if group(named: candidate) == nil { return candidate }
+            number += 1
+        }
     }
 
     /// Files the sticker in the group (first), or takes it out. Filing it counts as using the group.

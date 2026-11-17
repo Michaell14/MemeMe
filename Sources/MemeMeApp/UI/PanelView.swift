@@ -611,21 +611,34 @@ private struct MenuPanel<Field: Hashable>: View {
                     .padding(.horizontal, 14)
                     .frame(height: 32, alignment: .leading)
             }
-            ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-                if row.startsGroup {
-                    Rectangle().fill(Theme.hairline).frame(height: 1)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 4)
+            // Many groups make ⌘K taller than the panel: the rows scroll, and follow the highlighted one.
+            ScrollViewReader { proxy in
+                ScrollView(.vertical, showsIndicators: rowsHeight(rows) > maxRowsHeight) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                            if row.startsGroup {
+                                Rectangle().fill(Theme.hairline).frame(height: 1)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 4)
+                            }
+                            if let heading = row.heading {
+                                Text(verbatim: heading)
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundColor(Theme.mutedText)
+                                    .padding(.horizontal, 14)
+                                    .frame(height: 22, alignment: .bottomLeading)
+                                    .accessibilityAddTraits(.isHeader)
+                            }
+                            rowView(row, index: index, selected: index == model.menuSelection)
+                                .id(row.id)
+                        }
+                    }
                 }
-                if let heading = row.heading {
-                    Text(verbatim: heading)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(Theme.mutedText)
-                        .padding(.horizontal, 14)
-                        .frame(height: 22, alignment: .bottomLeading)
-                        .accessibilityAddTraits(.isHeader)
+                .frame(height: min(rowsHeight(rows), maxRowsHeight))
+                .onChange(of: model.menuSelection) { _, selected in
+                    guard selected >= 0, selected < rows.count else { return }
+                    proxy.scrollTo(rows[selected].id)
                 }
-                rowView(row, index: index, selected: index == model.menuSelection)
             }
             if rows.isEmpty {
                 Text("No matches")
@@ -646,6 +659,20 @@ private struct MenuPanel<Field: Hashable>: View {
         .shadow(color: .black.opacity(0.4), radius: 22, x: 0, y: 14)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(menu == .sources ? "Sources" : "Actions")
+    }
+
+    private var rowHeight: CGFloat { menu == .sources ? 30 : 32 }
+
+    /// The rows' own height: each row, a line (9 pt) before each group, a heading (22 pt) where one is.
+    private func rowsHeight(_ rows: [MenuRow]) -> CGFloat {
+        let lines = rows.filter(\.startsGroup).count
+        let headings = rows.filter { $0.heading != nil }.count
+        return CGFloat(rows.count) * rowHeight + CGFloat(lines) * 9 + CGFloat(headings) * 22
+    }
+
+    /// What fits over the grid with the menu's title and filter field: past this the rows scroll.
+    private var maxRowsHeight: CGFloat {
+        Theme.contentHeight - 64
     }
 
     private func filterField(placeholder: String) -> some View {
@@ -907,7 +934,8 @@ private struct ClipNoticeView: View {
     }
 
     private var groupChips: some View {
-        HStack(spacing: 6) {
+        // They wrap inside the notice: long names and groups made from it never push past its edge.
+        FlowLayout(spacing: 6, lineSpacing: 6) {
             ForEach(model.noticeGroups) { group in
                 let isIn = notice.groupIDs.contains(group.id)
                 Button {
@@ -925,7 +953,6 @@ private struct ClipNoticeView: View {
                 NewGroupChipLabel(title: "New group", compact: true)
             }
             .buttonStyle(.plain)
-            Spacer(minLength: 0)
         }
         .padding(.leading, 38)
     }

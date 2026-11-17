@@ -455,6 +455,14 @@ extension ScreenCutController {
 
 // MARK: - The view
 
+/// The screen cut card's height, measured, so it is kept on screen however many group chips it has.
+private struct CardHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat { 0 }
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 /// The frozen screen, dimmed; the subject under the pointer and the one taken lit up with an outline in the signal
 /// color; the hint hanging from the top; the card beside what was taken.
 private struct ScreenCutView: View {
@@ -462,6 +470,8 @@ private struct ScreenCutView: View {
 
     @FocusState private var nameFocused: Bool
     @FocusState private var groupDraftFocused: Bool
+    /// The card's measured height: it grows with its group chips and the new group's field.
+    @State private var cardHeight: CGFloat = ScreenCutView.cardSize.height
 
     init(cut: ScreenCutModel) {
         _cut = ObservedObject(wrappedValue: cut)
@@ -493,6 +503,12 @@ private struct ScreenCutView: View {
                     .frame(width: size.width, alignment: .top)
                 if let selection = cut.selection {
                     card(for: selection)
+                        .background(GeometryReader { card in
+                            Color.clear.preference(key: CardHeightKey.self, value: card.size.height)
+                        })
+                        .onPreferenceChange(CardHeightKey.self) { height in
+                            if height > 0 { cardHeight = height }
+                        }
                         .offset(cardOffset(for: selection, in: size))
                 }
             }
@@ -766,7 +782,7 @@ private struct ScreenCutView: View {
 
     /// Beside what was taken: on its right when there is room, else on its left; kept on screen.
     private func cardOffset(for piece: ScreenPiece, in size: CGSize) -> CGSize {
-        let card = ScreenCutView.cardSize
+        let card = CGSize(width: ScreenCutView.cardSize.width, height: cardHeight)
         let frame = CGRect(x: piece.rect.minX * size.width, y: piece.rect.minY * size.height,
                            width: piece.rect.width * size.width, height: piece.rect.height * size.height)
         var x = frame.maxX + 24
