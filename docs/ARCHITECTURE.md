@@ -12,7 +12,7 @@ Read `docs/DESIGN.md` for behavior and exact UI strings.
   - `MemeMeApp` — executable (product name `MemeMe`). AppKit + SwiftUI + AVFoundation + Vision + CoreImage + ImageIO + CryptoKit + Carbon + ServiceManagement + UniformTypeIdentifiers + Network, and FoundationModels (macOS 26 only, so weak-linked: every use sits inside `#if canImport(FoundationModels)` and a macOS 26 availability check, in `Vision/PoseNamer.swift` only). Types are `internal`.
   - `MemeMeCoreTests` — XCTest for the core.
   - `MemeMeAppTests` — XCTest for the app target (`@testable import MemeMeApp`): GIPHY decoding via a URLProtocol stub, GIPHY search against a stub GIPHY (GIPHY's order kept, 24 asked for, pages, nothing written to disk, copies, early search, refusals), ImageAnalyzer on generated images, the seven features in the face's leveled frame and reading a frame's pixels (FaceFeatureExtractor), clipboard naming, keep/undo, sticker eligibility, headless AppModel text search and tabs (For You on open, one kind per tab, Tab wrapping around), the pose namer without the on-device model (nil at once, answers kept, at most 64) and described poses (`WebQuery.described`, their templates and GIPHY query, AppModel with a stand-in namer).
-- `scripts/build-app.sh` assembles `build/MemeMe.app` (Info.plist from `Resources/Info.plist`; `GiphyAPIKey` from `$GIPHY_API_KEY`; `CFBundleShortVersionString` from `$APP_VERSION`, default the `VERSION` file; `CFBundleVersion` from `$APP_BUILD`, default `git rev-list --count HEAD`; `MemeMeUpdateFeedURL` from `$UPDATE_FEED_URL`, default empty = updates off; `Resources/AppIcon.icns` as the app icon, `CFBundleIconFile` = AppIcon, sources in `Resources/AppIcon`) and ad-hoc signs it. `scripts/build-dmg.sh` packs it into `build/MemeMe.dmg` (the app plus an `Applications` link, UDZO) with dmgbuild (`scripts/dmg-settings.py`: a 660×400 icon-view window, the app at (170, 196), Applications at (490, 196), background from `Resources/DMG`; Python 3.10+, pinned by hash), signs it on Developer ID builds, then mounts it and checks the app's signature and the link.
+- `scripts/build-app.sh` assembles `build/MemeMe.app` (the binary stripped of debug and local symbols, `strip -S -x`; Info.plist from `Resources/Info.plist`; `GiphyAPIKey` from `$GIPHY_API_KEY`; `CFBundleShortVersionString` from `$APP_VERSION`, default the `VERSION` file; `CFBundleVersion` from `$APP_BUILD`, default `git rev-list --count HEAD`; `MemeMeUpdateFeedURL` from `$UPDATE_FEED_URL`, default empty = updates off; `Resources/AppIcon.icns` as the app icon, `CFBundleIconFile` = AppIcon, sources in `Resources/AppIcon`) and ad-hoc signs it. `scripts/build-dmg.sh` packs it into `build/MemeMe.dmg` (the app plus an `Applications` link, LZMA-compressed ULMO) with dmgbuild (`scripts/dmg-settings.py`: a 660×400 icon-view window, the app at (170, 196), Applications at (490, 196), background from `Resources/DMG`; Python 3.10+, pinned by hash), signs it on Developer ID builds, then mounts it and checks the app's signature and the link.
 - CI (`.github/workflows/ci.yml`): job `build` (`macos-15` with Xcode 26.3, `DEVELOPER_DIR=/Applications/Xcode_26.3.app/Contents/Developer`, for the macOS 26 SDK's FoundationModels; the runner's default Xcode 16.4 has none) runs `swift build`, checks that the binary links FoundationModels only weakly (`otool -l`: every load command naming FoundationModels.framework is `LC_LOAD_WEAK_DYLIB`, and the arm64 slice has one, else it was built without the macOS 26 SDK), `swift test` (on macOS 15, where the framework doesn't exist, so a strong link would also keep the test bundle from loading), both scripts (the same link check on `MemeMe.app`'s universal binary, before notarizing) and uploads `MemeMe.dmg` as the `MemeMe-app` artifact; it also decides whether this run is a release (push or manual run on the default branch, and app files changed since the last `v*` tag, or a manual run). Job `release` (`ubuntu-latest`, `contents: write`) runs `scripts/publish-release.sh`, which publishes GitHub Release `v<version>-<build>` with `MemeMe.dmg` and `latest.json` (the update feed, see `UpdateManifest`) and marks it latest.
 - Logging: `os.Logger(subsystem: "com.mememe.app", category: "<file area>")`. Never log file contents, OCR text or face data.
 - Concurrency: classes that publish UI state are `@MainActor`. Heavy work (Vision, ImageIO, hashing, network decoding) runs off the main actor (`Task.detached(priority: .utility)` or a private `DispatchQueue`), results hop back with `await MainActor.run` or `@MainActor` methods. Avoid `Sendable` warnings becoming errors: no `-strict-concurrency=complete`.
@@ -855,7 +855,7 @@ public final class LibraryStore {
     public private(set) var people: [Person]
     public var recents: RecentStore { get set }      // setting marks dirty
     public var settings: AppSettings { get set }     // setting marks dirty
-    public private(set) var isDirty: Bool
+    public var isDirty: Bool                                           // a file changed since the last save (tracked per file)
     public init(rootURL: URL) throws    // creates the directory; loads library.json, people.json, recents.json, settings.json if present; an unreadable file is renamed to *.bak and replaced by empty state
     public static func defaultRootURL() -> URL       // ~/Library/Application Support/MemeMe
     public var keptDirectory: URL { get }             // rootURL/Kept, created on access
@@ -873,7 +873,10 @@ public final class LibraryStore {
     public func upsert(_ person: Person)
     public func removePerson(id: UUID)                                 // clears personID on its items
     public func stickerCount(personID: UUID) -> Int
-    public func save() throws                                          // atomic JSON writes (sorted keys, ISO-8601 dates); clears isDirty
+    public func save() throws                                          // atomic JSON writes (sorted keys, ISO-8601 dates) of the changed files only,
+                                                                       // after any background save; clears isDirty
+    public func saveInBackground(onFailure:)                           // the same, encoded and written on a serial background queue
+                                                                       // (saveSoon, the indexer's 5 s saves); a failure re-marks the files
 }
 ```
 Not thread-safe: used from the main actor only.
@@ -976,7 +979,7 @@ Requests per frame: `VNDetectFaceLandmarksRequest` (the largest face's features,
 @MainActor final class ThumbnailCache {
     static let shared: ThumbnailCache
     func cached(_ url: URL, minPixel: Int = 256) -> NSImage?   // nil unless an entry decoded at >= minPixel exists
-    /// CGImageSourceCreateThumbnailAtIndex off the main actor; NSCache (≈300 entries).
+    /// CGImageSourceCreateThumbnailAtIndex off the main actor; NSCache (≤ 300 entries, ≤ 48 MB decoded).
     func thumbnail(for url: URL, maxPixel: Int = 256) async -> NSImage?
 }
 ```
@@ -1016,8 +1019,8 @@ Apple's on-device language model (FoundationModels, macOS 26 SDK), text only: th
     let session: AVCaptureSession
     var onSample: ((ExpressionSample) -> Void)?   // delivered on the main actor, ≤ 10 per second
     private(set) var bodyWidth: Double?           // the last body's BodyJoints.widthInImage, set before each onSample; nil without one or in the capture view
-    var isInUseByAnotherApplication: Bool { get } // the device start() would use
-    var hasUsableCamera: Bool { get }             // false when no connected, unsuspended camera exists
+    var usableDevice: AVCaptureDevice? { get }    // the device start() would use; nil when no connected, unsuspended
+                                                  // camera exists. One discovery per read: enterCameraMode reads it once
     func refreshAuthorization()
     func requestAccess() async -> Bool
     func start()   // no-op unless authorized; lazily configures (front/default camera, .vga640x480 or .medium preset, BGRA output, alwaysDiscardsLateVideoFrames); startRunning on a private serial queue
@@ -1215,7 +1218,7 @@ enum WebQuery: Hashable, Sendable {
     func pruneCache()                                // copy files older than 1 h, and earlier versions' <mood>.json files
 }
 ```
-Compliance with GIPHY's integration rules: results are shown in GIPHY's order, unfiltered, never mixed with the user's memes, never written to disk. Results, running searches and failures are kept per `WebQuery`. A search: the GIPHY search for `query.searchTerms` (a mood's one short phrase, the typed words, or a described pose's words) with `limit=24` (`WebFetcher.resultLimit`: four rows' worth, so the same mood caught again shows other GIFs without another search; GIPHY counts searches, not results) and `offset=0` (tried once more after a dropped connection, timeout or 5xx, if the hourly limit allows; the retry counts) on an API session without caching; results kept in memory for `resultLifetime`. Media (stills, previews, full GIFs) come from a second session with a `URLCache` (16 MB memory, 64 MB disk in Web/HTTP, `.useProtocolCachePolicy`) and `httpMaximumConnectionsPerHost` 8; decoded stills stay in an `NSCache` (200). Full GIFs are written to Web/files only to be copied or dragged, and deleted after an hour. 429 pauses all searches for 10 min; 401/403 makes that key wait 10 min (`status` says which). API key: `store.settings.giphyAPIKey` (non-empty) ?? `Bundle.main.object(forInfoDictionaryKey: "GiphyAPIKey") as? String` (non-empty and not starting with "$("). Rate guard: at most 90 network searches per rolling hour (timestamps persisted in Web/rate.json).
+Compliance with GIPHY's integration rules: results are shown in GIPHY's order, unfiltered, never mixed with the user's memes, never written to disk. Results, running searches and failures are kept per `WebQuery`. A search: the GIPHY search for `query.searchTerms` (a mood's one short phrase, the typed words, or a described pose's words) with `limit=24` (`WebFetcher.resultLimit`: four rows' worth, so the same mood caught again shows other GIFs without another search; GIPHY counts searches, not results) and `offset=0` (tried once more after a dropped connection, timeout or 5xx, if the hourly limit allows; the retry counts) on an API session without caching; results kept in memory for `resultLifetime`. Media (stills, previews, full GIFs) come from a second session with a `URLCache` (4 MB memory, 64 MB disk in Web/HTTP, `.useProtocolCachePolicy`) and `httpMaximumConnectionsPerHost` 8; decoded stills stay in an `NSCache` (200). Full GIFs are written to Web/files only to be copied or dragged, and deleted after an hour. 429 pauses all searches for 10 min; 401/403 makes that key wait 10 min (`status` says which). API key: `store.settings.giphyAPIKey` (non-empty) ?? `Bundle.main.object(forInfoDictionaryKey: "GiphyAPIKey") as? String` (non-empty and not starting with "$("). Rate guard: at most 90 network searches per rolling hour (timestamps persisted in Web/rate.json).
 
 `WebGIF` (GIFProvider.swift) also carries `creator: String?` from the result's `user` (display name, else username).
 

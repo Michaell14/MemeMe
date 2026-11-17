@@ -354,7 +354,7 @@ private struct QueryImageMirror: View {
                 image = cached
                 return
             }
-            let loaded = await ThumbnailCache.shared.thumbnail(for: url, maxPixel: 256)
+            let loaded = await ThumbnailCache.shared.thumbnail(for: url, maxPixel: 320)
             if !Task.isCancelled {
                 image = loaded
             }
