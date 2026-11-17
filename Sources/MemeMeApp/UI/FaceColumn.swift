@@ -38,12 +38,9 @@ struct FaceColumn: View {
         .frame(width: Theme.faceColumnWidth - Theme.gridPadding, alignment: .top)
     }
 
-    /// Under the word: how to lean on a part, or which one the search leans on.
-    private var leanCaption: String {
-        if let region = model.leanRegion {
-            return "Leaning on your \(region.rawValue). Click again to undo."
-        }
-        return "Click part of your face to lean on it."
+    /// Under the word: which part the search leans on, if one.
+    private var leanCaption: String? {
+        model.leanRegion.map { "Leaning on your \($0.rawValue). Click again to undo." }
     }
 
     private var showsMeters: Bool {

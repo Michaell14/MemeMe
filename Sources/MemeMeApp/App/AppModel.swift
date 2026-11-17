@@ -70,8 +70,6 @@ private enum HintCopy {
     static let warmingTitle = "Starting camera…"
     static let warmingSubtitle = "Your recent picks are ready."
     static let liveTitle = "Make a face or a pose."
-    /// Under the big mirror until a face is caught.
-    static let liveSubtitle = "Hold it and results follow. Small changes count."
     /// While a face is held toward the search, under the big mirror.
     static let holdingTitle = "Hold it…"
     static let holdingSubtitle = "Then it searches."
@@ -3169,7 +3167,7 @@ private struct DescribedPhrase {
                 return PanelHint(title: HintCopy.holdingTitle, subtitle: HintCopy.holdingSubtitle, actionTitle: nil,
                                  action: nil)
             }
-            return PanelHint(title: HintCopy.liveTitle, subtitle: HintCopy.liveSubtitle, actionTitle: nil, action: nil)
+            return PanelHint(title: HintCopy.liveTitle, subtitle: nil, actionTitle: nil, action: nil)
         case .text:
             return PanelHint(title: HintCopy.textTitle, subtitle: HintCopy.textSubtitle, actionTitle: nil, action: nil)
         case .image:
