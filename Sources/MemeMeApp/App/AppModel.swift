@@ -17,6 +17,22 @@ enum PanelMode: Equatable { case idle, prompt, warming, live, text, image, moreL
 /// A list over the panel: the source menu (beside the search field) or the actions for the selected result (⌘K).
 enum PanelMenu: Equatable { case sources, actions }
 
+/// Which of My Stickers' chips shows: All (a row per group, then Ungrouped), one group's stickers, or those in none.
+enum StickerGroupFilter: Hashable { case all, group(UUID), ungrouped }
+
+/// A chip over My Stickers' grid: All, a group, or Ungrouped.
+struct GroupChip: Identifiable, Equatable {
+    let filter: StickerGroupFilter
+    let title: String
+    /// Its stickers; nil for All.
+    let count: Int?
+    var id: StickerGroupFilter { filter }
+    var groupID: UUID? {
+        if case let .group(id) = filter { return id }
+        return nil
+    }
+}
+
 /// What the actions menu (⌘K) can do with the selected result.
 enum PickAction: String, CaseIterable, Equatable {
     case copy, copyLink, copyMarkdown, toggleFavorite, moreLikeThis, showInFinder, openInBrowser, deleteSticker
@@ -33,6 +49,8 @@ struct MenuRow: Identifiable, Equatable {
     let isChecked: Bool
     /// A line goes above it.
     let startsGroup: Bool
+    /// A small heading over it, under the line ("Groups").
+    var heading: String? = nil
 }
 
 enum HintAction: Equatable { case backToFace, keepImage, turnOnCamera, useCamera }
@@ -166,7 +184,22 @@ enum Pick: Equatable {
     }
 }
 
-/// What the grid shows for the source and search: every pick in order, `columns` to a row, under one title.
+/// A titled run of the grid's picks that starts on its own row: My Stickers shows a row per group, then Ungrouped.
+struct PickerSection: Equatable {
+    /// Over its first row: the group's name, or "Ungrouped".
+    let title: String
+    /// How many stickers it has in all (the row shows at most a row of them).
+    let total: Int
+    /// What See all › opens.
+    let filter: StickerGroupFilter
+    /// Its picks: `picks[range]` of the layout.
+    let range: Range<Int>
+    /// The row it starts on.
+    let firstRow: Int
+}
+
+/// What the grid shows for the source and search: every pick in order, `columns` to a row, under one title; or in
+/// sections, each starting on its own row (`sections`), so a row can end early and slots no longer line up with picks.
 struct PickerLayout: Equatable {
     let picks: [Pick]
     let columns: Int
@@ -180,27 +213,61 @@ struct PickerLayout: Equatable {
     let showsGiphy: Bool
     /// Over the grid: "Recent", "Matching your face", "Results for “sad”".
     let title: String
+    /// Titled runs of picks, each from its own row; empty for one plain run.
+    let sections: [PickerSection]
+    /// Which pick each slot holds.
+    private let slots: SectionedSlots
 
     init(picks: [Pick], columns: Int, isLoading: Bool, message: String?, title: String) {
+        self.init(picks: picks, columns: columns, isLoading: isLoading, message: message, title: title, sections: [])
+    }
+
+    /// `sections`: (title, total, filter, picks) in order; their picks follow one another in `picks`.
+    init(sectioned: [(title: String, total: Int, filter: StickerGroupFilter, picks: [Pick])], columns: Int,
+         message: String?, title: String) {
+        let columns = max(1, columns)
+        let slots = SectionedSlots(columns: columns, counts: sectioned.map { $0.picks.count })
+        var sections: [PickerSection] = []
+        var start = 0
+        for (index, section) in sectioned.enumerated() {
+            let range = start..<(start + section.picks.count)
+            start = range.upperBound
+            guard !range.isEmpty else { continue }
+            sections.append(PickerSection(title: section.title, total: section.total, filter: section.filter,
+                                          range: range, firstRow: slots.firstRows[index]))
+        }
+        self.init(picks: sectioned.flatMap { $0.picks }, columns: columns, isLoading: false, message: message,
+                  title: title, sections: sections, slots: slots)
+    }
+
+    private init(picks: [Pick], columns: Int, isLoading: Bool, message: String?, title: String,
+                 sections: [PickerSection], slots: SectionedSlots? = nil) {
         let columns = max(1, columns)
         self.picks = picks
         self.columns = columns
-        var counts: [Int] = []
-        var remaining = picks.count
-        while remaining > 0 {
-            counts.append(min(columns, remaining))
-            remaining -= columns
-        }
-        rows = TileRows(columns: columns, counts: counts)
+        let slots = slots ?? SectionedSlots(columns: columns, counts: [picks.count])
+        self.slots = slots
+        rows = slots.rows
         self.isLoading = isLoading
         self.message = picks.isEmpty && !isLoading ? message : nil
         showsGiphy = picks.contains { $0.isFromGiphy }
         self.title = title
+        self.sections = sections
     }
 
     func pick(at slot: Int) -> Pick? {
-        guard slot >= 0, slot < picks.count else { return nil }
-        return picks[slot]
+        guard let index = slots.pick(at: slot), index < picks.count else { return nil }
+        return picks[index]
+    }
+
+    /// The slot of the `index`th tile (⌘1–⌘9 count tiles, not slots); nil when there are fewer.
+    func slot(ofTile index: Int) -> Int? {
+        slots.slot(ofPick: index)
+    }
+
+    /// The section that starts on `row`, for its title over the row.
+    func section(startingAt row: Int) -> PickerSection? {
+        sections.first { $0.firstRow == row }
     }
 }
 
@@ -221,12 +288,16 @@ struct MoodReadout: Equatable {
 /// Under the grid after Clip me: the sticker it saved to My Stickers and copied, with Rename and Undo.
 struct ClipNotice: Equatable {
     let itemID: UUID
-    let name: String
+    var name: String
     let thumbnail: URL
     let isGIF: Bool
     /// false: the same picture was already one of your stickers (Undo leaves it).
     let isNew: Bool
     var copied = true
+    /// The groups offered as chips: the latest used when it was made, then any made from it (New group).
+    var chipGroupIDs: [UUID] = []
+    /// The groups the sticker is in. A change restarts the notice's 8 s.
+    var groupIDs: Set<UUID> = []
 }
 
 /// A capture handed to the cutter off the main thread.
@@ -349,6 +420,10 @@ private struct DescribedPhrase {
     @Published private(set) var clipNotice: ClipNotice?
     /// Your things you saved (the star on a tile; the Favorites source).
     @Published private(set) var savedIDs: Set<UUID> = []
+    /// Your sticker groups, in the order they were made (`RecentStore.groups`).
+    @Published private(set) var stickerGroups: [StickerGroup] = []
+    /// The chip showing over My Stickers: All each time the source is picked.
+    @Published private(set) var groupFilter: StickerGroupFilter = .all
     /// What the camera reads in the face being held while the mirror is big ("Brows up", 0...5), strongest first;
     /// empty otherwise.
     @Published private(set) var faceReading: [HeldFaceReading.Cue] = []
@@ -620,6 +695,7 @@ private struct DescribedPhrase {
         }
         let saved = Set(store.recents.saved)
         if savedIDs != saved { savedIDs = saved }
+        refreshGroups()
         isPanelVisible = true
         shownAt = CACurrentMediaTime()
         resetForNewSession()
@@ -670,6 +746,7 @@ private struct DescribedPhrase {
     func selectSource(_ newSource: PickerSource) {
         guard source != newSource else { return }
         source = newSource
+        if groupFilter != .all { groupFilter = .all }
         userInteracted = false
         refreshCurrentResults()
         if newSource.showsGiphyGIFs, giphyQuery == nil {
@@ -816,12 +893,25 @@ private struct DescribedPhrase {
         let chosen = index ?? menuSelection
         guard chosen >= 0, chosen < rows.count, let which = menu else { return }
         let id = rows[chosen].id
+        let focusedSticker: UUID? = {
+            if case let .meme(item)? = focusedPick { return item.id }
+            return nil
+        }()
         closeMenu()
         switch which {
         case .sources:
             if let picked = PickerSource(rawValue: id) { selectSource(picked) }
         case .actions:
-            if let action = PickAction(rawValue: id) { perform(action) }
+            if let action = PickAction(rawValue: id) {
+                perform(action)
+            } else if let stickerID = focusedSticker {
+                if id == AppModel.newGroupRowID {
+                    newGroup(filing: stickerID)
+                } else if id.hasPrefix(AppModel.groupRowPrefix),
+                          let groupID = UUID(uuidString: String(id.dropFirst(AppModel.groupRowPrefix.count))) {
+                    toggleGroup(groupID, forSticker: stickerID)
+                }
+            }
         }
     }
 
@@ -878,7 +968,29 @@ private struct DescribedPhrase {
                                     keys: AppModel.keys(for: action), isChecked: false,
                                     startsGroup: groupIndex > 0 && index == 0))
             }
+            // A sticker of yours: its groups, after keeping it and finding more.
+            if groupIndex == 1, canGroup(pick), case let .meme(item) = pick {
+                rows += groupRows(for: item.id)
+            }
         }
+        return rows
+    }
+
+    static let groupRowPrefix = "group:"
+    static let newGroupRowID = "newGroup"
+
+    /// ⌘K's Groups section: each group, checked when the sticker is in it, then New Group….
+    private func groupRows(for stickerID: UUID) -> [MenuRow] {
+        var rows: [MenuRow] = []
+        for group in stickerGroups {
+            let first = rows.isEmpty
+            rows.append(MenuRow(id: AppModel.groupRowPrefix + group.id.uuidString, title: group.name,
+                                symbol: "square.stack", letter: nil, keys: [], isChecked: group.contains(stickerID),
+                                startsGroup: first, heading: first ? "Groups" : nil))
+        }
+        let first = rows.isEmpty
+        rows.append(MenuRow(id: AppModel.newGroupRowID, title: "New Group…", symbol: "plus", letter: nil, keys: [],
+                            isChecked: false, startsGroup: first, heading: first ? "Groups" : nil))
         return rows
     }
 
@@ -1000,10 +1112,10 @@ private struct DescribedPhrase {
         commit(index: focusedIndex)
     }
 
-    /// Number keys pick any tile, 1–9 in order, row by row.
+    /// Number keys pick any tile, 1–9 in order, row by row (skipping the gaps where a section's row ends early).
     func commitNumbered(index: Int) {
-        guard index >= 0, index < 9 else { return }
-        commit(index: index)
+        guard index >= 0, index < 9, let slot = makeLayout().slot(ofTile: index) else { return }
+        commit(index: slot)
     }
 
     func moveFocus(dx: Int, dy: Int) {
@@ -1176,6 +1288,237 @@ private struct DescribedPhrase {
         toggleSaved(pick)
     }
 
+    // MARK: - Sticker groups
+
+    /// Groups the Clip me notice offers as chips: the latest used.
+    static let noticeGroupLimit = 3
+
+    private func refreshGroups() {
+        let groups = store.recents.groups
+        if stickerGroups != groups { stickerGroups = groups }
+        if case let .group(id) = groupFilter, !groups.contains(where: { $0.id == id }) {
+            groupFilter = .all
+        }
+    }
+
+    /// Changes the groups, keeps them and shows the change.
+    private func updateGroups(_ change: (inout RecentStore) -> Void) {
+        var recents = store.recents
+        change(&recents)
+        guard recents != store.recents else { return }
+        store.recents = recents
+        refreshGroups()
+        saveSoon()
+    }
+
+    /// Your own stickers can be put in groups; GIPHY's can't.
+    func canGroup(_ pick: Pick) -> Bool {
+        canDeleteSticker(pick)
+    }
+
+    /// Your stickers that still exist, by id.
+    private var stickersByID: [UUID: LibraryItem] {
+        var byID: [UUID: LibraryItem] = [:]
+        for item in store.items where item.isSticker && item.kind != .web {
+            byID[item.id] = item
+        }
+        return byID
+    }
+
+    /// My Stickers' chips: All, each group with its count, Ungrouped (once there are groups).
+    var groupChips: [GroupChip] {
+        let stickers = stickersByID
+        var chips = [GroupChip(filter: .all, title: "All", count: nil)]
+        guard !stickerGroups.isEmpty else { return chips }
+        var grouped = Set<UUID>()
+        for group in stickerGroups {
+            let members = group.stickerIDs.filter { stickers[$0] != nil }
+            grouped.formUnion(members)
+            chips.append(GroupChip(filter: .group(group.id), title: group.name, count: members.count))
+        }
+        let ungrouped = stickers.keys.filter { !grouped.contains($0) }.count
+        chips.append(GroupChip(filter: .ungrouped, title: "Ungrouped", count: ungrouped))
+        return chips
+    }
+
+    /// A chip over My Stickers (or See all › on a row): its stickers, searched again for what is typed.
+    func selectGroupFilter(_ filter: StickerGroupFilter) {
+        guard source == .myStickers, filter != groupFilter else { return }
+        closeMenu()
+        groupFilter = filter
+        userInteracted = false
+        refreshCurrentResults()
+        normalizeFocus()
+    }
+
+    /// My Stickers on All with nothing searched, once there are groups: a row per group (its latest filed first), then
+    /// Ungrouped (newest first), each from its own row. nil otherwise: the ranked grid as before.
+    private func groupedStickersLayout(columns: Int) -> PickerLayout? {
+        guard source == .myStickers, groupFilter == .all, resultSource == .recent, !stickerGroups.isEmpty else {
+            return nil
+        }
+        let stickers = stickersByID
+        var sections: [(title: String, total: Int, filter: StickerGroupFilter, picks: [Pick])] = []
+        var grouped = Set<UUID>()
+        for group in stickerGroups {
+            let members = group.stickerIDs.compactMap { stickers[$0] }
+            grouped.formUnion(members.map(\.id))
+            guard !members.isEmpty else { continue }
+            sections.append((title: group.name, total: members.count, filter: StickerGroupFilter.group(group.id),
+                             picks: members.prefix(columns).map { Pick.meme($0) }))
+        }
+        let ungrouped = stickers.values.filter { !grouped.contains($0.id) }
+            .sorted { lhs, rhs in
+                if lhs.addedAt != rhs.addedAt { return lhs.addedAt > rhs.addedAt }
+                return lhs.displayName < rhs.displayName
+            }
+        if !ungrouped.isEmpty {
+            sections.append((title: "Ungrouped", total: ungrouped.count, filter: StickerGroupFilter.ungrouped,
+                             picks: ungrouped.prefix(columns).map { Pick.meme($0) }))
+        }
+        return PickerLayout(sectioned: sections, columns: columns, message: stickersEmptyMessage, title: "")
+    }
+
+    /// Over the grid while a chip other than All shows: its name.
+    private var groupFilterTitle: String? {
+        switch groupFilter {
+        case .all: return nil
+        case let .group(id): return stickerGroups.first { $0.id == id }?.name
+        case .ungrouped: return "Ungrouped"
+        }
+    }
+
+    /// Files the sticker in the group, or takes it out (⌘K's Groups, the Clip me notice's chips).
+    func toggleGroup(_ groupID: UUID, forSticker stickerID: UUID) {
+        guard let item = store.item(id: stickerID), item.isSticker, item.kind != .web,
+              stickerGroups.contains(where: { $0.id == groupID }) else { return }
+        updateGroups { $0.toggleSticker(stickerID, inGroup: groupID) }
+        noteGroupsChanged(forSticker: stickerID)
+    }
+
+    /// The notice's chips and the grid follow a sticker's groups; the focus stays on it.
+    private func noteGroupsChanged(forSticker stickerID: UUID) {
+        if var notice = clipNotice, notice.itemID == stickerID {
+            notice.groupIDs = Set(store.recents.groups(containing: stickerID).map(\.id))
+            clipNotice = notice
+        }
+        guard source == .myStickers else { return }
+        refreshCurrentResults()
+        focus(onItem: stickerID)
+    }
+
+    /// Moves the focus to the tile showing `id`, if one does.
+    private func focus(onItem id: UUID) {
+        let layout = makeLayout()
+        for slot in 0..<layout.rows.slotCount {
+            if case let .meme(item)? = layout.pick(at: slot), item.id == id {
+                userInteracted = true
+                if focusedIndex != slot { focusedIndex = slot }
+                return
+            }
+        }
+    }
+
+    /// The chips on the Clip me notice: its groups that still exist, in the order offered.
+    var noticeGroups: [StickerGroup] {
+        guard let notice = clipNotice else { return [] }
+        return notice.chipGroupIDs.compactMap { id in stickerGroups.first { $0.id == id } }
+    }
+
+    /// A chip on the Clip me notice: files the sticker just made in that group, or takes it out.
+    func toggleNoticeGroup(_ groupID: UUID) {
+        guard let notice = clipNotice else { return }
+        toggleGroup(groupID, forSticker: notice.itemID)
+    }
+
+    /// New group on the Clip me notice: names a group and files the sticker in it; the chip joins the others.
+    func newGroupFromNotice() {
+        guard let notice = clipNotice, let group = newGroup(filing: notice.itemID) else { return }
+        guard var current = clipNotice, current.itemID == notice.itemID else { return }
+        if !current.chipGroupIDs.contains(group.id) { current.chipGroupIDs.append(group.id) }
+        current.groupIDs = Set(store.recents.groups(containing: notice.itemID).map(\.id))
+        clipNotice = current
+    }
+
+    /// New Group… (⌘K, the + chip, the notice): asks for a name and makes the group (a name already taken is that
+    /// group), filing `stickerID` in it. Made from the + chip, its chip shows. Returns the group.
+    @discardableResult
+    func newGroup(filing stickerID: UUID? = nil) -> StickerGroup? {
+        closeMenu()
+        guard let name = askGroupName(title: "New Group", button: "Create") else { return nil }
+        var created: StickerGroup?
+        updateGroups { recents in
+            created = recents.addGroup(named: name)
+            if let group = created, let stickerID { recents.setSticker(stickerID, inGroup: group.id, true) }
+        }
+        guard let made = created else { return nil }
+        if let stickerID {
+            noteGroupsChanged(forSticker: stickerID)
+        } else if source == .myStickers {
+            selectGroupFilter(.group(made.id))
+        }
+        return made
+    }
+
+    /// Rename… on a group's chip.
+    func renameGroup(_ id: UUID) {
+        guard let group = stickerGroups.first(where: { $0.id == id }),
+              let name = askGroupName(title: "Rename Group", button: "Rename", initial: group.name),
+              name != group.name else { return }
+        var renamed = false
+        updateGroups { renamed = $0.renameGroup(id, to: name) }
+        if !renamed {
+            HUDController.shared.show("There’s already a group named “\(StickerGroup.cleanName(name) ?? name)”.")
+        }
+    }
+
+    /// Delete Group on a group's chip: the group goes (its stickers stay), with Undo.
+    func deleteGroup(_ id: UUID) {
+        var taken: (group: StickerGroup, index: Int)?
+        updateGroups { taken = $0.removeGroup(id) }
+        guard let removed = taken else { return }
+        if source == .myStickers { refreshCurrentResults() }
+        let undo = HUDAction(title: "Undo") { [weak self] in
+            guard let self else { return }
+            let existing = Set(self.stickersByID.keys)
+            self.updateGroups { $0.restoreGroup(removed.group, at: removed.index, keeping: existing) }
+            if self.source == .myStickers { self.refreshCurrentResults() }
+        }
+        HUDController.shared.show("Deleted “\(removed.group.name)” · its stickers stay", action: undo)
+    }
+
+    /// The screen cut's Save: files the sticker in the ticked groups and in new ones named on the card. Returns the
+    /// names of the groups it is now in, for the notice.
+    @discardableResult
+    func fileSticker(_ stickerID: UUID, inGroups groupIDs: Set<UUID>, newGroupNames: [String]) -> [String] {
+        guard store.item(id: stickerID) != nil, !groupIDs.isEmpty || !newGroupNames.isEmpty else { return [] }
+        updateGroups { recents in
+            for name in newGroupNames {
+                if let made = recents.addGroup(named: name) { recents.setSticker(stickerID, inGroup: made.id, true) }
+            }
+            for id in groupIDs {
+                recents.setSticker(stickerID, inGroup: id, true)
+            }
+        }
+        if isPanelVisible, source == .myStickers { refreshCurrentResults() }
+        return store.recents.groups(containing: stickerID).map(\.name)
+    }
+
+    /// A group's name, asked for in a small sheet; nil when cancelled or left empty.
+    private func askGroupName(title: String, button: String, initial: String = "") -> String? {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.addButton(withTitle: button)
+        alert.addButton(withTitle: "Cancel")
+        let field = NSTextField(string: initial)
+        field.placeholderString = "Reactions, Work, Sam & Jo…"
+        field.frame = NSRect(x: 0, y: 0, width: 240, height: 24)
+        alert.accessoryView = field
+        alert.window.initialFirstResponder = field
+        guard AppModel.runInFront(alert) == .alertFirstButtonReturn else { return nil }
+        return StickerGroup.cleanName(field.stringValue)
+    }
+
     // MARK: - Deleting stickers
 
     /// Stickers in your collection (clipped, cut from the screen, made from photos) can be deleted; GIPHY's can't.
@@ -1219,6 +1562,7 @@ private struct DescribedPhrase {
         if clipNotice?.itemID == id { clipNotice = nil }
         if newStickerID == id { newStickerID = nil }
         savedIDs = Set(store.recents.saved)
+        refreshGroups()
         refreshFooter()
         refreshCurrentResults()
     }
@@ -1671,8 +2015,9 @@ private struct DescribedPhrase {
         item.displayName = name
         store.update(item)
         saveSoon()
-        clipNotice = ClipNotice(itemID: item.id, name: name, thumbnail: notice.thumbnail, isGIF: notice.isGIF,
-                                isNew: notice.isNew, copied: notice.copied)
+        var renamed = notice
+        renamed.name = name
+        clipNotice = renamed
         refreshCurrentResults()
     }
 
@@ -1684,6 +2029,7 @@ private struct DescribedPhrase {
         if notice.isNew {
             friends.removeOwnSticker(id: notice.itemID)
         }
+        refreshGroups()
         refreshCurrentResults()
     }
 
@@ -1734,14 +2080,19 @@ private struct DescribedPhrase {
                 return
             }
             self.newStickerID = made.item.id
+            let recents = self.store.recents
             self.clipNotice = ClipNotice(itemID: made.item.id, name: made.item.displayName,
                                          thumbnail: made.item.fileURL, isGIF: clip.isGIF, isNew: made.isNew,
-                                         copied: copied)
+                                         copied: copied,
+                                         chipGroupIDs: recents.recentGroups(limit: AppModel.noticeGroupLimit).map(\.id),
+                                         groupIDs: Set(recents.groups(containing: made.item.id).map(\.id)))
             if self.source != .all && self.source != .myStickers {
                 self.selectSource(.myStickers)
             }
             self.userInteracted = true
             self.focusedIndex = 0
+            // In My Stickers' row per group the new sticker isn't first: select it where it is.
+            self.focus(onItem: made.item.id)
         }
     }
 
@@ -1928,7 +2279,15 @@ private struct DescribedPhrase {
         searchGeneration += 1
         let ranker = Ranker(baseline: tracker.baseline)
         // Favorites: what you saved, newest first.
-        let recentIDs = source == .favorites ? store.recents.saved : store.recents.recent(appBundleID: previousBundleID)
+        let recentIDs: [UUID]
+        if source == .favorites {
+            recentIDs = store.recents.saved
+        } else if source == .myStickers, case let .group(id) = groupFilter, let group = store.recents.group(id: id) {
+            // A group: the latest filed first.
+            recentIDs = group.stickerIDs
+        } else {
+            recentIDs = store.recents.recent(appBundleID: previousBundleID)
+        }
         let ranked = ranker.rank(
             sourceItems,
             query: .recent(appBundleID: previousBundleID),
@@ -2462,6 +2821,7 @@ private struct DescribedPhrase {
             picks = ownPicks
             message = ownEmptyMessage
         case .myStickers:
+            if let sectioned = groupedStickersLayout(columns: columns) { return sectioned }
             picks = ownPicks
             message = stickersEmptyMessage
         case .giphyGIFs:
@@ -2490,7 +2850,8 @@ private struct DescribedPhrase {
             }
         }
         // Clip me's new sticker comes first, wherever the ranking put it.
-        if let id = newStickerID, source == .all || source == .myStickers, let item = store.item(id: id) {
+        if let id = newStickerID, source == .all || source == .myStickers, groupFilterAllows(id),
+           let item = store.item(id: id) {
             picks.removeAll { if case let .meme(shown) = $0 { return shown.id == id }; return false }
             picks.insert(.meme(item), at: 0)
         }
@@ -2504,6 +2865,7 @@ private struct DescribedPhrase {
     private var sectionTitle: String {
         switch resultSource {
         case .recent:
+            if source == .myStickers, let title = groupFilterTitle { return title }
             switch source {
             case .all, .onMyMac, .myStickers: return recentTitle
             case .favorites: return "Favorites"
@@ -2559,7 +2921,15 @@ private struct DescribedPhrase {
 
     private var stickersEmptyMessage: String {
         let hasStickers = store.items.contains { $0.isSticker && $0.kind != .web }
-        return hasStickers ? "No stickers match." : "Drop a photo of a friend on the MemeMe icon to make a sticker."
+        guard hasStickers else { return "Drop a photo of a friend on the MemeMe icon to make a sticker." }
+        if resultSource == .recent {
+            switch groupFilter {
+            case .all: break
+            case .group: return "Nothing in this group yet. Select a sticker and press ⌘K to add it."
+            case .ungrouped: return "Every sticker is in a group."
+            }
+        }
+        return "No stickers match."
     }
 
     private func refreshHasMemes() {
@@ -2670,8 +3040,25 @@ private struct DescribedPhrase {
     /// Your things the source shows: the library without GIPHY's GIFs (they are never kept in it), of the source's
     /// kinds (none for GIPHY's and the classic memes).
     private var sourceItems: [LibraryItem] {
-        store.items.filter { item in
+        let inGroup = groupFilterAllows
+        return store.items.filter { item in
             item.kind != .web && source.shows(TileKind(item)) && (source != .favorites || savedIDs.contains(item.id))
+                && inGroup(item.id)
+        }
+    }
+
+    /// My Stickers' chip: whether a sticker is shown (one group's, or those in none); everything elsewhere.
+    private var groupFilterAllows: (UUID) -> Bool {
+        guard source == .myStickers else { return { _ in true } }
+        switch groupFilter {
+        case .all:
+            return { _ in true }
+        case let .group(id):
+            let members = Set(stickerGroups.first { $0.id == id }?.stickerIDs ?? [])
+            return { members.contains($0) }
+        case .ungrouped:
+            let grouped = Set(stickerGroups.flatMap { $0.stickerIDs })
+            return { !grouped.contains($0) }
         }
     }
 
@@ -3055,6 +3442,7 @@ private struct DescribedPhrase {
 
     private func libraryDidChange() {
         guard isPanelVisible else { return }
+        refreshGroups()
         refreshFooter()
         let showsRemovedItem = results.contains { store.item(id: $0.item.id) == nil }
         if resultSource == .recent {
@@ -3192,6 +3580,7 @@ private struct DescribedPhrase {
         if showSetupCard { showSetupCard = false }
         // Always open on search in All Sources, so ⌥M then ↩ repeats your last pick.
         if source != .all { source = .all }
+        if groupFilter != .all { groupFilter = .all }
         if faceSearchOn { faceSearchOn = false }
         if leanRegion != nil { leanRegion = nil }
         closeMenu()

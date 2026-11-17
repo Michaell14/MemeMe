@@ -65,3 +65,67 @@ public struct TileRows: Equatable, Sendable {
         return target != slot && isFilled(target) ? target : nil
     }
 }
+
+/// Picks laid out in sections, each starting on its own row (My Stickers' row per group): which slot holds which
+/// pick. A section's last row can end early, so slots and picks stop lining up; focus, the arrow keys and ⌘1–⌘9 go
+/// through this map and skip the gaps.
+public struct SectionedSlots: Equatable, Sendable {
+    public let rows: TileRows
+    /// The first row of each section (a section with no picks has no rows: its entry is the row after it).
+    public let firstRows: [Int]
+    /// The first pick of each section.
+    public let firstPicks: [Int]
+    /// The pick in each slot, row by row; nil where a row ends early.
+    private let picks: [Int?]
+
+    /// `counts`: the picks in each section, in order.
+    public init(columns: Int, counts: [Int]) {
+        let columns = max(1, columns)
+        var rowCounts: [Int] = []
+        var firstRows: [Int] = []
+        var firstPicks: [Int] = []
+        var picks: [Int?] = []
+        var next = 0
+        for count in counts {
+            firstRows.append(rowCounts.count)
+            firstPicks.append(next)
+            var remaining = max(0, count)
+            while remaining > 0 {
+                let inRow = min(columns, remaining)
+                rowCounts.append(inRow)
+                for column in 0..<columns {
+                    picks.append(column < inRow ? next + column : nil)
+                }
+                next += inRow
+                remaining -= inRow
+            }
+        }
+        rows = TileRows(columns: columns, counts: rowCounts)
+        self.firstRows = firstRows
+        self.firstPicks = firstPicks
+        self.picks = picks
+    }
+
+    /// The pick in `slot`; nil for a gap or a slot past the end.
+    public func pick(at slot: Int) -> Int? {
+        guard slot >= 0, slot < picks.count else { return nil }
+        return picks[slot]
+    }
+
+    /// The slot holding pick `index`; nil when there is no such pick.
+    public func slot(ofPick index: Int) -> Int? {
+        guard index >= 0 else { return nil }
+        return picks.firstIndex { $0 == index }
+    }
+
+    /// The section whose rows include `row`; nil when there is none.
+    public func section(ofRow row: Int) -> Int? {
+        guard row >= 0, row < rows.counts.count else { return nil }
+        var found: Int?
+        for (section, first) in firstRows.enumerated() where first <= row {
+            let end = section + 1 < firstRows.count ? firstRows[section + 1] : rows.counts.count
+            if row < end { found = section }
+        }
+        return found
+    }
+}

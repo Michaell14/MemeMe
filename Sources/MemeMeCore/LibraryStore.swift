@@ -461,7 +461,7 @@ public final class LibraryStore {
 }
 
 /// Decodes an element without failing the surrounding array: `value` is nil when the element is unreadable.
-private struct LossyDecodable<Value: Decodable>: Decodable {
+struct LossyDecodable<Value: Decodable>: Decodable {
     let value: Value?
 
     init(from decoder: Decoder) throws {

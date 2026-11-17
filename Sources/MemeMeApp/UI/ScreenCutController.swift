@@ -16,7 +16,8 @@ enum ScreenCutStatus: Equatable {
 /// The screen cut (⌥S, or ✂ in the panel): the screen freezes under a dim layer, the subject under the pointer lights
 /// up, and a click takes it alone. Drawing (a loop around it, or a scribble across it) adds the subjects it covers, or
 /// takes them away when they are all taken already; a drawing over nothing that was found lifts what stands out inside
-/// its box. A card beside it names the sticker and saves it to My Stickers, or copies it.
+/// its box. A card beside it names the sticker, ticks the groups to file it in, and saves it to My
+/// Stickers, or copies it.
 @MainActor final class ScreenCutModel: ObservableObject {
     @Published private(set) var status: ScreenCutStatus = .finding
     /// What the pointer is over, lit up but not taken.
@@ -37,8 +38,17 @@ enum ScreenCutStatus: Equatable {
     let screenshot: NSImage
     /// The app the screen was cut from, for the card and the sticker's source.
     let sourceApp: String?
+    /// Your groups, the latest used first: chips on the card.
+    let groups: [StickerGroup]
+    /// The groups Save files the sticker in.
+    @Published private(set) var tickedGroupIDs: Set<UUID> = []
+    /// Groups named on the card (+), ticked: made when it is saved.
+    @Published private(set) var newGroupNames: [String] = []
+    /// The name being typed for a new group; nil while + isn't open.
+    @Published var groupDraft: String?
 
-    var onSave: ((ScreenPiece, String) -> Void)?
+    /// The piece, its name, the ticked groups and the new groups' names.
+    var onSave: ((ScreenPiece, String, Set<UUID>, [String]) -> Void)?
     var onCopy: ((ScreenPiece) -> Void)?
     var onCancel: (() -> Void)?
 
@@ -58,9 +68,10 @@ enum ScreenCutStatus: Equatable {
     /// The selection's cut-out is being made.
     private var isRendering = false
 
-    init(image: CGImage, sourceApp: String?) {
+    init(image: CGImage, sourceApp: String?, groups: [StickerGroup] = []) {
         screenshot = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
         self.sourceApp = sourceApp
+        self.groups = groups
         Task { [weak self] in
             let found = await Task.detached(priority: .userInitiated) { ScreenSubjects(image: image) }.value
             guard let self else { return }
@@ -157,7 +168,44 @@ enum ScreenCutStatus: Equatable {
 
     func save() {
         guard let selection, !isWorking else { return }
-        onSave?(selection, name)
+        onSave?(selection, name, tickedGroupIDs, newGroupNames)
+    }
+
+    // MARK: Groups
+
+    func toggleGroup(_ id: UUID) {
+        if tickedGroupIDs.contains(id) {
+            tickedGroupIDs.remove(id)
+        } else {
+            tickedGroupIDs.insert(id)
+        }
+    }
+
+    /// A group named on the card, clicked again: it won't be made.
+    func removeNewGroup(named name: String) {
+        newGroupNames.removeAll { $0 == name }
+    }
+
+    /// + on the card: a field for the new group's name.
+    func beginGroupDraft() {
+        if groupDraft == nil { groupDraft = "" }
+    }
+
+    /// ↩ in the new group's field: the name is ticked (an existing group's name ticks that group).
+    func commitGroupDraft() {
+        guard let draft = groupDraft else { return }
+        groupDraft = nil
+        guard let name = StickerGroup.cleanName(draft) else { return }
+        let matches: (String) -> Bool = { $0.compare(name, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame }
+        if let existing = groups.first(where: { matches($0.name) }) {
+            tickedGroupIDs.insert(existing.id)
+        } else if !newGroupNames.contains(where: matches) {
+            newGroupNames.append(name)
+        }
+    }
+
+    func cancelGroupDraft() {
+        groupDraft = nil
     }
 
     func copy() {
@@ -253,6 +301,9 @@ private final class ScreenCutPanel: NSPanel {
 
     var isOpen: Bool { panel != nil }
 
+    /// Groups offered on the card: the latest used.
+    private static let groupLimit = 8
+
     /// Asks for Screen Recording access the first time (macOS then asks you to allow it in System Settings).
     func start() {
         guard panel == nil, !isStarting else { return }
@@ -285,10 +336,13 @@ private final class ScreenCutPanel: NSPanel {
     }
 
     private func present(_ image: CGImage, on screen: NSScreen, sourceApp: String?) {
-        let cut = ScreenCutModel(image: image, sourceApp: sourceApp)
+        let groups = model.store.recents.recentGroups(limit: ScreenCutController.groupLimit)
+        let cut = ScreenCutModel(image: image, sourceApp: sourceApp, groups: groups)
         cut.onCancel = { [weak self] in self?.close() }
         cut.onCopy = { [weak self] piece in self?.copy(piece) }
-        cut.onSave = { [weak self] piece, name in self?.save(piece, name: name, sourceApp: sourceApp) }
+        cut.onSave = { [weak self] piece, name, groupIDs, newGroups in
+            self?.save(piece, name: name, sourceApp: sourceApp, groupIDs: groupIDs, newGroupNames: newGroups)
+        }
         let panel = ScreenCutPanel(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel],
                                    backing: .buffered, defer: false)
         panel.level = .screenSaver
@@ -322,8 +376,14 @@ private final class ScreenCutPanel: NSPanel {
             guard let self, let cut = self.cut, event.window === self.panel else { return event }
             let flags = event.modifierFlags.intersection([.command, .control, .option, .shift])
             switch event.keyCode {
+            case 53 where cut.groupDraft != nil:       // Esc while naming a group: just the name goes
+                cut.cancelGroupDraft()
+                return nil
             case 53:                                   // Esc
                 cut.cancel()
+                return nil
+            case 36 where cut.groupDraft != nil, 76 where cut.groupDraft != nil:   // ↵ names the group
+                cut.commitGroupDraft()
                 return nil
             case 36, 76:                               // ↵
                 cut.save()
@@ -349,22 +409,29 @@ private final class ScreenCutPanel: NSPanel {
         }
     }
 
-    private func save(_ piece: ScreenPiece, name: String, sourceApp: String?) {
+    private func save(_ piece: ScreenPiece, name: String, sourceApp: String?, groupIDs: Set<UUID>,
+                      newGroupNames: [String]) {
         close()
         let friends = model.friends
+        let model = self.model
         Task {
             do {
                 let png = try ScreenSubjects.stickerPNG(of: piece)
                 let made = try await friends.makeScreenSticker(png: png, name: name, sourceApp: sourceApp)
+                // Filed in the ticked groups even when it was already one of your stickers.
+                let filed = model.fileSticker(made.item.id, inGroups: groupIDs, newGroupNames: newGroupNames)
                 guard made.isNew else {
-                    HUDController.shared.show("Already one of your stickers", thumbnail: made.item.fileURL)
+                    HUDController.shared.show(filed.isEmpty ? "Already one of your stickers"
+                                                            : "Already one of your stickers · in \(ScreenCutController.list(filed))",
+                                              thumbnail: made.item.fileURL)
                     return
                 }
                 let undo = HUDAction(title: "Undo") {
                     friends.removeOwnSticker(id: made.item.id)
                     HUDController.shared.show("Sticker removed")
                 }
-                HUDController.shared.show("Saved “\(made.item.displayName)” to My Stickers",
+                let place = filed.isEmpty ? "My Stickers" : ScreenCutController.list(filed)
+                HUDController.shared.show("Saved “\(made.item.displayName)” to \(place)",
                                           thumbnail: made.item.fileURL, action: undo)
             } catch {
                 cutLog.error("Saving a screen sticker failed: \(error.localizedDescription, privacy: .public)")
@@ -374,7 +441,27 @@ private final class ScreenCutPanel: NSPanel {
     }
 }
 
+extension ScreenCutController {
+    /// "Cats", "Cats and Work", "3 groups".
+    static func list(_ names: [String]) -> String {
+        switch names.count {
+        case 0: return ""
+        case 1: return names[0]
+        case 2: return "\(names[0]) and \(names[1])"
+        default: return "\(names.count) groups"
+        }
+    }
+}
+
 // MARK: - The view
+
+/// The screen cut card's height, measured, so it is kept on screen however many group chips it has.
+private struct CardHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat { 0 }
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
 
 /// The frozen screen, dimmed; the subject under the pointer and the one taken lit up with an outline in the signal
 /// color; the hint hanging from the top; the card beside what was taken.
@@ -382,6 +469,9 @@ private struct ScreenCutView: View {
     @ObservedObject var cut: ScreenCutModel
 
     @FocusState private var nameFocused: Bool
+    @FocusState private var groupDraftFocused: Bool
+    /// The card's measured height: it grows with its group chips and the new group's field.
+    @State private var cardHeight: CGFloat = ScreenCutView.cardSize.height
 
     init(cut: ScreenCutModel) {
         _cut = ObservedObject(wrappedValue: cut)
@@ -413,6 +503,12 @@ private struct ScreenCutView: View {
                     .frame(width: size.width, alignment: .top)
                 if let selection = cut.selection {
                     card(for: selection)
+                        .background(GeometryReader { card in
+                            Color.clear.preference(key: CardHeightKey.self, value: card.size.height)
+                        })
+                        .onPreferenceChange(CardHeightKey.self) { height in
+                            if height > 0 { cardHeight = height }
+                        }
                         .offset(cardOffset(for: selection, in: size))
                 }
             }
@@ -533,7 +629,7 @@ private struct ScreenCutView: View {
 
     // MARK: Card
 
-    private static let cardSize = CGSize(width: 260, height: 352)
+    private static let cardSize = CGSize(width: 260, height: 420)
 
     private func card(for piece: ScreenPiece) -> some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -580,6 +676,7 @@ private struct ScreenCutView: View {
                     .focused($nameFocused)
                     .accessibilityLabel("Sticker name")
             }
+            groupRow
             HStack(spacing: 8) {
                 Button {
                     cut.save()
@@ -628,9 +725,64 @@ private struct ScreenCutView: View {
         .onAppear { nameFocused = true }
     }
 
+    /// The groups Save files the sticker in: your latest used, those named here (+), then + for another.
+    private var groupRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Group")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(Theme.mutedText)
+            FlowLayout(spacing: 6, lineSpacing: 6) {
+                ForEach(cut.groups) { group in
+                    let ticked = cut.tickedGroupIDs.contains(group.id)
+                    Button {
+                        cut.toggleGroup(group.id)
+                    } label: {
+                        GroupChipLabel(title: group.name, isOn: ticked, ticks: true, compact: true)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(ticked ? .isSelected : [])
+                }
+                ForEach(cut.newGroupNames, id: \.self) { name in
+                    Button {
+                        cut.removeNewGroup(named: name)
+                    } label: {
+                        GroupChipLabel(title: name, isOn: true, ticks: true, compact: true)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(.isSelected)
+                }
+                if cut.groupDraft == nil {
+                    Button {
+                        cut.beginGroupDraft()
+                    } label: {
+                        NewGroupChipLabel(title: cut.groups.isEmpty && cut.newGroupNames.isEmpty ? "New group" : nil,
+                                          compact: true)
+                    }
+                    .buttonStyle(.plain)
+                    .help("New group")
+                    .accessibilityLabel("New group")
+                }
+            }
+            if cut.groupDraft != nil {
+                TextField("Group name, then ↩", text: Binding(get: { cut.groupDraft ?? "" },
+                                                              set: { cut.groupDraft = $0 }))
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                    .foregroundColor(Theme.text)
+                    .padding(.horizontal, 10)
+                    .frame(height: 26)
+                    .background(Capsule().fill(Theme.glassFill))
+                    .overlay(Capsule().strokeBorder(Theme.glassEdge, lineWidth: 1))
+                    .focused($groupDraftFocused)
+                    .onAppear { groupDraftFocused = true }
+                    .accessibilityLabel("New group name")
+            }
+        }
+    }
+
     /// Beside what was taken: on its right when there is room, else on its left; kept on screen.
     private func cardOffset(for piece: ScreenPiece, in size: CGSize) -> CGSize {
-        let card = ScreenCutView.cardSize
+        let card = CGSize(width: ScreenCutView.cardSize.width, height: cardHeight)
         let frame = CGRect(x: piece.rect.minX * size.width, y: piece.rect.minY * size.height,
                            width: piece.rect.width * size.width, height: piece.rect.height * size.height)
         var x = frame.maxX + 24

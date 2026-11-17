@@ -611,13 +611,34 @@ private struct MenuPanel<Field: Hashable>: View {
                     .padding(.horizontal, 14)
                     .frame(height: 32, alignment: .leading)
             }
-            ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-                if row.startsGroup {
-                    Rectangle().fill(Theme.hairline).frame(height: 1)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 4)
+            // Many groups make ⌘K taller than the panel: the rows scroll, and follow the highlighted one.
+            ScrollViewReader { proxy in
+                ScrollView(.vertical, showsIndicators: rowsHeight(rows) > maxRowsHeight) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                            if row.startsGroup {
+                                Rectangle().fill(Theme.hairline).frame(height: 1)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 4)
+                            }
+                            if let heading = row.heading {
+                                Text(verbatim: heading)
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundColor(Theme.mutedText)
+                                    .padding(.horizontal, 14)
+                                    .frame(height: 22, alignment: .bottomLeading)
+                                    .accessibilityAddTraits(.isHeader)
+                            }
+                            rowView(row, index: index, selected: index == model.menuSelection)
+                                .id(row.id)
+                        }
+                    }
                 }
-                rowView(row, index: index, selected: index == model.menuSelection)
+                .frame(height: min(rowsHeight(rows), maxRowsHeight))
+                .onChange(of: model.menuSelection) { _, selected in
+                    guard selected >= 0, selected < rows.count else { return }
+                    proxy.scrollTo(rows[selected].id)
+                }
             }
             if rows.isEmpty {
                 Text("No matches")
@@ -638,6 +659,20 @@ private struct MenuPanel<Field: Hashable>: View {
         .shadow(color: .black.opacity(0.4), radius: 22, x: 0, y: 14)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(menu == .sources ? "Sources" : "Actions")
+    }
+
+    private var rowHeight: CGFloat { menu == .sources ? 30 : 32 }
+
+    /// The rows' own height: each row, a line (9 pt) before each group, a heading (22 pt) where one is.
+    private func rowsHeight(_ rows: [MenuRow]) -> CGFloat {
+        let lines = rows.filter(\.startsGroup).count
+        let headings = rows.filter { $0.heading != nil }.count
+        return CGFloat(rows.count) * rowHeight + CGFloat(lines) * 9 + CGFloat(headings) * 22
+    }
+
+    /// What fits over the grid with the menu's title and filter field: past this the rows scroll.
+    private var maxRowsHeight: CGFloat {
+        Theme.contentHeight - 64
     }
 
     private func filterField(placeholder: String) -> some View {
@@ -874,12 +909,55 @@ private struct ClipButton: View {
     }
 }
 
-/// Over the islands after Clip me: the sticker, saved to My Stickers and copied, with Rename and Undo.
+/// Over the islands after Clip me: the sticker, saved to My Stickers and copied, with Rename and Undo; under it, your
+/// latest used groups as chips and New group: one click files the sticker (another takes it out).
 private struct ClipNoticeView: View {
     @ObservedObject var model: AppModel
     let notice: ClipNotice
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            summary
+            groupChips
+        }
+        .padding(.leading, 8)
+        .padding(.trailing, 6)
+        .padding(.vertical, 8)
+        .frame(maxWidth: 460)
+        .island()
+        .padding(.horizontal, Theme.gridPadding)
+        .task(id: notice) { @MainActor in
+            // Goes on its own 8 s after the last change (filing it in a group counts).
+            try? await Task.sleep(nanoseconds: 8_000_000_000)
+            if !Task.isCancelled, model.clipNotice == notice { model.dismissClipNotice() }
+        }
+    }
+
+    private var groupChips: some View {
+        // They wrap inside the notice: long names and groups made from it never push past its edge.
+        FlowLayout(spacing: 6, lineSpacing: 6) {
+            ForEach(model.noticeGroups) { group in
+                let isIn = notice.groupIDs.contains(group.id)
+                Button {
+                    model.toggleNoticeGroup(group.id)
+                } label: {
+                    GroupChipLabel(title: group.name, isOn: isIn, ticks: true, compact: true)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text(verbatim: isIn ? "In \(group.name)" : "Add to \(group.name)"))
+                .accessibilityAddTraits(isIn ? .isSelected : [])
+            }
+            Button {
+                model.newGroupFromNotice()
+            } label: {
+                NewGroupChipLabel(title: "New group", compact: true)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.leading, 38)
+    }
+
+    private var summary: some View {
         HStack(spacing: 10) {
             AsyncThumbnail(url: notice.thumbnail)
                 .frame(width: 28, height: 28)
@@ -910,17 +988,7 @@ private struct ClipNoticeView: View {
             .buttonStyle(IslandButtonStyle())
             .accessibilityLabel("Dismiss")
         }
-        .padding(.leading, 8)
-        .padding(.trailing, 6)
-        .frame(height: 44)
-        .frame(maxWidth: 460)
-        .island()
-        .padding(.horizontal, Theme.gridPadding)
-        .task(id: notice) { @MainActor in
-            // Goes on its own after a while.
-            try? await Task.sleep(nanoseconds: 8_000_000_000)
-            if !Task.isCancelled, model.clipNotice == notice { model.dismissClipNotice() }
-        }
+        .frame(height: 28)
     }
 }
 

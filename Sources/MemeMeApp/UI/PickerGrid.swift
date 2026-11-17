@@ -29,7 +29,13 @@ struct PickerGrid: View {
         // The tiles sit a gutter in from the scroll view's edges, which clip: the ring, its glow and the hover lift fit.
         let size = tileSize(width: width - 2 * gutter, columns: layout.columns)
         VStack(alignment: .leading, spacing: 0) {
-            header(layout)
+            if model.source == .myStickers {
+                StickerGroupBar(model: model)
+            }
+            // A row per group carries its own title.
+            if layout.sections.isEmpty {
+                header(layout)
+            }
             if layout.picks.isEmpty && !layout.isLoading {
                 emptyState(layout)
             } else {
@@ -38,7 +44,7 @@ struct PickerGrid: View {
         }
         .frame(width: width, alignment: .topLeading)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(Text(verbatim: layout.title))
+        .accessibilityLabel(Text(verbatim: layout.title.isEmpty ? "My Stickers" : layout.title))
     }
 
     /// The grid's width, gutters included: the panel's, less the camera's column while it shows.
@@ -98,7 +104,7 @@ struct PickerGrid: View {
 
     private func grid(_ layout: PickerLayout, size: CGFloat) -> some View {
         let columns = layout.columns
-        let filledRows = (layout.picks.count + columns - 1) / columns
+        let filledRows = layout.rows.counts.count
         // While more is on its way, placeholders finish the last row and add one more.
         let rowCount = layout.isLoading ? filledRows + 1 : filledRows
         return ScrollViewReader { proxy in
@@ -110,9 +116,15 @@ struct PickerGrid: View {
                 // the ring is never clipped at the top or bottom.
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(0..<rowCount, id: \.self) { row in
-                        HStack(alignment: .top, spacing: Theme.gridSpacing) {
-                            ForEach(0..<columns, id: \.self) { column in
-                                cell(row * columns + column, layout: layout, size: size)
+                        VStack(alignment: .leading, spacing: 8) {
+                            if let section = layout.section(startingAt: row) {
+                                sectionHeader(section)
+                                    .padding(.top, row == 0 ? 0 : 6)
+                            }
+                            HStack(alignment: .top, spacing: Theme.gridSpacing) {
+                                ForEach(0..<columns, id: \.self) { column in
+                                    cell(row * columns + column, layout: layout, size: size)
+                                }
                             }
                         }
                         .padding(.vertical, Theme.gridRowSpacing / 2)
@@ -136,6 +148,33 @@ struct PickerGrid: View {
                 proxy.scrollTo(0, anchor: .top)
             }
         }
+    }
+
+    /// Over a group's row in My Stickers: its name, how many it has, and See all ›.
+    private func sectionHeader(_ section: PickerSection) -> some View {
+        HStack(spacing: 6) {
+            Text(verbatim: section.title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(Theme.softTitle)
+                .lineLimit(1)
+                .accessibilityAddTraits(.isHeader)
+            Text(verbatim: "\(section.total)")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(Theme.mutedText)
+            Spacer(minLength: 8)
+            Button {
+                model.selectGroupFilter(section.filter)
+            } label: {
+                HStack(spacing: 3) {
+                    Text("See all")
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                }
+            }
+            .buttonStyle(PanelLinkButtonStyle(fontSize: 12, color: Theme.softTitle))
+            .accessibilityLabel(Text(verbatim: "See all in \(section.title)"))
+        }
+        .frame(height: 20)
     }
 
     @ViewBuilder
@@ -173,6 +212,18 @@ struct PickerGrid: View {
                     if model.canSave(pick) {
                         Button(model.isSaved(pick) ? "Remove from Favorites" : "Add to Favorites") {
                             model.toggleSaved(pick)
+                        }
+                    }
+                    if model.canGroup(pick), case let .meme(item) = pick {
+                        Menu("Groups") {
+                            ForEach(model.stickerGroups) { group in
+                                Toggle(isOn: Binding(get: { group.contains(item.id) },
+                                                     set: { _ in model.toggleGroup(group.id, forSticker: item.id) })) {
+                                    Text(verbatim: group.name)
+                                }
+                            }
+                            if !model.stickerGroups.isEmpty { Divider() }
+                            Button("New Group…") { model.newGroup(filing: item.id) }
                         }
                     }
                     if AppModel.link(for: pick) != nil {
