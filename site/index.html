@@ -505,7 +505,7 @@ body{background:#F2F2F7;color:#1D1D1F}
                     <div class="mirror"><div class="disc"></div><svg class="sk" id="sk" viewBox="18 20 164 164" aria-hidden="true"></svg>
                       <svg class="ring" viewBox="0 0 180 180" aria-hidden="true"><circle class="track" cx="90" cy="90" r="88"/><circle class="fill" id="ringFill" cx="90" cy="90" r="88"/></svg></div>
                     <div class="cam-word" id="camWord">Make a face.</div>
-                    <div class="cam-from" id="camFrom">Hold it and results follow.</div>
+                    <div class="cam-from" id="camFrom"></div>
                     <div class="cues">
                       <button class="cue" data-part="brows">Brows <span class="meter" id="mBrows"><i></i><i></i><i></i><i></i><i></i></span></button>
                       <button class="cue" data-part="eyes">Eyes <span class="meter" id="mEyes"><i></i><i></i><i></i><i></i><i></i></span></button>
@@ -842,7 +842,7 @@ function setFace(on){
   if (!on) cancelHold();
   S.faceOn = on; mm.classList.toggle('face', on); $('#faceBtn').setAttribute('aria-pressed', on);
   q.placeholder = on ? (S.face ? 'Add words to refine…' : 'Make a face, or type to search…') : 'Search GIFs, stickers and memes…';
-  if (on && !S.face){ sk.set('neutral'); $('#camWord').textContent = 'Make a face.'; $('#camFrom').textContent = 'Hold it and results follow.'; }
+  if (on && !S.face){ sk.set('neutral'); $('#camWord').textContent = 'Make a face.'; $('#camFrom').textContent = ''; }
   if (S.open) render();
   if (S.open) phase(on ? 'face' : (S.q || S.face ? 'pick' : 'open'));
 }
@@ -870,7 +870,7 @@ function makeFace(key){
     }, 620);
   }, 360);
 }
-function clearFace(){ S.face = null; $('#token').hidden = true; sk.set('neutral'); $('#camWord').textContent = 'Make a face.'; $('#camFrom').textContent = 'Hold it and results follow.'; render(); phase(S.faceOn ? 'face' : 'open'); }
+function clearFace(){ S.face = null; $('#token').hidden = true; sk.set('neutral'); $('#camWord').textContent = 'Make a face.'; $('#camFrom').textContent = ''; render(); phase(S.faceOn ? 'face' : 'open'); }
 
 let hudT = 0;
 function hud(on, text){ const h = $('#hud'); if (text) $('#hudText').innerHTML = text; h.classList.toggle('on', !!on); clearTimeout(hudT); if (on) hudT = setTimeout(() => h.classList.remove('on'), 2600); }
