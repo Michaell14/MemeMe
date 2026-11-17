@@ -282,19 +282,6 @@ public struct FaceSketch: Equatable, Sendable {
 }
 ```
 
-### StrokeGesture.swift
-
-```swift
-public enum StrokeGesture: Equatable, Sendable {
-    case circle(FaceRegion), scribble(FaceRegion), tear
-    /// nil under 2 points or 14 long. Turns: direction changes along x or y (wobbles under 4 ignored), the larger count.
-    /// circle: gap < 0.4 × diagonal, length > 1.6 × diagonal, turns < 4; scribble: turns ≥ 3, or 2.5 × wider than tall within 34 of a part;
-    /// tear: 1.3 × taller than wide, drawn down, starting between 4 above an eye's top and 36 below its center, within 28 of its column.
-    /// The part: the ring center nearest the stroke's box center (vertical × 1.6).
-    public static func read(_ points: [SketchPoint], on sketch: FaceSketch, weights: [FaceRegion: Double]) -> StrokeGesture?
-}
-```
-
 ### FaceEditSession.swift
 
 ```swift
@@ -303,7 +290,6 @@ public struct FaceEditSession: Equatable, Sendable {
     public let original: ExpressionSample
     public private(set) var face: FaceFeatures
     public private(set) var weights: [FaceRegion: Int]     // 0 (ignored) … 5, starting at automatic(deviation:poseStrength: 0) rounded
-    public private(set) var tears: [[SketchPoint]]
     public private(set) var tiltDirection: Double
     public private(set) var featuresEdited: Bool           // a feature was dragged
     public init?(query: ExpressionSample, baseline: RestingBaseline)   // nil without a face
@@ -312,13 +298,12 @@ public struct FaceEditSession: Equatable, Sendable {
     public var dragStartSketch: FaceSketch?                // the face the drag in progress began with (the editor's dashed starting shape)
     public var sample: ExpressionSample                    // the edited face, the caught pose and timestamp; the shape (face cues) only while !featuresEdited
     public func featureWeights(baseline:) -> FeatureWeights   // automatic(original's deviation, pose strength).overriding(weightValues)
-    public func mood(baseline:) -> Mood                    // tears → .crying, else MoodClassifier on `sample`
+    public func mood(baseline:) -> Mood                    // MoodClassifier on `sample`
     public mutating func beginDrag(_ handle: FaceHandle)
     public mutating func drag(by movement: SketchPoint, pointer: SketchPoint)   // movement since the drag began, turned into face space by the tilt it began with; each number = its start ± movement / travel, clamped; tilt from `pointer`; a ring steps by round(Δx / 10)
     public mutating func pinch(by magnification: Double)   // a held ring: start + round(log2(magnification) × 5)
     public mutating func endDrag()                          // remembers the start for undo when something changed
     public mutating func step(_ region: FaceRegion, by delta: Int)
-    public mutating func apply(_ gesture: StrokeGesture, stroke: [SketchPoint])   // circle → 5, scribble → 0, tear → kept
     public mutating func undo() -> Bool
     public mutating func reset()                            // to the caught face; undoable
 }
@@ -1660,7 +1645,6 @@ struct PickerLayout: Equatable {
     @Published private(set) var faceEdit: FaceEditSession?   // the face editor, while open (mode .live only: leaving .live closes it)
     @Published private(set) var shownWeights: [FaceRegion: Double]   // the face search's weights (the editor's, else automatic) for the mirror's glow; empty without a face
     @Published private(set) var replacedWord: String?    // the word an edit replaced, for 2 s
-    @Published private(set) var editorNotice: EditorNotice?   // what the last pen stroke did; undoable: it changed something (Undo shows in the notice)
     @Published private(set) var hint: PanelHint
     @Published private(set) var footer: FooterState
     @Published private(set) var showSetupCard: Bool
@@ -1750,9 +1734,7 @@ struct PickerLayout: Equatable {
     func closeFaceEditor()                           // "Back to your face", Esc: the caught query searched again
     func beginFaceDrag(_ handle: FaceHandle); func dragFace(by movement: SketchPoint, pointer: SketchPoint); func pinchFace(by magnification: Double); func endFaceDrag()
     func stepFaceWeight(_ region: FaceRegion, by delta: Int)
-    func drawOnFace(_ stroke: [SketchPoint]) -> StrokeGesture?   // StrokeGesture.read; sets editorNotice
     func undoFaceEdit(); func resetFaceEdit()        // ⌘Z, Reset
-    nonisolated static func notice(for gesture: StrokeGesture, mood: Mood) -> String
     func snap()
     // Clip me
     var canClip: Bool { get }                        // faceSearchOn, .live, camera running, no setup card, no face editor, not cutting

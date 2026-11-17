@@ -450,8 +450,8 @@ final class AppModelTests: XCTestCase {
     }
 
     /// The editor refines a face the camera caught; without one (no camera in CI, nothing held yet) there is nothing
-    /// to edit, and every editor action does nothing. What the editor does is checked in FaceEditSessionTests,
-    /// FaceSketchTests and StrokeGestureTests.
+    /// to edit, and every editor action does nothing. What the editor does is checked in FaceEditSessionTests
+    /// and FaceSketchTests.
     @MainActor
     func testTheFaceEditorNeedsACaughtFace() throws {
         let sandbox = try TestSandbox()
@@ -472,17 +472,7 @@ final class AppModelTests: XCTestCase {
         model.stepFaceWeight(.mouth, by: 1)
         model.undoFaceEdit()
         model.resetFaceEdit()
-        XCTAssertNil(model.drawOnFace([SketchPoint(x: 66, y: 108), SketchPoint(x: 64, y: 132)]))
         XCTAssertNil(model.faceEdit)
-        XCTAssertNil(model.editorNotice)
         model.panelDidHide()
-    }
-
-    @MainActor
-    func testEditorNoticesSayWhatAStrokeDid() {
-        XCTAssertEqual(AppModel.notice(for: .circle(.mouth), mood: .happy), "Circled your mouth: it counts most now.")
-        XCTAssertEqual(AppModel.notice(for: .circle(.eyes), mood: .happy), "Circled your eyes: they count most now.")
-        XCTAssertEqual(AppModel.notice(for: .scribble(.brows), mood: .happy), "Scribbled out your brows: they’re ignored now.")
-        XCTAssertEqual(AppModel.notice(for: .tear, mood: .crying), "Tears drawn. Now searching “crying”.")
     }
 }
