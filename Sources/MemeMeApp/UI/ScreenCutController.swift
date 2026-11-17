@@ -36,6 +36,10 @@ enum ScreenCutStatus: Equatable {
     let screenshot: NSImage
     /// The app the screen was cut from, for the card and the sticker's source.
     let sourceApp: String?
+    /// Your sticker groups, most recently used first: the card's chips.
+    let groups: [StickerGroup]
+    /// The groups Save puts the sticker in.
+    @Published private(set) var chosenGroups: [UUID] = []
 
     var onSave: ((ScreenPiece, String) -> Void)?
     var onCopy: ((ScreenPiece) -> Void)?
@@ -49,9 +53,10 @@ enum ScreenCutStatus: Equatable {
     private var isSettingName = false
     private var generation = 0
 
-    init(image: CGImage, sourceApp: String?) {
+    init(image: CGImage, sourceApp: String?, groups: [StickerGroup] = []) {
         screenshot = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
         self.sourceApp = sourceApp
+        self.groups = groups
         Task { [weak self] in
             let found = await Task.detached(priority: .userInitiated) { ScreenSubjects(image: image) }.value
             guard let self else { return }
@@ -125,6 +130,15 @@ enum ScreenCutStatus: Equatable {
     func save() {
         guard let selection, !isWorking else { return }
         onSave?(selection, name)
+    }
+
+    /// A chip on the card: Save puts the sticker in that group too, or no longer does.
+    func toggleGroup(_ id: UUID) {
+        if let index = chosenGroups.firstIndex(of: id) {
+            chosenGroups.remove(at: index)
+        } else {
+            chosenGroups.append(id)
+        }
     }
 
     func copy() {
@@ -242,10 +256,12 @@ private final class ScreenCutPanel: NSPanel {
     }
 
     private func present(_ image: CGImage, on screen: NSScreen, sourceApp: String?) {
-        let cut = ScreenCutModel(image: image, sourceApp: sourceApp)
+        let cut = ScreenCutModel(image: image, sourceApp: sourceApp, groups: model.groupsByRecentUse)
         cut.onCancel = { [weak self] in self?.close() }
         cut.onCopy = { [weak self] piece in self?.copy(piece) }
-        cut.onSave = { [weak self] piece, name in self?.save(piece, name: name, sourceApp: sourceApp) }
+        cut.onSave = { [weak self, weak cut] piece, name in
+            self?.save(piece, name: name, sourceApp: sourceApp, groups: cut?.chosenGroups ?? [])
+        }
         let panel = ScreenCutPanel(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel],
                                    backing: .buffered, defer: false)
         panel.level = .screenSaver
@@ -306,13 +322,16 @@ private final class ScreenCutPanel: NSPanel {
         }
     }
 
-    private func save(_ piece: ScreenPiece, name: String, sourceApp: String?) {
+    private func save(_ piece: ScreenPiece, name: String, sourceApp: String?, groups: [UUID]) {
         close()
         let friends = model.friends
+        let appModel = self.model
+        let groupNames = groups.compactMap { id in appModel.groupsByRecentUse.first { $0.id == id }?.name }
         Task {
             do {
                 let png = try ScreenSubjects.stickerPNG(of: piece)
                 let made = try await friends.makeScreenSticker(png: png, name: name, sourceApp: sourceApp)
+                appModel.addSticker(made.item.id, toGroups: groups)
                 // Saved and copied in one go, ready to paste.
                 var copied = true
                 do {
@@ -331,8 +350,9 @@ private final class ScreenCutPanel: NSPanel {
                     friends.removeOwnSticker(id: made.item.id)
                     HUDController.shared.show("Sticker removed")
                 }
-                HUDController.shared.show(copied ? "Saved “\(made.item.displayName)” · copied, ⌘V to paste"
-                                                 : "Saved “\(made.item.displayName)” to My Stickers",
+                let place = groupNames.isEmpty ? "My Stickers" : groupNames.joined(separator: " and ")
+                HUDController.shared.show(copied ? "Saved “\(made.item.displayName)” to \(place) · copied, ⌘V to paste"
+                                                 : "Saved “\(made.item.displayName)” to \(place)",
                                           thumbnail: made.item.fileURL, action: undo)
             } catch {
                 cutLog.error("Saving a screen sticker failed: \(error.localizedDescription, privacy: .public)")
@@ -546,6 +566,23 @@ private struct ScreenCutView: View {
                     .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Theme.glassEdge, lineWidth: 1))
                     .focused($nameFocused)
                     .accessibilityLabel("Sticker name")
+            }
+            if !cut.groups.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Group")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(Theme.mutedText)
+                    // The most recently used first; the rest are in the panel's ⌘K.
+                    HStack(spacing: 6) {
+                        ForEach(Array(cut.groups.prefix(3))) { group in
+                            let checked = cut.chosenGroups.contains(group.id)
+                            GroupChip(title: group.name, checked: checked) {
+                                cut.toggleGroup(group.id)
+                            }
+                            .accessibilityAddTraits(checked ? .isSelected : [])
+                        }
+                    }
+                }
             }
             Text("Goes to My Stickers and your clipboard. Find it by its name, or by making the same face.")
                 .font(.system(size: 11))

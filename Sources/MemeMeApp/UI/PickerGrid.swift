@@ -29,6 +29,11 @@ struct PickerGrid: View {
         // The tiles sit a gutter in from the scroll view's edges, which clip: the ring, its glow and the hover lift fit.
         let size = tileSize(width: width - 2 * gutter, columns: layout.columns)
         VStack(alignment: .leading, spacing: 0) {
+            if model.source == .myStickers {
+                // Your sticker groups: a chip shows one.
+                GroupFilterBar(model: model)
+                    .padding(.top, 2)
+            }
             header(layout)
             if layout.picks.isEmpty && !layout.isLoading {
                 emptyState(layout)

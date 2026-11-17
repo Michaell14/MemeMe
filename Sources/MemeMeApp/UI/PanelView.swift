@@ -618,6 +618,14 @@ private struct MenuPanel<Field: Hashable>: View {
                         .padding(.horizontal, 12)
                         .padding(.vertical, 4)
                 }
+                if let caption = row.caption {
+                    Text(verbatim: caption)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(Theme.mutedText)
+                        .padding(.horizontal, 14)
+                        .frame(height: 22, alignment: .leading)
+                        .accessibilityAddTraits(.isHeader)
+                }
                 rowView(row, index: index, selected: index == model.menuSelection)
             }
             if rows.isEmpty {
@@ -875,52 +883,106 @@ private struct ClipButton: View {
     }
 }
 
-/// Over the islands after Clip me: the sticker, saved to My Stickers and copied, with Rename and Undo.
+/// Over the islands after Clip me: the sticker, saved to My Stickers and copied, with Rename and Undo; under them your
+/// groups as chips (most recently used first) and "New group": a click puts the sticker in one, or takes it out.
 private struct ClipNoticeView: View {
     @ObservedObject var model: AppModel
     let notice: ClipNotice
 
+    /// The groups the notice offers at most; the rest are in ⌘K.
+    private let chipLimit = 4
+
     var body: some View {
-        HStack(spacing: 10) {
-            AsyncThumbnail(url: notice.thumbnail)
-                .frame(width: 28, height: 28)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(verbatim: notice.isNew ? "Saved “\(notice.name)” to My Stickers" : "Already one of your stickers")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(Theme.text)
-                    .lineLimit(1)
-                Text(verbatim: notice.copied ? "and copied: ⌘V in the chat to send it" : "Copy it with ↩")
-                    .font(.system(size: 11))
+        let inGroups = model.groups(containing: notice.itemID)
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                AsyncThumbnail(url: notice.thumbnail)
+                    .frame(width: 28, height: 28)
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: 5) {
+                        if !inGroups.isEmpty {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundColor(Theme.accent)
+                        }
+                        Text(verbatim: headline(inGroups))
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(Theme.text)
+                            .lineLimit(1)
+                    }
+                    Text(verbatim: notice.copied ? "and copied: ⌘V in the chat to send it" : "Copy it with ↩")
+                        .font(.system(size: 11))
+                        .foregroundColor(Theme.softTitle)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 8)
+                noticeButton("Rename") { model.renameClippedSticker() }
+                if notice.isNew {
+                    noticeButton("Undo") { model.undoClippedSticker() }
+                }
+                Button {
+                    model.dismissClipNotice()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(Theme.softTitle)
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(IslandButtonStyle())
+                .accessibilityLabel("Dismiss")
+            }
+            .padding(.leading, 8)
+            .padding(.trailing, 6)
+            .frame(height: 44)
+            Rectangle().fill(Theme.hairline).frame(height: 1).padding(.horizontal, 8)
+            HStack(spacing: 6) {
+                Text(verbatim: inGroups.isEmpty ? "Add to a group" : "In groups")
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundColor(Theme.softTitle)
-                    .lineLimit(1)
+                    .fixedSize()
+                    .padding(.trailing, 2)
+                ForEach(Array(model.groupsByRecentUse.prefix(chipLimit))) { group in
+                    let checked = group.contains(notice.itemID)
+                    GroupChip(title: group.name, checked: checked) {
+                        model.toggleClippedSticker(in: group.id)
+                    }
+                    .help(checked ? "Take it out of \(group.name)" : "Put it in \(group.name)")
+                    .accessibilityAddTraits(checked ? .isSelected : [])
+                }
+                GroupChip(title: "New group", dashed: true, symbol: "plus") {
+                    model.addClippedStickerToNewGroup()
+                }
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 8)
-            noticeButton("Rename") { model.renameClippedSticker() }
-            if notice.isNew {
-                noticeButton("Undo") { model.undoClippedSticker() }
-            }
-            Button {
-                model.dismissClipNotice()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(Theme.softTitle)
-                    .frame(width: 22, height: 22)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(IslandButtonStyle())
-            .accessibilityLabel("Dismiss")
+            .padding(.horizontal, 8)
+            .frame(height: 42)
         }
-        .padding(.leading, 8)
-        .padding(.trailing, 6)
-        .frame(height: 44)
-        .frame(maxWidth: 460)
+        .frame(maxWidth: 520)
         .island()
         .padding(.horizontal, Theme.gridPadding)
         .task(id: notice) { @MainActor in
-            // Goes on its own after a while.
+            // Goes on its own 8 s after it showed or its groups last changed.
             try? await Task.sleep(nanoseconds: 8_000_000_000)
             if !Task.isCancelled, model.clipNotice == notice { model.dismissClipNotice() }
+        }
+    }
+
+    /// "Saved “You — shocked” to Reactions" once it is in a group; "to My Stickers" before.
+    private func headline(_ inGroups: [StickerGroup]) -> String {
+        guard notice.isNew else {
+            return inGroups.isEmpty ? "Already one of your stickers" : "In \(names(inGroups))"
+        }
+        return "Saved “\(notice.name)” to " + (inGroups.isEmpty ? "My Stickers" : names(inGroups))
+    }
+
+    /// "Reactions", "Reactions and Work", "Reactions, Work +1".
+    private func names(_ groups: [StickerGroup]) -> String {
+        switch groups.count {
+        case 0: return ""
+        case 1: return groups[0].name
+        case 2: return "\(groups[0].name) and \(groups[1].name)"
+        default: return "\(groups[0].name), \(groups[1].name) +\(groups.count - 2)"
         }
     }
 }

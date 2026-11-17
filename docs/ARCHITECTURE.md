@@ -748,7 +748,30 @@ public struct RecentStore: Codable, Equatable, Sendable {
     public func recent(appBundleID: String?) -> [UUID]
     public func isSaved(_ id: UUID) -> Bool
     @discardableResult public mutating func toggleSaved(_ id: UUID) -> Bool   // to the front, or out; whether it is saved now
-    public mutating func remove(_ ids: Set<UUID>)  // from every list, saved too
+    public internal(set) var groups: [StickerGroup]  // your sticker groups, in the order made; "groups" in recents.json, lenient
+    public mutating func remove(_ ids: Set<UUID>)  // from every list, saved and groups too
+}
+```
+
+### StickerGroup.swift
+
+```swift
+/// A bucket of stickers you named; a sticker can be in several, or none (Ungrouped).
+public struct StickerGroup: Codable, Equatable, Identifiable, Sendable {
+    public let id: UUID
+    public var name: String          // trimmed, ≤ 40 characters (`cleanName`)
+    public var members: [UUID]       // newest first
+    public var usedAt: Date          // last put a sticker in (or made): the Clip me notice's order
+}
+public enum StickerGroupFilter { case all, group(UUID), ungrouped }   // My Stickers' chips
+extension RecentStore {
+    func group(id:), group(named:)                  // by name: case- and diacritic-insensitive
+    func groups(containing:), groupsByRecentUse, isUngrouped(_:), passes(_:filter:)
+    mutating func createGroup(named:at:) -> UUID?   // a name a group has reuses it; nil when empty
+    mutating func renameGroup(_:to:) -> Bool        // false: empty, or another group's name
+    mutating func deleteGroup(_:)                   // its stickers stay
+    mutating func restoreGroup(_:at:keeping:)       // Undo
+    mutating func setMember(_:in:_:at:), toggleMember(_:in:at:) -> Bool
 }
 /// The Frequent row: your things sent ≥ minimumSends (2) times, most sent first (ties: latest sent, then name), not
 /// GIPHY's, not skipped, without `excluded`.
