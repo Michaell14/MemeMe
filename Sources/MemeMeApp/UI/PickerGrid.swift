@@ -103,7 +103,9 @@ struct PickerGrid: View {
         let rowCount = layout.isLoading ? filledRows + 1 : filledRows
         return ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: Theme.gridRowSpacing) {
+                // Lazy: only the rows in view (two and a peek) are built and load their pictures; the rest as they
+                // scroll in. Rows keep their ids, so scrolling to the focused row still works.
+                LazyVStack(alignment: .leading, spacing: Theme.gridRowSpacing) {
                     ForEach(0..<rowCount, id: \.self) { row in
                         HStack(alignment: .top, spacing: Theme.gridSpacing) {
                             ForEach(0..<columns, id: \.self) { column in
@@ -138,8 +140,15 @@ struct PickerGrid: View {
     @ViewBuilder
     private func cell(_ slot: Int, layout: PickerLayout, size: CGFloat) -> some View {
         if let pick = layout.pick(at: slot) {
-            PickerTile(pick: pick, size: size, isFocused: model.focusedIndex == slot,
-                       marksType: model.source == .all || model.source == .favorites, model: model)
+            // The tile gets plain values, not the model to observe, so a keystroke or a camera frame redraws only
+            // the tiles whose values changed. A hidden panel has no focused tile, so no GIF plays behind it.
+            let isNew: Bool = {
+                if case let .meme(item) = pick { return item.id == model.newStickerID }
+                return false
+            }()
+            PickerTile(pick: pick, size: size, isFocused: model.isPanelVisible && model.focusedIndex == slot,
+                       marksType: model.source == .all || model.source == .favorites,
+                       isNew: isNew, canSave: model.canSave(pick), isSaved: model.isSaved(pick), model: model)
                 .onHover { inside in
                     if inside {
                         model.hover(index: slot)
@@ -261,18 +270,28 @@ struct PickerTile: View {
     let isFocused: Bool
     /// Kinds mix (All Sources, Favorites): GIFs of yours carry a "GIF" tag.
     let marksType: Bool
-    @ObservedObject var model: AppModel
+    /// Clip me's sticker, just made: "NEW".
+    let isNew: Bool
+    /// One of yours, so it can be starred; and whether it is.
+    let canSave: Bool
+    let isSaved: Bool
+    /// For starring and the shared GIPHY and template stores. Not observed: the grid passes the values above.
+    let model: AppModel
 
     @State private var isHovered = false
 
     private let cornerRadius: CGFloat = Theme.tileRadius
 
-    init(pick: Pick, size: CGFloat, isFocused: Bool, marksType: Bool, model: AppModel) {
+    init(pick: Pick, size: CGFloat, isFocused: Bool, marksType: Bool,
+         isNew: Bool, canSave: Bool, isSaved: Bool, model: AppModel) {
         self.pick = pick
         self.size = size
         self.isFocused = isFocused
         self.marksType = marksType
-        _model = ObservedObject(wrappedValue: model)
+        self.isNew = isNew
+        self.canSave = canSave
+        self.isSaved = isSaved
+        self.model = model
     }
 
     var body: some View {
@@ -320,21 +339,27 @@ struct PickerTile: View {
     @ViewBuilder
     private var content: some View {
         switch pick {
+        // Each picture gets its own identity, so a slot whose result changed starts empty instead of showing the
+        // previous result's picture until the new one decodes.
         case let .meme(item):
             OwnTileContent(item: item, isFocused: isFocused, size: size)
+                .id(item.fileURL)
         case let .gif(gif):
             GiphyTileContent(gif: gif, isFocused: isFocused, web: model.web, size: size, isSticker: false)
+                .id(gif.stillURL)
         case let .giphySticker(gif):
             GiphyTileContent(gif: gif, isFocused: isFocused, web: model.webStickers, size: size, isSticker: true)
+                .id(gif.stillURL)
         case let .template(template):
-            TemplateTileContent(template: template, model: model, size: size)
+            TemplateTileContent(template: template, templates: model.templates, size: size)
+                .id(template.url)
         }
     }
 
     /// Clip me's sticker, just made: "NEW" in the signal color.
     @ViewBuilder
     private var newTag: some View {
-        if case let .meme(item) = pick, item.id == model.newStickerID {
+        if isNew {
             Text("NEW")
                 .font(.system(size: 10, weight: .bold))
                 .tracking(0.4)
@@ -368,8 +393,8 @@ struct PickerTile: View {
     /// Pointing at one of yours: ☆ (★ once starred). Otherwise a starred one shows its star.
     @ViewBuilder
     private var saveControl: some View {
-        if model.canSave(pick) {
-            let saved = model.isSaved(pick)
+        if canSave {
+            let saved = isSaved
             if isHovered {
                 Button {
                     model.toggleSaved(pick)
@@ -427,7 +452,7 @@ struct PickerTile: View {
             case .web: source = item.attribution ?? "via GIPHY"
             }
             let format = item.isAnimated ? ", GIF" : ""
-            let saved = model.isSaved(pick) ? ", favorite" : ""
+            let saved = isSaved ? ", favorite" : ""
             return "\(item.displayName), \(source)\(format)\(saved). \(action)"
         case let .gif(gif):
             let creator = gif.creator.map { " by \($0)" } ?? ""
@@ -482,7 +507,7 @@ private struct OwnTileContent: View {
     let size: CGFloat
 
     @State private var thumbnail: NSImage? = nil
-    @State private var animatedURL: URL? = nil
+    @State private var animation: NSImage? = nil
 
     var body: some View {
         let still = thumbnail ?? ThumbnailCache.shared.cached(item.fileURL)
@@ -500,9 +525,9 @@ private struct OwnTileContent: View {
                         .aspectRatio(contentMode: .fill)
                 }
             }
-            if isFocused, let animatedURL {
+            if isFocused, let animation {
                 // Display-only, so the tile keeps its tap and drag gestures.
-                AnimatedImageView(url: animatedURL)
+                AnimatedImageView(image: animation)
                     .allowsHitTesting(false)
             }
         }
@@ -529,16 +554,20 @@ private struct OwnTileContent: View {
         }
     }
 
-    /// Only the focused tile animates; a short delay skips tiles the pointer merely passes over.
+    /// Only the focused tile animates; a short delay skips tiles the pointer merely passes over. The file (up to
+    /// 25 MB) is read off the main thread, so arrowing through big GIFs doesn't stall typing.
     @MainActor
     private func loadAnimation() async {
         guard isFocused, item.isAnimated else {
-            animatedURL = nil
+            animation = nil
             return
         }
         try? await Task.sleep(nanoseconds: 120_000_000)
         guard !Task.isCancelled else { return }
-        animatedURL = item.fileURL
+        let url = item.fileURL
+        let data = await Task.detached(priority: .userInitiated) { try? Data(contentsOf: url) }.value
+        guard !Task.isCancelled, let data, let image = NSImage(data: data) else { return }
+        animation = image
     }
 }
 
@@ -605,13 +634,13 @@ private struct GiphyTileContent: View {
 /// A classic meme, whole (letterboxed on the tile), so a four-panel meme still reads as one.
 private struct TemplateTileContent: View {
     let template: MemeTemplate
-    @ObservedObject var model: AppModel
+    let templates: MemeTemplates
     let size: CGFloat
 
     @State private var image: NSImage? = nil
 
     var body: some View {
-        let shown = image ?? model.templates.cachedImage(for: template)
+        let shown = image ?? templates.cachedImage(for: template)
         ZStack {
             if let shown {
                 Image(nsImage: shown)
@@ -622,8 +651,8 @@ private struct TemplateTileContent: View {
         }
         .frame(width: size, height: size)
         .task(id: template.url) { @MainActor in
-            if model.templates.cachedImage(for: template) == nil {
-                let loaded = await model.templates.image(for: template)
+            if templates.cachedImage(for: template) == nil {
+                let loaded = await templates.image(for: template)
                 if !Task.isCancelled {
                     image = loaded
                 }

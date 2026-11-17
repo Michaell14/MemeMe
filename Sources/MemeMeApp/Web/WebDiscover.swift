@@ -160,7 +160,7 @@ enum WebQuery: Hashable, Sendable {
         apiSession = URLSession(configuration: api)
 
         let media = (base.copy() as? URLSessionConfiguration) ?? .default
-        media.urlCache = URLCache(memoryCapacity: 16 * 1024 * 1024, diskCapacity: 64 * 1024 * 1024, directory: paths.httpCache)
+        media.urlCache = URLCache(memoryCapacity: 4 * 1024 * 1024, diskCapacity: 64 * 1024 * 1024, directory: paths.httpCache)
         media.requestCachePolicy = .useProtocolCachePolicy
         media.timeoutIntervalForRequest = 15
         media.timeoutIntervalForResource = 60

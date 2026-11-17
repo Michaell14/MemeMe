@@ -98,6 +98,8 @@ struct MemeTemplate: Codable, Hashable, Sendable {
         config.httpMaximumConnectionsPerHost = 6
         session = URLSession(configuration: config)
         images.countLimit = 120
+        // Bytes too: 120 tiles at 320 px would be about 50 MB decoded.
+        images.totalCostLimit = 24 * 1024 * 1024
     }
 
     var isEnabled: Bool {
@@ -177,7 +179,8 @@ struct MemeTemplate: Codable, Hashable, Sendable {
         }
         guard let decoded else { return nil }
         let image = NSImage(cgImage: decoded.image, size: NSSize(width: decoded.image.width, height: decoded.image.height))
-        images.setObject(image, forKey: url.absoluteString as NSString)
+        images.setObject(image, forKey: url.absoluteString as NSString,
+                         cost: decoded.image.bytesPerRow * decoded.image.height)
         return image
     }
 

@@ -854,9 +854,15 @@ struct IndexBatch: Identifiable, Equatable {
         hasUnnotifiedChanges = true
     }
 
+    /// The periodic save while indexing: encoded and written off the main thread, so a big library doesn't stall
+    /// typing every few seconds. Saves that must be on disk at once (a hand-in, a removal) use `saveNow()`.
     private func saveIfDue() {
         guard hasUnsavedChanges, Date().timeIntervalSince(lastSave) >= LibraryIndexer.saveInterval else { return }
-        saveNow()
+        lastSave = Date()
+        hasUnsavedChanges = false
+        store.saveInBackground { error in
+            indexLog.error("Saving library failed: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     private func saveNow() {
@@ -1009,10 +1015,15 @@ private enum IndexWork {
 
     /// Hashes, classifies and (unless skipped) fully analyzes one file. Synchronous and heavy.
     static func analyze(_ file: FileCandidate, source: String, knownHashes: Set<String>) -> FileOutcome {
-        guard let loaded = ImageAnalyzer.load(url: file.url) else { return .unreadable(file) }
-        let hash = ImageAnalyzer.sha256Hex(loaded.data)
+        // Hash the bytes first: a duplicate ("img (1).png", a file seen again) is dropped before any decode, which is
+        // the expensive part (up to three 2048 px frames).
+        guard let data = ImageAnalyzer.readData(url: file.url) else { return .unreadable(file) }
+        let hash = ImageAnalyzer.sha256Hex(data)
         if knownHashes.contains(hash) {
             return .duplicate(file, hash)
+        }
+        guard let loaded = ImageAnalyzer.load(data: data, fileName: file.url.lastPathComponent) else {
+            return .unreadable(file)
         }
 
         // Tiny images and camera photos are skipped whatever Vision would find: skip the expensive part.

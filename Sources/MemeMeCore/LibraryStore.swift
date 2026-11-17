@@ -1,19 +1,35 @@
 import Foundation
 
 /// The on-disk index: library.json, people.json, recents.json and settings.json under `rootURL`.
-/// Not thread-safe: used from the main actor only.
+/// Not thread-safe: used from the main actor only. Each file is written only when it changed, so a send or a
+/// setting doesn't re-encode the whole library; `saveInBackground()` encodes and writes off the caller's thread.
 public final class LibraryStore {
     public let rootURL: URL
     public private(set) var items: [LibraryItem] = []
     public private(set) var people: [Person] = []
-    public private(set) var isDirty: Bool = false
+    /// Whether anything changed since the last save.
+    public var isDirty: Bool { !changes.isEmpty }
+
+    /// Which files changed since the last save.
+    private struct Changes: OptionSet {
+        let rawValue: UInt8
+        static let library = Changes(rawValue: 1 << 0)
+        static let people = Changes(rawValue: 1 << 1)
+        static let recents = Changes(rawValue: 1 << 2)
+        static let settings = Changes(rawValue: 1 << 3)
+    }
+
+    private var changes: Changes = []
+    /// Files a background write failed to write and no later write has covered yet. Read and written only on
+    /// `writes`, so `save()` sees a failure even when its report hasn't reached the main queue yet (quit).
+    private var unwrittenChanges: Changes = []
 
     /// Setting marks the store dirty.
     public var recents: RecentStore {
         get { storedRecents }
         set {
             storedRecents = newValue
-            isDirty = true
+            changes.insert(.recents)
         }
     }
 
@@ -22,7 +38,7 @@ public final class LibraryStore {
         get { storedSettings }
         set {
             storedSettings = newValue
-            isDirty = true
+            changes.insert(.settings)
         }
     }
 
@@ -54,20 +70,20 @@ public final class LibraryStore {
         case .missing:
             break
         case .unreadable:
-            isDirty = true
+            changes.insert(.library)
         case .loaded(let entries):
             let decoded = entries.compactMap { $0.value }
             if decoded.count != entries.count {
                 // Some entries could not be read: keep a copy of the original next to the rewritten file.
                 backUp(fileName: LibraryStore.libraryFileName)
-                isDirty = true
+                changes.insert(.library)
             }
             var unique: [LibraryItem] = []
             var seenIDs = Set<UUID>()
             var seenHashes = Set<String>()
             for item in decoded {
                 if seenIDs.contains(item.id) || seenHashes.contains(item.contentHash) {
-                    isDirty = true
+                    changes.insert(.library)
                     continue
                 }
                 seenIDs.insert(item.id)
@@ -81,12 +97,12 @@ public final class LibraryStore {
         case .missing:
             break
         case .unreadable:
-            isDirty = true
+            changes.insert(.people)
         case .loaded(let entries):
             let decoded = entries.compactMap { $0.value }
             if decoded.count != entries.count {
                 backUp(fileName: LibraryStore.peopleFileName)
-                isDirty = true
+                changes.insert(.people)
             }
             var unique: [Person] = []
             var seenIDs = Set<UUID>()
@@ -101,7 +117,7 @@ public final class LibraryStore {
         case .missing:
             break
         case .unreadable:
-            isDirty = true
+            changes.insert(.recents)
         case .loaded(let value):
             storedRecents = value
         }
@@ -110,7 +126,7 @@ public final class LibraryStore {
         case .missing:
             break
         case .unreadable:
-            isDirty = true
+            changes.insert(.settings)
         case .loaded(let value):
             storedSettings = value
         }
@@ -162,7 +178,7 @@ public final class LibraryStore {
         guard idByHash[item.contentHash] == nil, indexByID[item.id] == nil else { return false }
         items.append(item)
         register(item, at: items.count - 1)
-        isDirty = true
+        changes.insert(.library)
         return true
     }
 
@@ -174,7 +190,7 @@ public final class LibraryStore {
         if previous.contentHash != item.contentHash || previous.fileURL != item.fileURL {
             rebuildIndexes()
         }
-        isDirty = true
+        changes.insert(.library)
     }
 
     /// Deletes files only when they are inside rootURL; also removes the ids from recents.
@@ -197,13 +213,13 @@ public final class LibraryStore {
         if removedAny {
             items = remaining
             rebuildIndexes()
-            isDirty = true
+            changes.insert(.library)
         }
         var updatedRecents = storedRecents
         updatedRecents.remove(ids)
         if updatedRecents != storedRecents {
             storedRecents = updatedRecents
-            isDirty = true
+            changes.insert(.recents)
         }
     }
 
@@ -260,27 +276,94 @@ public final class LibraryStore {
         } else {
             people.append(person)
         }
-        isDirty = true
+        changes.insert(.people)
     }
 
     /// Removes the person and clears personID on its items.
     public func removePerson(id: UUID) {
         people.removeAll { $0.id == id }
+        changes.insert(.people)
         for index in items.indices where items[index].personID == id {
             items[index].personID = nil
+            changes.insert(.library)
         }
-        isDirty = true
     }
 
-    /// Atomic JSON writes (sorted keys, ISO-8601 dates); clears isDirty.
+    /// Atomic JSON writes (sorted keys, ISO-8601 dates) of the files that changed; clears isDirty. Waits for
+    /// earlier background saves first, so the files are always written in order, and writes again (with their
+    /// current values) any files one of them failed to write, so nothing is lost on quit. On failure it throws and
+    /// the unwritten files stay marked as changed.
     public func save() throws {
-        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true, attributes: nil)
-        let encoder = LibraryStore.makeEncoder()
-        try write(encoder.encode(items), fileName: LibraryStore.libraryFileName)
-        try write(encoder.encode(people), fileName: LibraryStore.peopleFileName)
-        try write(encoder.encode(storedRecents), fileName: LibraryStore.recentsFileName)
-        try write(encoder.encode(storedSettings), fileName: LibraryStore.settingsFileName)
-        isDirty = false
+        changes.formUnion(LibraryStore.writes.sync { unwrittenChanges })
+        let snapshot = takeSnapshot()
+        do {
+            try LibraryStore.writes.sync {
+                try snapshot.write()
+                unwrittenChanges.subtract(snapshot.changes)
+            }
+        } catch {
+            changes.formUnion(snapshot.changes)
+            throw error
+        }
+    }
+
+    /// Like `save()`, but the encoding (several MB for a big library) and the writes happen on a background queue,
+    /// so the caller's thread doesn't stall. The values are copied now; later changes go into a later save. If the
+    /// write fails, the files are marked as changed again on the main queue and `onFailure` gets the error there.
+    public func saveInBackground(onFailure: @escaping (Error) -> Void = { _ in }) {
+        let snapshot = takeSnapshot()
+        guard !snapshot.changes.isEmpty else { return }
+        LibraryStore.writes.async { [weak self] in
+            do {
+                try snapshot.write()
+                self?.unwrittenChanges.subtract(snapshot.changes)
+            } catch {
+                // Kept on this queue for a save() already waiting here, and marked again on the main queue for
+                // the next save.
+                self?.unwrittenChanges.formUnion(snapshot.changes)
+                DispatchQueue.main.async {
+                    self?.changes.formUnion(snapshot.changes)
+                    onFailure(error)
+                }
+            }
+        }
+    }
+
+    // MARK: Saving
+
+    /// One serial queue for every store's writes, so they land in the order they were asked for.
+    private static let writes = DispatchQueue(label: "app.mememe.library-store.writes", qos: .utility)
+
+    /// The changed values, copied (cheaply: they are value types) so they can be encoded on another thread.
+    private struct Snapshot {
+        let rootURL: URL
+        let changes: Changes
+        let items: [LibraryItem]
+        let people: [Person]
+        let recents: RecentStore
+        let settings: AppSettings
+
+        func write() throws {
+            guard !changes.isEmpty else { return }
+            try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true, attributes: nil)
+            let encoder = LibraryStore.makeEncoder()
+            if changes.contains(.library) { try write(encoder.encode(items), fileName: LibraryStore.libraryFileName) }
+            if changes.contains(.people) { try write(encoder.encode(people), fileName: LibraryStore.peopleFileName) }
+            if changes.contains(.recents) { try write(encoder.encode(recents), fileName: LibraryStore.recentsFileName) }
+            if changes.contains(.settings) { try write(encoder.encode(settings), fileName: LibraryStore.settingsFileName) }
+        }
+
+        private func write(_ data: Data, fileName: String) throws {
+            try data.write(to: rootURL.appendingPathComponent(fileName, isDirectory: false), options: .atomic)
+        }
+    }
+
+    /// Copies what changed and clears the change marks.
+    private func takeSnapshot() -> Snapshot {
+        let snapshot = Snapshot(rootURL: rootURL, changes: changes, items: items, people: people,
+                                recents: storedRecents, settings: storedSettings)
+        changes = []
+        return snapshot
     }
 
     // MARK: Private
@@ -306,10 +389,6 @@ public final class LibraryStore {
             moveAside(fileName: fileName)
             return .unreadable
         }
-    }
-
-    private func write(_ data: Data, fileName: String) throws {
-        try data.write(to: fileURL(named: fileName), options: .atomic)
     }
 
     /// Renames `fileName` to `fileName.bak` (replacing an older backup).

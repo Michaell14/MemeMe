@@ -337,6 +337,54 @@ final class LibraryStoreTests: XCTestCase {
         XCTAssertTrue(store.isDirty)
     }
 
+    func testSaveWritesOnlyTheFilesThatChanged() throws {
+        let store = try LibraryStore(rootURL: root)
+        store.add(makeItem(name: "a"))
+        try store.save()
+        XCTAssertTrue(fileExists("library.json"))
+        try FileManager.default.removeItem(at: root.appendingPathComponent("library.json"))
+
+        // A settings change rewrites settings.json alone, not the (big) library.
+        store.settings.libraryOfferDismissals += 1
+        try store.save()
+        XCTAssertTrue(fileExists("settings.json"))
+        XCTAssertFalse(fileExists("library.json"))
+    }
+
+    func testABackgroundSaveIsOnDiskOnceTheNextSaveReturns() throws {
+        let store = try LibraryStore(rootURL: root)
+        let item = makeItem(name: "a")
+        store.add(item)
+        store.saveInBackground()
+        XCTAssertFalse(store.isDirty)
+        // Quit's save waits for the background write, even with nothing new to write.
+        try store.save()
+        XCTAssertEqual(try LibraryStore(rootURL: root).items, [item])
+    }
+
+    func testAFailedBackgroundWriteIsNotMissedByTheNextSave() throws {
+        let store = try LibraryStore(rootURL: root)
+        let item = makeItem(name: "a")
+        store.add(item)
+        try store.save()
+        let next = makeItem(name: "b")
+        store.add(next)
+
+        // The folder can't be written: the background write fails. Quit's save() runs before the failure's report
+        // reaches the main queue, so it must find the failure itself and fail too, not report success.
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: root.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: root.path) }
+        store.saveInBackground()
+        XCTAssertThrowsError(try store.save())
+        XCTAssertTrue(store.isDirty)
+
+        // Writable again: the next save writes what the failed one couldn't.
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: root.path)
+        try store.save()
+        XCTAssertFalse(store.isDirty)
+        XCTAssertEqual(try LibraryStore(rootURL: root).items, [item, next])
+    }
+
     func testDirectoriesAreCreatedOnAccess() throws {
         let store = try LibraryStore(rootURL: root)
         let kept = store.keptDirectory

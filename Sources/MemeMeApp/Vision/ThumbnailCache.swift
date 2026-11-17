@@ -27,6 +27,8 @@ final class ThumbnailCache {
 
     private init() {
         cache.countLimit = 300
+        // A 320 px tile is about 400 KB decoded; bound the bytes too, so a long scroll can't hold 100+ MB.
+        cache.totalCostLimit = 48 * 1024 * 1024
     }
 
     /// Only entries decoded at `minPixel` or larger, so a 96 px HUD/avatar decode never stands in for a grid tile.
@@ -36,7 +38,7 @@ final class ThumbnailCache {
         return entry.image
     }
 
-    /// CGImageSourceCreateThumbnailAtIndex off the main actor; NSCache (≈300 entries).
+    /// CGImageSourceCreateThumbnailAtIndex off the main actor; NSCache (≤ 300 entries, ≤ 48 MB decoded).
     func thumbnail(for url: URL, maxPixel: Int = 256) async -> NSImage? {
         let urlKey = url.absoluteString
         let cacheKey = urlKey as NSString
@@ -68,7 +70,8 @@ final class ThumbnailCache {
             cgImage: decoded.image,
             size: NSSize(width: decoded.image.width, height: decoded.image.height)
         )
-        cache.setObject(Entry(image: image, maxPixel: pixelSize), forKey: cacheKey)
+        cache.setObject(Entry(image: image, maxPixel: pixelSize), forKey: cacheKey,
+                        cost: decoded.image.bytesPerRow * decoded.image.height)
         return image
     }
 
