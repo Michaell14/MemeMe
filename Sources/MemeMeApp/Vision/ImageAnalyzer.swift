@@ -80,6 +80,13 @@ enum ImageAnalyzer {
 
     /// ImageIO; nil if not an image or > 25 MB. Frames are decoded to at most `maxPixelSize` on the longest side.
     static func load(url: URL, maxPixelSize: Int = maximumAnalysisPixelSize) -> LoadedImage? {
+        guard let data = readData(url: url) else { return nil }
+        return decode(data: data, fileName: url.lastPathComponent, maxPixelSize: maxPixelSize)
+    }
+
+    /// The file's bytes, read without decoding anything: nil for a folder, a remote URL, an empty file or one over
+    /// 25 MB. With `load(data:fileName:)`, lets the indexer hash a file and drop a duplicate before decoding it.
+    static func readData(url: URL) -> Data? {
         guard url.isFileURL else { return nil }
         if let values = try? url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]) {
             if values.isRegularFile == false { return nil }
@@ -88,7 +95,12 @@ enum ImageAnalyzer {
         guard let data = try? Data(contentsOf: url), !data.isEmpty, data.count <= maximumFileSize else {
             return nil
         }
-        return decode(data: data, fileName: url.lastPathComponent, maxPixelSize: maxPixelSize)
+        return data
+    }
+
+    /// Decodes bytes from `readData(url:)`, as `load(url:)` would.
+    static func load(data: Data, fileName: String, maxPixelSize: Int = maximumAnalysisPixelSize) -> LoadedImage? {
+        decode(data: data, fileName: fileName, maxPixelSize: maxPixelSize)
     }
 
     private static func decode(data: Data, fileName: String, maxPixelSize: Int) -> LoadedImage? {

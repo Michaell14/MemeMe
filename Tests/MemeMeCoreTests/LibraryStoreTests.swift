@@ -337,6 +337,31 @@ final class LibraryStoreTests: XCTestCase {
         XCTAssertTrue(store.isDirty)
     }
 
+    func testSaveWritesOnlyTheFilesThatChanged() throws {
+        let store = try LibraryStore(rootURL: root)
+        store.add(makeItem(name: "a"))
+        try store.save()
+        XCTAssertTrue(fileExists("library.json"))
+        try FileManager.default.removeItem(at: root.appendingPathComponent("library.json"))
+
+        // A settings change rewrites settings.json alone, not the (big) library.
+        store.settings.libraryOfferDismissals += 1
+        try store.save()
+        XCTAssertTrue(fileExists("settings.json"))
+        XCTAssertFalse(fileExists("library.json"))
+    }
+
+    func testABackgroundSaveIsOnDiskOnceTheNextSaveReturns() throws {
+        let store = try LibraryStore(rootURL: root)
+        let item = makeItem(name: "a")
+        store.add(item)
+        store.saveInBackground()
+        XCTAssertFalse(store.isDirty)
+        // Quit's save waits for the background write, even with nothing new to write.
+        try store.save()
+        XCTAssertEqual(try LibraryStore(rootURL: root).items, [item])
+    }
+
     func testDirectoriesAreCreatedOnAccess() throws {
         let store = try LibraryStore(rootURL: root)
         let kept = store.keptDirectory

@@ -855,7 +855,7 @@ public final class LibraryStore {
     public private(set) var people: [Person]
     public var recents: RecentStore { get set }      // setting marks dirty
     public var settings: AppSettings { get set }     // setting marks dirty
-    public private(set) var isDirty: Bool
+    public var isDirty: Bool                                           // a file changed since the last save (tracked per file)
     public init(rootURL: URL) throws    // creates the directory; loads library.json, people.json, recents.json, settings.json if present; an unreadable file is renamed to *.bak and replaced by empty state
     public static func defaultRootURL() -> URL       // ~/Library/Application Support/MemeMe
     public var keptDirectory: URL { get }             // rootURL/Kept, created on access
@@ -873,7 +873,10 @@ public final class LibraryStore {
     public func upsert(_ person: Person)
     public func removePerson(id: UUID)                                 // clears personID on its items
     public func stickerCount(personID: UUID) -> Int
-    public func save() throws                                          // atomic JSON writes (sorted keys, ISO-8601 dates); clears isDirty
+    public func save() throws                                          // atomic JSON writes (sorted keys, ISO-8601 dates) of the changed files only,
+                                                                       // after any background save; clears isDirty
+    public func saveInBackground(onFailure:)                           // the same, encoded and written on a serial background queue
+                                                                       // (saveSoon, the indexer's 5 s saves); a failure re-marks the files
 }
 ```
 Not thread-safe: used from the main actor only.
@@ -976,7 +979,7 @@ Requests per frame: `VNDetectFaceLandmarksRequest` (the largest face's features,
 @MainActor final class ThumbnailCache {
     static let shared: ThumbnailCache
     func cached(_ url: URL, minPixel: Int = 256) -> NSImage?   // nil unless an entry decoded at >= minPixel exists
-    /// CGImageSourceCreateThumbnailAtIndex off the main actor; NSCache (≈300 entries).
+    /// CGImageSourceCreateThumbnailAtIndex off the main actor; NSCache (≤ 300 entries, ≤ 48 MB decoded).
     func thumbnail(for url: URL, maxPixel: Int = 256) async -> NSImage?
 }
 ```
@@ -1016,8 +1019,8 @@ Apple's on-device language model (FoundationModels, macOS 26 SDK), text only: th
     let session: AVCaptureSession
     var onSample: ((ExpressionSample) -> Void)?   // delivered on the main actor, ≤ 10 per second
     private(set) var bodyWidth: Double?           // the last body's BodyJoints.widthInImage, set before each onSample; nil without one or in the capture view
-    var isInUseByAnotherApplication: Bool { get } // the device start() would use
-    var hasUsableCamera: Bool { get }             // false when no connected, unsuspended camera exists
+    var usableDevice: AVCaptureDevice? { get }    // the device start() would use; nil when no connected, unsuspended
+                                                  // camera exists. One discovery per read: enterCameraMode reads it once
     func refreshAuthorization()
     func requestAccess() async -> Bool
     func start()   // no-op unless authorized; lazily configures (front/default camera, .vga640x480 or .medium preset, BGRA output, alwaysDiscardsLateVideoFrames); startRunning on a private serial queue
@@ -1215,7 +1218,7 @@ enum WebQuery: Hashable, Sendable {
     func pruneCache()                                // copy files older than 1 h, and earlier versions' <mood>.json files
 }
 ```
-Compliance with GIPHY's integration rules: results are shown in GIPHY's order, unfiltered, never mixed with the user's memes, never written to disk. Results, running searches and failures are kept per `WebQuery`. A search: the GIPHY search for `query.searchTerms` (a mood's one short phrase, the typed words, or a described pose's words) with `limit=24` (`WebFetcher.resultLimit`: four rows' worth, so the same mood caught again shows other GIFs without another search; GIPHY counts searches, not results) and `offset=0` (tried once more after a dropped connection, timeout or 5xx, if the hourly limit allows; the retry counts) on an API session without caching; results kept in memory for `resultLifetime`. Media (stills, previews, full GIFs) come from a second session with a `URLCache` (16 MB memory, 64 MB disk in Web/HTTP, `.useProtocolCachePolicy`) and `httpMaximumConnectionsPerHost` 8; decoded stills stay in an `NSCache` (200). Full GIFs are written to Web/files only to be copied or dragged, and deleted after an hour. 429 pauses all searches for 10 min; 401/403 makes that key wait 10 min (`status` says which). API key: `store.settings.giphyAPIKey` (non-empty) ?? `Bundle.main.object(forInfoDictionaryKey: "GiphyAPIKey") as? String` (non-empty and not starting with "$("). Rate guard: at most 90 network searches per rolling hour (timestamps persisted in Web/rate.json).
+Compliance with GIPHY's integration rules: results are shown in GIPHY's order, unfiltered, never mixed with the user's memes, never written to disk. Results, running searches and failures are kept per `WebQuery`. A search: the GIPHY search for `query.searchTerms` (a mood's one short phrase, the typed words, or a described pose's words) with `limit=24` (`WebFetcher.resultLimit`: four rows' worth, so the same mood caught again shows other GIFs without another search; GIPHY counts searches, not results) and `offset=0` (tried once more after a dropped connection, timeout or 5xx, if the hourly limit allows; the retry counts) on an API session without caching; results kept in memory for `resultLifetime`. Media (stills, previews, full GIFs) come from a second session with a `URLCache` (4 MB memory, 64 MB disk in Web/HTTP, `.useProtocolCachePolicy`) and `httpMaximumConnectionsPerHost` 8; decoded stills stay in an `NSCache` (200). Full GIFs are written to Web/files only to be copied or dragged, and deleted after an hour. 429 pauses all searches for 10 min; 401/403 makes that key wait 10 min (`status` says which). API key: `store.settings.giphyAPIKey` (non-empty) ?? `Bundle.main.object(forInfoDictionaryKey: "GiphyAPIKey") as? String` (non-empty and not starting with "$("). Rate guard: at most 90 network searches per rolling hour (timestamps persisted in Web/rate.json).
 
 `WebGIF` (GIFProvider.swift) also carries `creator: String?` from the result's `user` (display name, else username).
 

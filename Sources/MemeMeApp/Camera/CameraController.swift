@@ -67,13 +67,10 @@ final class CameraController: NSObject, ObservableObject {
         }
     }
 
-    /// The preferred usable camera's isInUseByAnotherApplication.
-    var isInUseByAnotherApplication: Bool {
-        CameraController.preferredDevice()?.isInUseByAnotherApplication ?? false
-    }
-
-    /// False when no connected, unsuspended camera exists (Mac mini/Studio without a webcam, or a closed lid without another camera).
-    var hasUsableCamera: Bool { CameraController.preferredDevice() != nil }
+    /// The camera MemeMe would use (built-in first), or nil when no connected, unsuspended camera exists (Mac
+    /// mini/Studio without a webcam, or a closed lid without another camera). Each read runs a device discovery,
+    /// which takes a few ms (the first in a process more), so read it once and keep the device.
+    var usableDevice: AVCaptureDevice? { CameraController.preferredDevice() }
 
     func refreshAuthorization() {
         let status = AVCaptureDevice.authorizationStatus(for: .video)

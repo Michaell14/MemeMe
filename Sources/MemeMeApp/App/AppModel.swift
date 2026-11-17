@@ -551,17 +551,21 @@ private struct DescribedPhrase {
             self?.libraryDidChange()
         }
         indexerObservation = indexer.objectWillChange.sink { [weak self] _ in
-            // objectWillChange fires before the new value is stored: read it on the next main-actor turn.
+            // objectWillChange fires before the new value is stored: read it on the next main-actor turn. Only
+            // the open panel shows the footer (opening it refreshes the footer), so a first scan's thousands of
+            // progress ticks don't redraw a hidden panel.
             let model = self
             Task { @MainActor in
-                model?.refreshFooter()
+                guard let model, model.isPanelVisible else { return }
+                model.refreshFooter()
             }
         }
         updatesObservation = updates.objectWillChange.sink { [weak self] _ in
             // Same as the indexer: the new update or phase is readable on the next main-actor turn.
             let model = self
             Task { @MainActor in
-                model?.refreshFooter()
+                guard let model, model.isPanelVisible else { return }
+                model.refreshFooter()
             }
         }
         // Every Update (footer, menu item, "is available" alert) closes the panel first.
@@ -1570,22 +1574,26 @@ private struct DescribedPhrase {
 
     // MARK: - App-shell helpers (used by the status item and the app delegate)
 
-    /// Persists the store about 2 s after the last change.
+    /// Persists the store about 2 s after the last change, encoding and writing it off the main thread.
     func saveSoon() {
         saveTask?.cancel()
         saveTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: AppModel.saveDelayNanoseconds)
-            guard !Task.isCancelled else { return }
-            self?.saveNow()
+            guard !Task.isCancelled, let self else { return }
+            self.saveTask = nil
+            self.persistBaseline()
+            self.store.saveInBackground { error in
+                modelLog.error("Saving the library failed: \(error.localizedDescription, privacy: .public)")
+            }
         }
     }
 
-    /// Persists the resting face and the store right away (quit).
+    /// Persists the resting face and the store right away (quit). Also waits for any save still being written in
+    /// the background, so nothing is lost when the app exits.
     func saveNow() {
         saveTask?.cancel()
         saveTask = nil
         persistBaseline()
-        guard store.isDirty else { return }
         do {
             try store.save()
         } catch {
@@ -1820,13 +1828,15 @@ private struct DescribedPhrase {
             setLive()
             return
         }
-        if !useCameraDespiteOtherApp && camera.isInUseByAnotherApplication {
+        // One device lookup for both questions: it runs on the main thread as ⌘F is pressed.
+        let device = camera.usableDevice
+        if !useCameraDespiteOtherApp && (device?.isInUseByAnotherApplication ?? false) {
             mode = .cameraBusy
             return
         }
         switch camera.authorization {
         case .authorized:
-            if camera.hasUsableCamera {
+            if device != nil {
                 camera.start()
                 mode = .warming
             } else {
@@ -3032,8 +3042,8 @@ private struct DescribedPhrase {
     // MARK: - Library state
 
     private func libraryDidChange() {
-        refreshFooter()
         guard isPanelVisible else { return }
+        refreshFooter()
         let showsRemovedItem = results.contains { store.item(id: $0.item.id) == nil }
         if resultSource == .recent {
             // Fill the recent grid as memes arrive (amber ring, focus kept), but never reshuffle tiles
