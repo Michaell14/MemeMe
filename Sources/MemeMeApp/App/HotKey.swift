@@ -8,7 +8,7 @@ private let hotKeyLog = Logger(subsystem: "com.mememe.app", category: "hotkey")
 private let hotKeySignature: OSType = 0x4D4D_484B
 
 /// kEventHotKeyExclusive: registration fails when another process already holds the combination,
-/// so "⌃⌘M is taken by another app" can be reported instead of silently sharing it.
+/// so "⌥M is taken by another app" can be reported instead of silently sharing it.
 private let exclusiveHotKeyOption: OptionBits = 1
 
 /// Converts a byte count to whatever integer type the Carbon signature expects.
@@ -55,7 +55,7 @@ private func hotKeyEventHandler(_ callRef: EventHandlerCallRef?, _ event: EventR
     private static var nextIdentifier: UInt32 = 1
     private static var eventHandler: EventHandlerRef?
 
-    /// `keyCode` is a virtual key code (kVK_*), `modifiers` Carbon modifier flags (cmdKey, controlKey, …).
+    /// `keyCode` is a virtual key code (kVK_*), `modifiers` Carbon modifier flags (optionKey, cmdKey, …).
     init(keyCode: UInt32, modifiers: UInt32, action: @escaping @MainActor () -> Void) {
         self.keyCode = keyCode
         self.modifiers = modifiers

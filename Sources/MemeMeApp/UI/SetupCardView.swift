@@ -89,7 +89,7 @@ struct SetupCardView: View {
         }
     }
 
-    /// "Next time, in any chat: ⌃ ⌘ M", or the warning when the hot key couldn't be registered.
+    /// "Next time, in any chat: ⌥ M", or the warning when the hot key couldn't be registered.
     @ViewBuilder
     private var shortcutLine: some View {
         if model.hotKeyAvailable {
@@ -101,7 +101,7 @@ struct SetupCardView: View {
                 KeycapRow(fontSize: 12, filled: true)
             }
         } else {
-            Text("⌃⌘M is taken by another app.")
+            Text("⌥M is taken by another app.")
                 .font(.system(size: 13))
                 .foregroundColor(Theme.warning)
                 .lineLimit(1)

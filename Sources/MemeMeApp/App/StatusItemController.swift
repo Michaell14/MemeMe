@@ -25,8 +25,8 @@ import SwiftUI
     private static let popoverIdleTimeout: TimeInterval = 8
     private static let popoverPollNanoseconds: UInt64 = 250_000_000
     private static let pauseInterval: TimeInterval = 3600
-    private static let defaultToolTip = "MemeMe (⌃⌘M). Drop images here to keep them."
-    private static let updateToolTip = "MemeMe (⌃⌘M). An update is ready."
+    private static let defaultToolTip = "MemeMe (⌥M). Drop images here to keep them."
+    private static let updateToolTip = "MemeMe (⌥M). An update is ready."
 
     init(model: AppModel, popoverModel: StickerPopoverModel, openPanel: @escaping @MainActor () -> Void) {
         self.model = model

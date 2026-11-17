@@ -13,7 +13,7 @@ enum ScreenCutStatus: Equatable {
     case failed(String)
 }
 
-/// The screen cut (⌃⌘S, or ✂ in the panel): the screen freezes under a dim layer, the subject under the pointer lights
+/// The screen cut (⌥S, or ✂ in the panel): the screen freezes under a dim layer, the subject under the pointer lights
 /// up, and a click takes it (⇧-click adds another, ⌥-click takes one away); a box dragged around something lifts what is
 /// inside it. A card beside it names the sticker and saves it to My Stickers, or copies it.
 @MainActor final class ScreenCutModel: ObservableObject {
@@ -215,7 +215,7 @@ private final class ScreenCutPanel: NSPanel {
         guard panel == nil, !isStarting else { return }
         guard CGPreflightScreenCaptureAccess() else {
             _ = CGRequestScreenCaptureAccess()
-            HUDController.shared.show("Allow MemeMe to record the screen in System Settings › Privacy & Security, then press ⌃⌘S again.")
+            HUDController.shared.show("Allow MemeMe to record the screen in System Settings › Privacy & Security, then press ⌥S again.")
             return
         }
         isStarting = true
