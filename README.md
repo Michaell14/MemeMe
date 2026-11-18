@@ -45,6 +45,7 @@ open build/MemeMe.app
 `scripts/build-app.sh` builds a release binary (universal when possible; builds with an update feed must be universal and fail otherwise), assembles `build/MemeMe.app` with `Resources/Info.plist`, writes the version, the update feed and the GIPHY key into the bundle and signs it, ad hoc unless told otherwise. `scripts/build-dmg.sh` packs the app and an Applications link into `build/MemeMe.dmg`. Opening it shows the usual install window: MemeMe on the left, an arrow, Applications on the right. [dmgbuild](https://github.com/dmgbuild/dmgbuild) writes that layout; the script installs it, pinned by hash (`scripts/dmgbuild-requirements.txt`), into `build/.dmgbuild-venv`. It needs Python 3.10 or later (`python3`, or set `PYTHON`); without one the DMG is built without the layout. The window is `scripts/dmg-settings.py` and its background is `Resources/DMG/background.html`; after changing the HTML, render the PNGs again with `node scripts/render-dmg-background.cjs` (needs Playwright) and commit them. Ad-hoc builds use the version that says how to get past Gatekeeper. The build script reads these environment variables, all optional:
 
 - `GIPHY_API_KEY`: without it the app is built with an empty key.
+- `KLIPY_API_KEY`: the same for KLIPY (see [KLIPY API key](#klipy-api-key)).
 - `APP_VERSION`: the marketing version, `CFBundleShortVersionString`. Defaults to the `VERSION` file.
 - `APP_BUILD`: the build number, `CFBundleVersion`. Defaults to the commit count (`git rev-list --count HEAD`).
 - `UPDATE_FEED_URL`: the `latest.json` the app checks for updates. Empty by default, so local builds never check. CI sets `https://github.com/Michaell14/MemeMe/releases/latest/download/latest.json`.
@@ -69,6 +70,7 @@ Every change to the app on the default branch is released automatically. When `S
   - `NOTARY_KEY_ID`: that key's ID.
   - `NOTARY_ISSUER_ID`: the issuer ID shown with the team keys (App Store Connect → Users and Access → Integrations).
   - `GIPHY_API_KEY`: the GIPHY key built into releases (see [GIPHY API key](#giphy-api-key)).
+  - `KLIPY_API_KEY` (optional): the KLIPY key built into builds (see [KLIPY API key](#klipy-api-key)). Without it the KLIPY sources stay off until a key is set from the menu.
 - **Certificate expiry.** The certificate expires on 2027-02-01. Releases signed before then stay valid (the signatures are timestamped), but CI can't sign new ones. Before then, create a new Developer ID Application certificate for the same team, export it with its private key as a .p12 and replace `DEVELOPER_ID_P12` and `DEVELOPER_ID_P12_PASSWORD`. Same team, so the updater and macOS permissions accept the new builds.
 
 ## Website
@@ -115,6 +117,7 @@ Every change to the app on the default branch is released automatically. When `S
 - **No Accessibility access, ever.** MemeMe only writes to the clipboard. You paste.
 - **Network.** Only with Web Discover on:
   - **GIPHY** (with a key set): the one mood word for your face (for example "shocked reaction" or "tongue out") goes to GIPHY, sometimes a moment before you finish making the face. For a pose with no word of its own, 1–3 words naming it go instead (for example "flexing" or "rock on"), made on your Mac by MemeMe's own rules or by Apple's on-device model; the description of your arms, hands and face that the model reads never leaves your Mac, and neither does any frame. When the panel opens, before a face or words, MemeMe asks GIPHY for what's trending, which sends nothing about you. What you type in the search field goes too, once you pause typing, without filter words (`mine`, `gif`, `sticker`) or the names of your people. GIPHY's results show together, in GIPHY's order, and are kept in memory for 10 minutes. Their images load from GIPHY with ordinary web caching; a GIF you copy or drag is downloaded to a temporary file that is deleted within the hour. Nothing from GIPHY goes into your library.
+  - **KLIPY** (with a key set): while the **KLIPY GIFs** or **KLIPY Stickers** source shows, the same words GIPHY gets (the mood word, a pose's 1–3 words, or your typed words) go to KLIPY, or a request for what's trending. Each request also carries a random ID KLIPY asks for, made new each time MemeMe starts, so it names no one and doesn't link one launch to the next. Results are handled like GIPHY's: in KLIPY's order, in memory for 10 minutes, copies deleted within the hour, never in your library.
   - **Imgflip** (no key): once a day MemeMe fetches Imgflip's public list of popular meme templates (the request carries nothing about you) and keeps it in `~/Library/Caches/MemeMe/Templates`. Which templates fit your face, your pose or your words is worked out on your Mac, so none of them is sent to Imgflip; the images of the templates picked then load from Imgflip (with ordinary web caching), so Imgflip sees which ones were shown; one you copy or drag goes to a temporary file deleted within the hour.
 - **Update checks.** Release builds fetch `latest.json` from GitHub Releases every 6 hours. The request carries nothing about you or your library. The new DMG is downloaded only after you click **Update**.
 - **Friend stickers.** Grouping stickers by person is opt-in. Face matching compares a sticker's face only with stickers you made, and the data never leaves your Mac.
@@ -136,6 +139,15 @@ GIPHY's attribution is built in: "Powered by" with GIPHY's logo shows under the 
 MemeMe follows GIPHY's integration rules: results in their own row, in GIPHY's order, unfiltered, never mixed with your memes and never stored.
 
 Turn Web Discover off from the menu to keep MemeMe offline, apart from the update check.
+
+## KLIPY API key
+
+KLIPY's GIFs and stickers show in their own sources, **KLIPY GIFs** and **KLIPY Stickers** (source menu, or Tab), next to GIPHY's. They follow the same face, pose or typed words as GIPHY's GIFs (KLIPY's trending before either), credited "Powered by KLIPY". They need their own key; the GIPHY key isn't needed for them.
+
+1. Create an app in KLIPY's Partner Panel ([klipy.com](https://klipy.com)) and copy its API key. Test keys are rate-limited; MemeMe stays under 90 KLIPY searches per rolling hour on each Mac.
+2. Provide it like GIPHY's: `KLIPY_API_KEY=your-key ./scripts/build-app.sh` (Info.plist `KlipyAPIKey`), a repository secret named `KLIPY_API_KEY` for CI, or menu-bar icon → **Set KLIPY API Key…** at run time.
+
+The credit shows "KLIPY" as a word; add KLIPY's logo as `Resources/KLIPY/KLIPYLogo.png` and `scripts/build-app.sh` copies it in and shows it instead.
 
 ## Project layout
 

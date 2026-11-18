@@ -322,6 +322,15 @@ import SwiftUI
         webDiscover.state = settings.webDiscoverEnabled ? .on : .off
         menu.addItem(webDiscover)
         menu.addItem(makeItem("Set GIPHY API Key…", action: #selector(setGiphyAPIKey(_:))))
+        var klipyTitle = "Set KLIPY API Key…"
+        if model.klipy.hasAPIKey, settings.webDiscoverEnabled {
+            switch model.klipy.status {
+            case .keyRejected: klipyTitle = "Set KLIPY API Key… (Not Accepted)"
+            case .limitReached: klipyTitle = "Set KLIPY API Key… (Hourly Limit Reached)"
+            case .off, .noKey, .ready: break
+            }
+        }
+        menu.addItem(makeItem(klipyTitle, action: #selector(setKlipyAPIKey(_:))))
 
         menu.addItem(.separator())
         let photosMenu = NSMenu(title: "Photos with People")
@@ -441,28 +450,42 @@ import SwiftUI
     }
 
     @objc private func setGiphyAPIKey(_ sender: Any?) {
+        guard let key = askForAPIKey(service: "GIPHY", site: "developers.giphy.com",
+                                     current: model.store.settings.giphyAPIKey) else { return }
+        var settings = model.store.settings
+        settings.giphyAPIKey = key.isEmpty ? nil : key
+        model.store.settings = settings
+        model.saveSoon()
+    }
+
+    @objc private func setKlipyAPIKey(_ sender: Any?) {
+        guard let key = askForAPIKey(service: "KLIPY", site: "KLIPY’s Partner Panel",
+                                     current: model.store.settings.klipyAPIKey) else { return }
+        var settings = model.store.settings
+        settings.klipyAPIKey = key.isEmpty ? nil : key
+        model.store.settings = settings
+        model.saveSoon()
+    }
+
+    /// Asks for `service`'s key; nil when cancelled, empty to go back to the key this build came with.
+    private func askForAPIKey(service: String, site: String, current: String?) -> String? {
         let alert = NSAlert()
-        alert.messageText = "GIPHY API Key"
-        alert.informativeText = "Paste a key from developers.giphy.com to find reaction GIFs on the web. Only the mood word for your face, a few words naming your pose (made on your Mac), or the words you type in the search field (without filter words or your people’s names), is sent. Leave it empty to use the key this build came with, if any."
+        alert.messageText = "\(service) API Key"
+        alert.informativeText = "Paste a key from \(site) to find reaction GIFs on the web. Only the mood word for your face, a few words naming your pose (made on your Mac), or the words you type in the search field (without filter words or your people’s names), is sent. Leave it empty to use the key this build came with, if any."
         alert.addButton(withTitle: "Save")
         alert.addButton(withTitle: "Cancel")
 
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
         field.placeholderString = "API key"
-        field.stringValue = model.store.settings.giphyAPIKey ?? ""
+        field.stringValue = current ?? ""
         field.usesSingleLineMode = true
         field.lineBreakMode = .byTruncatingTail
         alert.accessoryView = field
         alert.window.initialFirstResponder = field
 
         NSApplication.shared.activate()
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-
-        let key = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        var settings = model.store.settings
-        settings.giphyAPIKey = key.isEmpty ? nil : key
-        model.store.settings = settings
-        model.saveSoon()
+        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+        return field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     @objc private func setStickerPolicy(_ sender: NSMenuItem) {

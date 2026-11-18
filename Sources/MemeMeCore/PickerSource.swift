@@ -2,9 +2,9 @@ import Foundation
 
 /// Where the panel's results come from: the source menu beside the search field. All Sources mixes everything and
 /// is what the panel opens on; the others show one place each: your favorites, what MemeMe found on this Mac, your
-/// stickers, GIPHY's GIFs or stickers, or the classic memes.
+/// stickers, GIPHY's or KLIPY's GIFs or stickers, or the classic memes.
 public enum PickerSource: String, CaseIterable, Sendable {
-    case all, favorites, onMyMac, myStickers, giphyGIFs, giphyStickers, classicMemes
+    case all, favorites, onMyMac, myStickers, giphyGIFs, giphyStickers, klipyGIFs, klipyStickers, classicMemes
 
     public var title: String {
         switch self {
@@ -14,17 +14,20 @@ public enum PickerSource: String, CaseIterable, Sendable {
         case .myStickers: return "My Stickers"
         case .giphyGIFs: return "GIPHY GIFs"
         case .giphyStickers: return "GIPHY Stickers"
+        case .klipyGIFs: return "KLIPY GIFs"
+        case .klipyStickers: return "KLIPY Stickers"
         case .classicMemes: return "Classic Memes"
         }
     }
 
-    /// The menu's groups, separated by a line: everything; yours; GIPHY's; the classic memes.
+    /// The menu's groups, separated by a line: everything; yours; GIPHY's; KLIPY's; the classic memes.
     public var group: Int {
         switch self {
         case .all: return 0
         case .favorites, .onMyMac, .myStickers: return 1
         case .giphyGIFs, .giphyStickers: return 2
-        case .classicMemes: return 3
+        case .klipyGIFs, .klipyStickers: return 3
+        case .classicMemes: return 4
         }
     }
 
@@ -43,7 +46,7 @@ public enum PickerSource: String, CaseIterable, Sendable {
         case .all, .favorites: return true
         case .onMyMac: return kind != .sticker
         case .myStickers: return kind == .sticker
-        case .giphyGIFs, .giphyStickers, .classicMemes: return false
+        case .giphyGIFs, .giphyStickers, .klipyGIFs, .klipyStickers, .classicMemes: return false
         }
     }
 
@@ -51,12 +54,22 @@ public enum PickerSource: String, CaseIterable, Sendable {
     public var showsOwn: Bool {
         switch self {
         case .all, .favorites, .onMyMac, .myStickers: return true
-        case .giphyGIFs, .giphyStickers, .classicMemes: return false
+        case .giphyGIFs, .giphyStickers, .klipyGIFs, .klipyStickers, .classicMemes: return false
         }
     }
 
     /// One of GIPHY's: its glyph is GIPHY's letter.
     public var isGiphy: Bool { self == .giphyGIFs || self == .giphyStickers }
+
+    /// One of KLIPY's: its glyph is KLIPY's letter.
+    public var isKlipy: Bool { self == .klipyGIFs || self == .klipyStickers }
+
+    /// The letter a web service's source shows instead of a symbol: "G" for GIPHY's, "K" for KLIPY's.
+    public var letter: String? {
+        if isGiphy { return "G" }
+        if isKlipy { return "K" }
+        return nil
+    }
 
     public var showsGiphyGIFs: Bool { self == .all || self == .giphyGIFs }
     public var showsGiphyStickers: Bool { self == .giphyStickers }

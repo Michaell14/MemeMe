@@ -24,6 +24,8 @@
 	<string>1</string>
 	<key>GiphyAPIKey</key>
 	<string>$(GIPHY_API_KEY)</string>
+	<key>KlipyAPIKey</key>
+	<string>$(KLIPY_API_KEY)</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.utilities</string>
 	<key>LSMinimumSystemVersion</key>

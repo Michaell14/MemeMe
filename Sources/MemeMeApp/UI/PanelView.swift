@@ -183,8 +183,8 @@ struct PanelView: View {
             model.toggleMenu(.sources)
         } label: {
             HStack(spacing: 7) {
-                SourceGlyph(symbol: model.source.isGiphy ? nil : AppModel.symbol(for: model.source),
-                            letter: model.source.isGiphy ? "G" : nil, size: 18)
+                SourceGlyph(symbol: model.source.letter == nil ? AppModel.symbol(for: model.source) : nil,
+                            letter: model.source.letter, size: 18)
                 Text(verbatim: model.source.title)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(Theme.text)
@@ -742,7 +742,7 @@ private struct MenuPanel<Field: Hashable>: View {
     }
 }
 
-/// A source's glyph: an SF Symbol on a small square, or a letter (GIPHY's).
+/// A source's glyph: an SF Symbol on a small square, or a letter (GIPHY's, KLIPY's).
 struct SourceGlyph: View {
     let symbol: String?
     let letter: String?

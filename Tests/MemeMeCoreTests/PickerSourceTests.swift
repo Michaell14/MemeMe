@@ -5,16 +5,19 @@ import XCTest
 final class PickerSourceTests: XCTestCase {
     func testSourcesCycleForwardAndBackWrappingAround() {
         XCTAssertEqual(PickerSource.allCases,
-                       [.all, .favorites, .onMyMac, .myStickers, .giphyGIFs, .giphyStickers, .classicMemes])
+                       [.all, .favorites, .onMyMac, .myStickers, .giphyGIFs, .giphyStickers, .klipyGIFs, .klipyStickers,
+                        .classicMemes])
         XCTAssertEqual(PickerSource.all.cycled(by: 1), .favorites)
         XCTAssertEqual(PickerSource.classicMemes.cycled(by: 1), .all)
         XCTAssertEqual(PickerSource.all.cycled(by: -1), .classicMemes)
-        XCTAssertEqual(PickerSource.onMyMac.cycled(by: -7), .onMyMac)
-        XCTAssertEqual(PickerSource.onMyMac.cycled(by: -8), .favorites)
+        XCTAssertEqual(PickerSource.onMyMac.cycled(by: -9), .onMyMac)
+        XCTAssertEqual(PickerSource.onMyMac.cycled(by: -10), .favorites)
         XCTAssertEqual(PickerSource.all.title, "All Sources")
         XCTAssertEqual(PickerSource.onMyMac.title, "On My Mac")
         XCTAssertEqual(PickerSource.giphyGIFs.title, "GIPHY GIFs")
-        XCTAssertEqual(PickerSource.allCases.map(\.group), [0, 1, 1, 1, 2, 2, 3])
+        XCTAssertEqual(PickerSource.klipyStickers.title, "KLIPY Stickers")
+        XCTAssertEqual(PickerSource.allCases.map(\.group), [0, 1, 1, 1, 2, 2, 3, 3, 4])
+        XCTAssertEqual(PickerSource.allCases.compactMap(\.letter), ["G", "G", "K", "K"])
     }
 
     func testEachSourceShowsItsOwnThings() {
@@ -22,6 +25,8 @@ final class PickerSourceTests: XCTestCase {
             XCTAssertTrue(PickerSource.all.shows(kind))
             XCTAssertTrue(PickerSource.favorites.shows(kind), "Favorites shows every kind you starred")
             XCTAssertFalse(PickerSource.giphyGIFs.shows(kind), "GIPHY's sources show only GIPHY's")
+            XCTAssertFalse(PickerSource.klipyGIFs.shows(kind), "KLIPY's sources show only KLIPY's")
+            XCTAssertFalse(PickerSource.klipyStickers.shows(kind))
             XCTAssertFalse(PickerSource.classicMemes.shows(kind))
         }
         XCTAssertTrue(PickerSource.onMyMac.shows(.meme))
