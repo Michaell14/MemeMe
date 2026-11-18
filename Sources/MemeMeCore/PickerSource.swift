@@ -110,3 +110,36 @@ public enum ForYouMix {
         return chosen.map { Pick.own($0) } + (0..<fill).map { Pick.template($0) }
     }
 }
+
+/// All Sources on open: your recent picks mixed with what's trending on GIPHY and Imgflip's most popular classic
+/// memes, so the home page is never only yours. The three take turns (yours, a GIF, a classic meme, yours…), each in
+/// its own order, your most recent first; when one runs out the others keep taking turns.
+public enum HomeMix {
+    public enum Pick: Equatable, Sendable {
+        /// An index into your recent things.
+        case own(Int)
+        /// An index into GIPHY's trending GIFs.
+        case gif(Int)
+        /// An index into the popular classic memes.
+        case template(Int)
+    }
+
+    public static func picks(own: Int, gifs: Int, templates: Int) -> [Pick] {
+        let counts = [max(0, own), max(0, gifs), max(0, templates)]
+        var next = [0, 0, 0]
+        var picks: [Pick] = []
+        picks.reserveCapacity(counts.reduce(0, +))
+        while next != counts {
+            for lane in 0..<3 where next[lane] < counts[lane] {
+                let index = next[lane]
+                next[lane] += 1
+                switch lane {
+                case 0: picks.append(.own(index))
+                case 1: picks.append(.gif(index))
+                default: picks.append(.template(index))
+                }
+            }
+        }
+        return picks
+    }
+}

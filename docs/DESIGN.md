@@ -30,11 +30,11 @@ The search-first redesign's canvas (opening on search, the source menu, the acti
 
 | Source | Shows |
 |---|---|
-| All Sources | On open: your recent picks (in this app first), then GIPHY's reactions and the most popular classic memes. For a search: a first row mixing your best matches with the classic memes (`ForYouMix`), then GIPHY's GIFs in GIPHY's order, then the rest of yours and of the classic memes. |
+| All Sources | On open: your recent picks (in this app first) taking turns with GIPHY's trending GIFs and the most popular classic memes (`HomeMix`: yours, a GIF, a classic meme, yours…). For a search: a first row mixing your best matches with the classic memes (`ForYouMix`), then GIPHY's GIFs in GIPHY's order, then the rest of yours and of the classic memes. |
 | Favorites | What you starred, newest first (for a search, the best matches among them). |
 | On My Mac | Your own images and GIFs that MemeMe found on this Mac (Downloads, Desktop, screenshots, what you kept), not stickers. |
 | My Stickers | Your stickers and your friends'. Chips over the grid pick a group (see Sticker groups). |
-| GIPHY GIFs | GIPHY's GIFs for the search (its reactions before one), all 24 of them, in GIPHY's order. GIPHY only: your own GIFs are On My Mac. |
+| GIPHY GIFs | GIPHY's GIFs for the search (its trending before one), all 24 of them, in GIPHY's order. GIPHY only: your own GIFs are On My Mac. |
 | GIPHY Stickers | GIPHY's stickers for the same words (`/v1/stickers/search`), shown whole. |
 | Classic Memes | The classic memes for the search (the most popular before one). |
 
@@ -65,7 +65,7 @@ The readout's word shows beside the notch (in the query field); under the mirror
 
 ### Recent
 
-On open, the grid shows **Recent in this app** (per frontmost app bundle id), newest first; tile 1 is the last item sent from this app, so ⌥M then ↵ repeats a reaction. If there is no history, your newest; GIPHY's "reaction" results and the most popular classic memes follow, so the first run is never empty. The × on the face token comes back here.
+On open, the grid shows **Recent in this app** (per frontmost app bundle id), newest first; tile 1 is the last item sent from this app, so ⌥M then ↵ repeats a reaction. If there is no history, your newest. In All Sources they take turns with GIPHY's trending GIFs and Imgflip's most popular classic memes, so home is a mix and the first run is never empty; the title reads "Recent in Messages & Trending" (just "Trending" with nothing of yours). The × on the face token comes back here.
 
 ### Favorites
 

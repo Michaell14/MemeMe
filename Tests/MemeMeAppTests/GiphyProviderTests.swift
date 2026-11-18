@@ -157,6 +157,25 @@ final class GiphyProviderTests: XCTestCase {
         XCTAssertEqual(try queryItems(of: requests.first)["rating"], "g")
     }
 
+    func testTrendingAsksGiphysTrendingWithoutAQuery() async throws {
+        GiphyStubURLProtocol.respond(status: 200, json: GiphyProviderTests.searchPayload)
+        let session = makeSession()
+        defer { session.invalidateAndCancel() }
+
+        let gifs = try await GiphyProvider(apiKey: "test-key", session: session).trending(limit: 24)
+        _ = try await GiphyProvider(apiKey: "test-key", kind: .stickers, session: session).trending(limit: 24)
+
+        XCTAssertFalse(gifs.isEmpty, "decoded like a search")
+        let requests = GiphyStubURLProtocol.recordedRequests()
+        XCTAssertEqual(requests.map { $0.url?.path }, ["/v1/gifs/trending", "/v1/stickers/trending"])
+        XCTAssertEqual(try queryItems(of: requests.first), [
+            "api_key": "test-key",
+            "limit": "24",
+            "offset": "0",
+            "rating": "pg-13",
+        ])
+    }
+
     func testBlankQueryMakesNoRequest() async throws {
         GiphyStubURLProtocol.respond(status: 200, json: GiphyProviderTests.searchPayload)
         let session = makeSession()

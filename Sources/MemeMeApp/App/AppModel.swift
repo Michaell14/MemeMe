@@ -750,7 +750,7 @@ private struct DescribedPhrase {
         userInteracted = false
         refreshCurrentResults()
         if newSource.showsGiphyGIFs, giphyQuery == nil {
-            showGiphy(for: .mood(.reaction))
+            showGiphy(for: .trending)
         }
         showGiphyStickers()
         normalizeFocus()
@@ -812,8 +812,8 @@ private struct DescribedPhrase {
             } else {
                 enterCameraMode()
                 // GIPHY and the classic memes go back to what the panel opened with.
-                showGiphy(for: .mood(.reaction))
-                showTemplates(for: .mood(.reaction))
+                showGiphy(for: .trending)
+                showTemplates(for: .trending)
                 showRecentResults()
             }
         }
@@ -1243,7 +1243,7 @@ private struct DescribedPhrase {
         clearReplacedWord()
         if holdProgress != 0 { holdProgress = 0 }
         clearGiphyRow()
-        showTemplates(for: .mood(.reaction))
+        showTemplates(for: .trending)
         showRecentResults()
         refreshHint()
     }
@@ -2267,10 +2267,9 @@ private struct DescribedPhrase {
 
     // MARK: - Searches
 
-    /// Recent in this app; else the newest own memes. With none at all (first run), the GIPHY row shows GIPHY's
-    /// "reaction" GIFs so the panel is never empty; the classic memes row shows the most popular templates until a
-    /// face or words pick others. Library changes refresh it with `animateNew` (amber ring on arrivals) and without
-    /// moving the focus.
+    /// The home page: recent in this app (else the newest own memes), mixed in All Sources with GIPHY's trending GIFs
+    /// and Imgflip's most popular templates (`HomeMix`) until a face or words pick others. Library changes refresh it
+    /// with `animateNew` (amber ring on arrivals) and without moving the focus.
     private func showRecentResults(animateNew: Bool = false, resetFocus: Bool = true) {
         resultSource = .recent
         if heldPose != nil { heldPose = nil }
@@ -2296,12 +2295,13 @@ private struct DescribedPhrase {
             limit: limit
         )
         setResults(ranked, animateNew: animateNew, resetFocus: resetFocus)
-        // GIPHY's "reaction" GIFs under your recent picks, until a face or words pick others.
+        // What's trending on GIPHY and the popular classic memes beside your recent picks, until a face or words pick
+        // others.
         if giphyQuery == nil {
-            showGiphy(for: .mood(.reaction))
+            showGiphy(for: .trending)
         }
         if templateQuery == nil {
-            showTemplates(for: .mood(.reaction))
+            showTemplates(for: .trending)
         }
     }
 
@@ -2619,11 +2619,11 @@ private struct DescribedPhrase {
 
     // MARK: - GIPHY's stickers
 
-    /// GIPHY's stickers for the words GIPHY's GIFs go by (its reactions before a face or words), while the GIPHY
+    /// GIPHY's stickers for the words GIPHY's GIFs go by (its trending before a face or words), while the GIPHY
     /// Stickers source shows. The same query already showing (or loading) is left alone.
     private func showGiphyStickers() {
         guard showsGiphyRow, source.showsGiphyStickers else { return }
-        let query = giphyQuery ?? .mood(.reaction)
+        let query = giphyQuery ?? .trending
         if query == stickerQuery && (isStickersLoading || !stickerResults.isEmpty) { return }
         stickerGeneration += 1
         let generation = stickerGeneration
@@ -2683,7 +2683,7 @@ private struct DescribedPhrase {
         let sameOrder: Bool
         switch query {
         case .described: sameOrder = fallback == templateFallback
-        case .mood, .words: sameOrder = true
+        case .trending, .mood, .words: sameOrder = true
         }
         if query == templateQuery && sameOrder && (isTemplatesLoading || !templateResults.isEmpty) {
             if turningPage, !isTemplatesLoading, !query.isTyped, let list = templates.cachedList {
@@ -2724,15 +2724,19 @@ private struct DescribedPhrase {
         }
     }
 
-    /// The classic memes for `query`: for a mood, its `page`th group of `templatePickSize` templates (page 0 the ones
-    /// made for it, then the most popular; later pages the next ones, wrapping around); for words, the best matches;
-    /// for a described pose, the templates its words name, then `fallback`'s (the face's mood: those made for it, then
-    /// the most popular), paged like a mood's, so the row is never empty.
+    /// The classic memes for `query`: for `.trending`, the most popular, paged like a mood's; for a mood, its `page`th
+    /// group of `templatePickSize` templates (page 0 the ones made for it, then the most popular; later pages the next
+    /// ones, wrapping around); for words, the best matches; for a described pose, the templates its words name, then
+    /// `fallback`'s (the face's mood: those made for it, then the most popular), paged like a mood's, so the row is
+    /// never empty.
     static func pickTemplates(for query: WebQuery, from list: [MemeTemplate], page: Int = 0,
                               fallback: Mood = .reaction) -> [MemeTemplate] {
         let refs = list.map(\.ref)
         let indexes: [Int]
         switch query {
+        case .trending:
+            // Imgflip's list is in order of popularity: `.reaction` picks it as it is.
+            indexes = MemeTemplateCatalog.pick(for: .reaction, from: refs, limit: templatePickSize, page: page)
         case let .mood(mood):
             indexes = MemeTemplateCatalog.pick(for: mood, from: refs, limit: templatePickSize, page: page)
         case let .words(text):
@@ -2764,13 +2768,13 @@ private struct DescribedPhrase {
         if templatesUnavailable { templatesUnavailable = false }
     }
 
-    /// Leaving typed words: the GIPHY row stops showing results for them, the classic memes go back to the popular
-    /// ones (a face, if one is held, picks others right after).
+    /// Leaving typed words: the GIPHY row stops showing results for them (back to trending with the recent picks), the
+    /// classic memes go back to the popular ones (a face, if one is held, picks others right after).
     private func dropTypedWebQueries() {
         giphyWordsTask?.cancel()
         giphyWordsTask = nil
         if case .words? = giphyQuery { clearGiphyRow() }
-        if case .words? = templateQuery { showTemplates(for: .mood(.reaction)) }
+        if case .words? = templateQuery { showTemplates(for: .trending) }
     }
 
     // MARK: - Tiles
@@ -2778,9 +2782,10 @@ private struct DescribedPhrase {
     /// How many of GIPHY's GIFs the grid shows: all of a search's (WebDiscover asks for 24).
     private var giphySlots: Int { 24 }
 
-    /// What the grid shows, in order. All Sources: on open, your recent picks, then GIPHY's reactions and the popular
-    /// classic memes; for a search, a first row mixing your best matches with the classic memes (`ForYouMix`), then
-    /// GIPHY's GIFs in GIPHY's order, then the rest of yours and of the classic memes. The other sources show their own.
+    /// What the grid shows, in order. All Sources: on open, your recent picks taking turns with GIPHY's trending GIFs
+    /// and the popular classic memes (`HomeMix`); for a search, a first row mixing your best matches with the classic
+    /// memes (`ForYouMix`), then GIPHY's GIFs in GIPHY's order, then the rest of yours and of the classic memes. The
+    /// other sources show their own.
     private func makeLayout() -> PickerLayout {
         let columns = gridColumns
         let ownPicks = results.map { Pick.meme($0.item) }
@@ -2792,7 +2797,14 @@ private struct DescribedPhrase {
         switch source {
         case .all:
             if resultSource == .recent {
-                picks = ownPicks + gifPicks + templatePicks
+                picks = HomeMix.picks(own: ownPicks.count, gifs: gifPicks.count, templates: templatePicks.count)
+                    .map { pick in
+                        switch pick {
+                        case let .own(index): return ownPicks[index]
+                        case let .gif(index): return gifPicks[index]
+                        case let .template(index): return templatePicks[index]
+                        }
+                    }
             } else {
                 let mix = ForYouMix.row(own: results.map { TileKind($0.item) }, templates: templatePicks.count,
                                         slots: columns)
@@ -2846,7 +2858,11 @@ private struct DescribedPhrase {
             } else if templatesUnavailable {
                 message = "Imgflip isn’t answering right now."
             } else {
-                message = templateQuery.map { "No classic memes for “\($0.label)”." } ?? "No classic memes."
+                if let query = templateQuery, query != .trending {
+                    message = "No classic memes for “\(query.label)”."
+                } else {
+                    message = "No classic memes."
+                }
             }
         }
         // Clip me's new sticker comes first, wherever the ranking put it.
@@ -2867,9 +2883,10 @@ private struct DescribedPhrase {
         case .recent:
             if source == .myStickers, let title = groupFilterTitle { return title }
             switch source {
-            case .all, .onMyMac, .myStickers: return recentTitle
+            case .all: return results.isEmpty ? "Trending" : recentTitle + " & Trending"
+            case .onMyMac, .myStickers: return recentTitle
             case .favorites: return "Favorites"
-            case .giphyGIFs, .giphyStickers: return "Reactions"
+            case .giphyGIFs, .giphyStickers: return "Trending"
             case .classicMemes: return "Popular"
             }
         case .expression:
@@ -2887,7 +2904,7 @@ private struct DescribedPhrase {
 
     /// What you sent last here ("Recent in Messages"), else "Recent", or your newest before you sent anything.
     private var recentTitle: String {
-        guard !results.isEmpty else { return source == .all ? "Popular" : "Recent" }
+        guard !results.isEmpty else { return "Recent" }
         let recent = store.recents.recent(appBundleID: previousBundleID)
         guard results.contains(where: { recent.contains($0.item.id) }) else { return "Your newest" }
         if let bundleID = previousBundleID, let name = previousAppName, !name.isEmpty,

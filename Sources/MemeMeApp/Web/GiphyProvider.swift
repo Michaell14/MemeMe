@@ -1,13 +1,15 @@
 import Foundation
 
 /// GIPHY search: `GET https://api.giphy.com/v1/gifs/search?api_key=&q=&limit=&offset=0&rating=&lang=en`, or
-/// `/v1/stickers/search` for GIPHY's stickers (animated, on transparent).
+/// `/v1/stickers/search` for GIPHY's stickers (animated, on transparent). `trending` asks `/v1/gifs/trending` (or
+/// `/v1/stickers/trending`) the same way, without a query: what's popular on GIPHY right now.
 struct GiphyProvider: GIFProvider {
     /// What is searched: GIPHY's GIFs or its stickers. Both come back in the same shape.
     enum Kind: String, Sendable {
         case gifs, stickers
 
         var path: String { "/v1/\(rawValue)/search" }
+        var trendingPath: String { "/v1/\(rawValue)/trending" }
     }
 
     private let apiKey: String
@@ -31,20 +33,29 @@ struct GiphyProvider: GIFProvider {
     func search(_ query: String, limit: Int) async throws -> [WebGIF] {
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedQuery.isEmpty else { return [] }
+        return try await fetch(path: kind.path, query: [URLQueryItem(name: "q", value: trimmedQuery)], limit: limit,
+                               language: true)
+    }
+
+    /// What's trending on GIPHY now (nothing about you is sent), decoded like a search.
+    func trending(limit: Int) async throws -> [WebGIF] {
+        try await fetch(path: kind.trendingPath, query: [], limit: limit, language: false)
+    }
+
+    private func fetch(path: String, query: [URLQueryItem], limit: Int, language: Bool) async throws -> [WebGIF] {
         let clampedLimit = min(GiphyProvider.maximumLimit, max(1, limit))
 
         var components = URLComponents()
         components.scheme = "https"
         components.host = "api.giphy.com"
-        components.path = kind.path
-        components.queryItems = [
-            URLQueryItem(name: "api_key", value: apiKey),
-            URLQueryItem(name: "q", value: trimmedQuery),
+        components.path = path
+        var items = [URLQueryItem(name: "api_key", value: apiKey)] + query + [
             URLQueryItem(name: "limit", value: String(clampedLimit)),
             URLQueryItem(name: "offset", value: "0"),
             URLQueryItem(name: "rating", value: rating),
-            URLQueryItem(name: "lang", value: "en"),
         ]
+        if language { items.append(URLQueryItem(name: "lang", value: "en")) }
+        components.queryItems = items
         guard let url = components.url else { throw GiphyError.invalidRequest }
 
         var request = URLRequest(url: url)

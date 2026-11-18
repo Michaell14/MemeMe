@@ -6,9 +6,12 @@ import os
 
 private let webLog = Logger(subsystem: "com.mememe.app", category: "web")
 
-/// What the GIPHY row asks GIPHY for: the mood of your face, the words you typed, or the few words naming a pose that
-/// has no word of its own.
+/// What the GIPHY row asks GIPHY for: what's trending (the panel on open), the mood of your face, the words you typed,
+/// or the few words naming a pose that has no word of its own.
 enum WebQuery: Hashable, Sendable {
+    /// GIPHY's trending GIFs (or stickers), and Imgflip's most popular templates: the home page, before a face or
+    /// words. Nothing is sent but the request for them.
+    case trending
     case mood(Mood)
     /// Lowercased, trimmed, single-spaced, at most `maximumLength` characters (`words(from:)`).
     case words(String)
@@ -48,6 +51,7 @@ enum WebQuery: Hashable, Sendable {
     /// What is sent to GIPHY.
     var searchTerms: String {
         switch self {
+        case .trending: return ""
         case let .mood(mood): return mood.searchQuery
         case let .words(text): return text
         case let .described(text): return text
@@ -57,6 +61,7 @@ enum WebQuery: Hashable, Sendable {
     /// The GIPHY row's label: the mood word, the typed words, or the words naming the pose.
     var label: String {
         switch self {
+        case .trending: return "trending"
         case let .mood(mood): return mood.label
         case let .words(text): return text
         case let .described(text): return text
@@ -67,13 +72,13 @@ enum WebQuery: Hashable, Sendable {
     var isTyped: Bool {
         switch self {
         case .words: return true
-        case .mood, .described: return false
+        case .trending, .mood, .described: return false
         }
     }
 }
 
 /// GIPHY's results for the mood of the user's face, the words typed in the search field, or the words naming a pose
-/// with no word of its own, for the GIPHY row.
+/// with no word of its own, for the GIPHY row; before any of them, GIPHY's trending GIFs (`WebQuery.trending`).
 ///
 /// Only the mood word, the typed words (without filter words or the names of your people), or the 1–3 words naming a
 /// pose (made on the Mac by rule or by the on-device model: `PoseDescription`, `PoseNamer`) leave the Mac; never the
@@ -366,10 +371,9 @@ enum WebQuery: Hashable, Sendable {
         let mayRetry: @Sendable () async -> Bool = { [weak self] in
             await self?.recordRetry() ?? false
         }
-        let terms = query.searchTerms
         let task = Task { [weak self] () async -> [WebGIF]? in
             let outcome = await Task.detached(priority: .userInitiated) {
-                await WebFetcher.search(terms, provider: provider, mayRetry: mayRetry)
+                await WebFetcher.search(query, provider: provider, mayRetry: mayRetry)
             }.value
             self?.finishFetch(query: query, outcome: outcome, key: key)
             return outcome.gifs
@@ -622,9 +626,9 @@ private enum WebFetcher {
     /// Files for copying and dragging are deleted after this.
     static let fileLifetime: TimeInterval = 3600
 
-    static func search(_ terms: String, provider: GiphyProvider, mayRetry: @Sendable () async -> Bool) async -> SearchOutcome {
+    static func search(_ query: WebQuery, provider: GiphyProvider, mayRetry: @Sendable () async -> Bool) async -> SearchOutcome {
         do {
-            let gifs = try await attempt(terms, provider: provider, mayRetry: mayRetry)
+            let gifs = try await attempt(query, provider: provider, mayRetry: mayRetry)
             return SearchOutcome(gifs: Array(gifs.prefix(resultLimit)), failure: nil)
         } catch {
             webLog.error("GIPHY search failed: \(error.localizedDescription, privacy: .public)")
@@ -634,14 +638,22 @@ private enum WebFetcher {
 
     /// The search, tried once more after a dropped connection, a timeout or a server error, if `mayRetry`
     /// (which counts the retry against the hourly limit) allows it.
-    static func attempt(_ terms: String, provider: GiphyProvider, mayRetry: @Sendable () async -> Bool) async throws -> [WebGIF] {
+    static func attempt(_ query: WebQuery, provider: GiphyProvider, mayRetry: @Sendable () async -> Bool) async throws -> [WebGIF] {
         do {
-            return try await provider.search(terms, limit: resultLimit)
+            return try await ask(query, provider: provider)
         } catch let error where isWorthRetrying(error) {
             try? await Task.sleep(nanoseconds: searchRetryDelayNanoseconds)
             guard await mayRetry() else { throw error }
-            return try await provider.search(terms, limit: resultLimit)
+            return try await ask(query, provider: provider)
         }
+    }
+
+    /// GIPHY's trending for `.trending`, else a search for the query's words.
+    static func ask(_ query: WebQuery, provider: GiphyProvider) async throws -> [WebGIF] {
+        if query == .trending {
+            return try await provider.trending(limit: resultLimit)
+        }
+        return try await provider.search(query.searchTerms, limit: resultLimit)
     }
 
     static func isWorthRetrying(_ error: Error) -> Bool {
