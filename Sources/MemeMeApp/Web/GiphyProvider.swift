@@ -5,12 +5,7 @@ import Foundation
 /// `/v1/stickers/trending`) the same way, without a query: what's popular on GIPHY right now.
 struct GiphyProvider: GIFProvider {
     /// What is searched: GIPHY's GIFs or its stickers. Both come back in the same shape.
-    enum Kind: String, Sendable {
-        case gifs, stickers
-
-        var path: String { "/v1/\(rawValue)/search" }
-        var trendingPath: String { "/v1/\(rawValue)/trending" }
-    }
+    typealias Kind = WebKind
 
     private let apiKey: String
     private let kind: Kind
@@ -27,7 +22,7 @@ struct GiphyProvider: GIFProvider {
         self.session = session
     }
 
-    var name: String { "GIPHY" }
+    var name: String { WebService.giphy.name }
 
     /// Decodes `data[]` leniently (numbers arrive as strings) and skips entries without the needed renditions.
     func search(_ query: String, limit: Int) async throws -> [WebGIF] {
@@ -152,18 +147,11 @@ struct GiphyProvider: GIFProvider {
     }
 }
 
-enum GiphyError: Error {
-    case invalidRequest
-    case invalidResponse
-    case httpStatus(Int)
+typealias GiphyError = WebAPIError
 
-    /// The HTTP status GIPHY answered with, nil for any other error.
-    static func status(of error: Error) -> Int? {
-        if case let .httpStatus(status)? = error as? GiphyError {
-            return status
-        }
-        return nil
-    }
+private extension WebKind {
+    var path: String { "/v1/\(rawValue)/search" }
+    var trendingPath: String { "/v1/\(rawValue)/trending" }
 }
 
 // MARK: - Lenient response model

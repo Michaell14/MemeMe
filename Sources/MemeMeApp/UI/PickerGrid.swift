@@ -106,6 +106,9 @@ struct PickerGrid: View {
             if layout.showsGiphy {
                 PoweredByGiphyMark()
             }
+            if layout.showsKlipy {
+                PoweredByKlipyMark()
+            }
         }
         .padding(.horizontal, gutter)
         .frame(height: headerHeight)
@@ -343,6 +346,33 @@ struct PoweredByGiphyMark: View {
     static let logo: NSImage? = Bundle.main.image(forResource: "GIPHYLogo")
 }
 
+/// KLIPY's attribution beside the grid's title while KLIPY's GIFs or stickers show, as its terms ask: "Powered by
+/// KLIPY", with KLIPY's logo from the app's resources (Resources/KLIPY/KLIPYLogo.png) when there is one.
+struct PoweredByKlipyMark: View {
+    var body: some View {
+        HStack(alignment: .center, spacing: 5) {
+            Text("Powered by")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(Theme.mutedText)
+            if let logo = PoweredByKlipyMark.logo {
+                Image(nsImage: logo)
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(height: 12)
+            } else {
+                Text(verbatim: "KLIPY")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(Theme.text)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Powered by KLIPY")
+    }
+
+    static let logo: NSImage? = Bundle.main.image(forResource: "KLIPYLogo")
+}
+
 // MARK: - Tiles
 
 /// One result: its picture in a square (a sticker whole, cut out; a classic meme whole, letterboxed), its name under
@@ -432,8 +462,9 @@ struct PickerTile: View {
         case let .gif(gif):
             GiphyTileContent(gif: gif, isFocused: isFocused, web: model.web, size: size, isSticker: false)
                 .id(gif.stillURL)
-        case let .giphySticker(gif):
-            GiphyTileContent(gif: gif, isFocused: isFocused, web: model.webStickers, size: size, isSticker: true)
+        case let .feed(gif, feed):
+            GiphyTileContent(gif: gif, isFocused: isFocused, web: model.discover(for: feed), size: size,
+                             isSticker: feed.isSticker)
                 .id(gif.stillURL)
         case let .template(template):
             TemplateTileContent(template: template, templates: model.templates, size: size)
@@ -542,23 +573,25 @@ struct PickerTile: View {
         case let .gif(gif):
             let creator = gif.creator.map { " by \($0)" } ?? ""
             return "\(gif.title), GIF\(creator) from GIPHY. \(action)"
-        case let .giphySticker(gif):
+        case let .feed(gif, feed):
             let creator = gif.creator.map { " by \($0)" } ?? ""
-            return "\(gif.title), sticker\(creator) from GIPHY. \(action)"
+            let noun = feed.isSticker ? "sticker" : "GIF"
+            return "\(gif.title), \(noun)\(creator) from \(feed.service.name). \(action)"
         case let .template(template):
             return "\(template.name), classic meme from Imgflip. \(action)"
         }
     }
 }
 
-/// Where a result is from, beside its name: GIPHY (a "G"), a classic meme, one of your stickers, or your Mac.
+/// Where a result is from, beside its name: GIPHY (a "G"), KLIPY (a "K"), a classic meme, one of your stickers, or
+/// your Mac.
 private struct SourceBadge: View {
     let pick: Pick
 
     var body: some View {
         Group {
-            if pick.isFromGiphy {
-                Text(verbatim: "G")
+            if let service = pick.webService {
+                Text(verbatim: service == .klipy ? "K" : "G")
                     .font(.system(size: 8, weight: .heavy))
                     .foregroundColor(Theme.text)
                     .frame(width: 14, height: 14)
@@ -579,7 +612,7 @@ private struct SourceBadge: View {
         switch pick {
         case let .meme(item): return item.isSticker ? "face.smiling" : "laptopcomputer"
         case .template: return "text.below.photo"
-        case .gif, .giphySticker: return "play.rectangle"
+        case .gif, .feed: return "play.rectangle"
         }
     }
 }

@@ -103,8 +103,10 @@ enum WebQuery: Hashable, Sendable {
     @Published private(set) var isFetching: Bool = false
 
     private let store: LibraryStore
-    /// GIPHY's GIFs, or its stickers (the GIPHY Stickers source): one WebDiscover each.
-    let kind: GiphyProvider.Kind
+    /// Whose results: GIPHY's or KLIPY's, each with its own key and hourly limit.
+    let service: WebService
+    /// The service's GIFs, or its stickers (the GIPHY Stickers source): one WebDiscover each.
+    let kind: WebKind
     private let paths: WebPaths
     /// GIPHY's API, never cached.
     private let apiSession: URLSession
@@ -149,12 +151,13 @@ enum WebQuery: Hashable, Sendable {
 
     /// `cacheRoot`: the cache folder (nil = ~/Library/Caches/MemeMe/Web); tests pass a temp folder.
     /// `configuration`: the network sessions' base configuration (nil = default); tests pass one that serves canned replies.
-    /// `kind`: GIPHY's GIFs (default) or its stickers.
+    /// `kind`: the service's GIFs (default) or its stickers. `service`: GIPHY (default) or KLIPY.
     init(store: LibraryStore, cacheRoot: URL?, configuration: URLSessionConfiguration? = nil,
-         kind: GiphyProvider.Kind = .gifs) {
+         kind: WebKind = .gifs, service: WebService = .giphy) {
         self.store = store
         self.kind = kind
-        paths = WebPaths.make(root: cacheRoot, folder: kind == .gifs ? "MemeMe/Web" : "MemeMe/WebStickers")
+        self.service = service
+        paths = WebPaths.make(root: cacheRoot, folder: WebDiscover.cacheFolder(service: service, kind: kind))
         let base = configuration ?? .default
 
         let api = (base.copy() as? URLSessionConfiguration) ?? .default
@@ -176,6 +179,16 @@ enum WebQuery: Hashable, Sendable {
         stills.countLimit = 200
         searchTimes = WebFetcher.loadSearchTimes(from: paths.rateURL)
         pruneSearchTimes()
+    }
+
+    /// Under Caches: GIPHY's as before (MemeMe/Web, MemeMe/WebStickers), KLIPY's beside them.
+    nonisolated static func cacheFolder(service: WebService, kind: WebKind) -> String {
+        switch (service, kind) {
+        case (.giphy, .gifs): return "MemeMe/Web"
+        case (.giphy, .stickers): return "MemeMe/WebStickers"
+        case (.klipy, .gifs): return "MemeMe/Klipy"
+        case (.klipy, .stickers): return "MemeMe/KlipyStickers"
+        }
     }
 
     /// A key was set from the menu or baked into this build.
@@ -330,11 +343,22 @@ enum WebQuery: Hashable, Sendable {
 
     // MARK: - Searching
 
+    /// The key set from the menu, else the one baked into this build (Info.plist GiphyAPIKey or KlipyAPIKey).
     private var apiKey: String? {
-        if let custom = store.settings.giphyAPIKey?.trimmingCharacters(in: .whitespacesAndNewlines), !custom.isEmpty {
+        let customValue: String?
+        let bundledName: String
+        switch service {
+        case .giphy:
+            customValue = store.settings.giphyAPIKey
+            bundledName = "GiphyAPIKey"
+        case .klipy:
+            customValue = store.settings.klipyAPIKey
+            bundledName = "KlipyAPIKey"
+        }
+        if let custom = customValue?.trimmingCharacters(in: .whitespacesAndNewlines), !custom.isEmpty {
             return custom
         }
-        let bundledValue = (Bundle.main.object(forInfoDictionaryKey: "GiphyAPIKey") as? String) ?? ""
+        let bundledValue = (Bundle.main.object(forInfoDictionaryKey: bundledName) as? String) ?? ""
         let bundled = bundledValue.trimmingCharacters(in: .whitespacesAndNewlines)
         if !bundled.isEmpty && !bundled.hasPrefix("$(") {
             return bundled
@@ -367,7 +391,11 @@ enum WebQuery: Hashable, Sendable {
         }
         recordSearch()
 
-        let provider = GiphyProvider(apiKey: key, kind: kind, session: apiSession)
+        let provider: any GIFProvider
+        switch service {
+        case .giphy: provider = GiphyProvider(apiKey: key, kind: kind, session: apiSession)
+        case .klipy: provider = KlipyProvider(apiKey: key, kind: kind, session: apiSession)
+        }
         let mayRetry: @Sendable () async -> Bool = { [weak self] in
             await self?.recordRetry() ?? false
         }
@@ -422,7 +450,7 @@ enum WebQuery: Hashable, Sendable {
             do {
                 return try await WebFetcher.data(from: remote, session: session, timeout: requestTimeout)
             } catch {
-                webLog.error("GIPHY download failed: \(error.localizedDescription, privacy: .public)")
+                webLog.error("Web download failed: \(error.localizedDescription, privacy: .public)")
                 return nil
             }
         }
@@ -450,7 +478,7 @@ enum WebQuery: Hashable, Sendable {
                 try data.write(to: destination, options: .atomic)
                 return destination
             } catch {
-                webLog.error("Saving a GIPHY GIF to copy failed: \(error.localizedDescription, privacy: .public)")
+                webLog.error("Saving a web GIF to copy failed: \(error.localizedDescription, privacy: .public)")
                 return nil
             }
         }
@@ -626,19 +654,19 @@ private enum WebFetcher {
     /// Files for copying and dragging are deleted after this.
     static let fileLifetime: TimeInterval = 3600
 
-    static func search(_ query: WebQuery, provider: GiphyProvider, mayRetry: @Sendable () async -> Bool) async -> SearchOutcome {
+    static func search(_ query: WebQuery, provider: any GIFProvider, mayRetry: @Sendable () async -> Bool) async -> SearchOutcome {
         do {
             let gifs = try await attempt(query, provider: provider, mayRetry: mayRetry)
             return SearchOutcome(gifs: Array(gifs.prefix(resultLimit)), failure: nil)
         } catch {
-            webLog.error("GIPHY search failed: \(error.localizedDescription, privacy: .public)")
+            webLog.error("\(provider.name, privacy: .public) search failed: \(error.localizedDescription, privacy: .public)")
             return SearchOutcome(gifs: nil, failure: failure(for: error))
         }
     }
 
     /// The search, tried once more after a dropped connection, a timeout or a server error, if `mayRetry`
     /// (which counts the retry against the hourly limit) allows it.
-    static func attempt(_ query: WebQuery, provider: GiphyProvider, mayRetry: @Sendable () async -> Bool) async throws -> [WebGIF] {
+    static func attempt(_ query: WebQuery, provider: any GIFProvider, mayRetry: @Sendable () async -> Bool) async throws -> [WebGIF] {
         do {
             return try await ask(query, provider: provider)
         } catch let error where isWorthRetrying(error) {
@@ -649,7 +677,7 @@ private enum WebFetcher {
     }
 
     /// GIPHY's trending for `.trending`, else a search for the query's words.
-    static func ask(_ query: WebQuery, provider: GiphyProvider) async throws -> [WebGIF] {
+    static func ask(_ query: WebQuery, provider: any GIFProvider) async throws -> [WebGIF] {
         if query == .trending {
             return try await provider.trending(limit: resultLimit)
         }
@@ -657,7 +685,7 @@ private enum WebFetcher {
     }
 
     static func isWorthRetrying(_ error: Error) -> Bool {
-        if let status = GiphyError.status(of: error) {
+        if let status = WebAPIError.status(of: error) {
             return status >= 500
         }
         guard let urlError = error as? URLError else { return false }
@@ -666,7 +694,7 @@ private enum WebFetcher {
     }
 
     static func failure(for error: Error) -> FetchFailure {
-        switch GiphyError.status(of: error) {
+        switch WebAPIError.status(of: error) {
         case 429?: return .refused
         case 401?, 403?: return .keyRejected
         default: return .failed
