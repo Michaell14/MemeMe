@@ -2,9 +2,12 @@ import Foundation
 
 /// Where the panel's results come from: the source menu beside the search field. All Sources mixes everything and
 /// is what the panel opens on; the others show one place each: your favorites, what MemeMe found on this Mac, your
-/// stickers, GIPHY's or KLIPY's GIFs or stickers, or the classic memes.
+/// stickers, the emoji you made, GIPHY's or KLIPY's GIFs or stickers, or the classic memes.
 public enum PickerSource: String, CaseIterable, Sendable {
-    case all, favorites, onMyMac, myStickers, giphyGIFs, giphyStickers, klipyGIFs, klipyStickers, classicMemes
+    case all, favorites, onMyMac, myStickers, emoji, giphyGIFs, giphyStickers, klipyGIFs, klipyStickers, classicMemes
+
+    /// The `source` of an emoji made with Image Playground (Make emoji): a sticker of yours, shown in Emoji too.
+    public static let madeEmojiSource = "Made"
 
     public var title: String {
         switch self {
@@ -12,6 +15,7 @@ public enum PickerSource: String, CaseIterable, Sendable {
         case .favorites: return "Favorites"
         case .onMyMac: return "On My Mac"
         case .myStickers: return "My Stickers"
+        case .emoji: return "Emoji"
         case .giphyGIFs: return "GIPHY GIFs"
         case .giphyStickers: return "GIPHY Stickers"
         case .klipyGIFs: return "KLIPY GIFs"
@@ -24,7 +28,7 @@ public enum PickerSource: String, CaseIterable, Sendable {
     public var group: Int {
         switch self {
         case .all: return 0
-        case .favorites, .onMyMac, .myStickers: return 1
+        case .favorites, .onMyMac, .myStickers, .emoji: return 1
         case .giphyGIFs, .giphyStickers: return 2
         case .klipyGIFs, .klipyStickers: return 3
         case .classicMemes: return 4
@@ -40,20 +44,28 @@ public enum PickerSource: String, CaseIterable, Sendable {
     }
 
     /// Whether the source shows your things of `kind`: every kind in All Sources and Favorites (which shows only what
-    /// you starred); On My Mac your images and GIFs; My Stickers your stickers and your friends'; none on the web's.
+    /// you starred); On My Mac your images and GIFs; My Stickers your stickers and your friends'; Emoji stickers (only
+    /// the ones you made: `shows(item:)`); none on the web's.
     public func shows(_ kind: TileKind) -> Bool {
         switch self {
         case .all, .favorites: return true
         case .onMyMac: return kind != .sticker
-        case .myStickers: return kind == .sticker
+        case .myStickers, .emoji: return kind == .sticker
         case .giphyGIFs, .giphyStickers, .klipyGIFs, .klipyStickers, .classicMemes: return false
         }
+    }
+
+    /// Whether the source shows `item`, one of your things: its kind (`shows(_:)`), and in Emoji only the emoji you
+    /// made with Make emoji.
+    public func shows(item: LibraryItem) -> Bool {
+        guard shows(TileKind(item)) else { return false }
+        return self != .emoji || item.source == PickerSource.madeEmojiSource
     }
 
     /// Shows any of your own things.
     public var showsOwn: Bool {
         switch self {
-        case .all, .favorites, .onMyMac, .myStickers: return true
+        case .all, .favorites, .onMyMac, .myStickers, .emoji: return true
         case .giphyGIFs, .giphyStickers, .klipyGIFs, .klipyStickers, .classicMemes: return false
         }
     }

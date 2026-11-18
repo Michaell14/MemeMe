@@ -160,7 +160,7 @@ enum WebFeed: Hashable {
         case .giphyStickers: self = .giphyStickers
         case .klipyGIFs: self = .klipyGIFs
         case .klipyStickers: self = .klipyStickers
-        case .all, .favorites, .onMyMac, .myStickers, .giphyGIFs, .classicMemes: return nil
+        case .all, .favorites, .onMyMac, .myStickers, .emoji, .giphyGIFs, .classicMemes: return nil
         }
     }
 
@@ -337,6 +337,17 @@ struct ClipNotice: Equatable {
     var groupIDs: Set<UUID> = []
 }
 
+/// One of Make emoji's options in the Emoji section: cut out and waiting in a temporary file until you keep it.
+struct EmojiCandidate: Identifiable, Equatable {
+    let id: UUID
+    let pngURL: URL
+}
+
+/// A picture Image Playground made, handed to the cutter off the main thread.
+private struct EmojiWork: @unchecked Sendable {
+    let image: CGImage
+}
+
 /// A capture handed to the cutter off the main thread.
 private struct ClipWork: @unchecked Sendable {
     let result: CaptureResult
@@ -487,6 +498,8 @@ private struct DescribedPhrase {
     /// Names a clear gesture with no word of its own (`PoseDescription`) with the on-device model, where the Mac has
     /// one; the rule's phrase stands where it doesn't.
     private let poseNamer: any PoseNaming
+    /// Makes emoji from the words searched with Image Playground, where the Mac can (`EmojiMaker`).
+    private let emojiMaker: any EmojiMaking
 
     var onRequestClose: (() -> Void)?
     /// Opens the screen cut (✂ in the panel; ⌥S from anywhere): the app delegate closes the panel and starts it.
@@ -566,6 +579,16 @@ private struct DescribedPhrase {
     /// The newest pick; an older one that finishes later leaves the clipboard alone.
     private var commitToken = 0
     private var clipTask: Task<Void, Never>?
+    /// The words Make emoji is making a sticker of; nil while it isn't.
+    @Published private(set) var makingEmoji: String?
+    private var emojiTask: Task<Void, Never>?
+    /// The words the Emoji section's options were made for; nil while no strip shows.
+    @Published private(set) var emojiCandidateWords: String?
+    /// The options made so far, in the order they came.
+    @Published private(set) var emojiCandidates: [EmojiCandidate] = []
+    /// Options still on their way.
+    @Published private(set) var emojiCandidatesPending: Int = 0
+    private var candidateTask: Task<Void, Never>?
     /// The open whose pick is still being copied (one pick at a time per open).
     private var committingSession: Int?
     private var shownSummaryID: UUID?
@@ -616,8 +639,11 @@ private struct DescribedPhrase {
     /// `webCacheRoot`: where web discovery keeps its cache (nil = ~/Library/Caches/MemeMe/Web); tests pass a temp folder,
     /// and the classic memes keep theirs next to it ("Templates").
     /// `poseNamer`: names poses with no word of their own (nil = `PoseNamer`, the on-device model); tests pass a stand-in.
-    init(store: LibraryStore, webCacheRoot: URL?, poseNamer: (any PoseNaming)? = nil) {
+    /// `emojiMaker`: makes emoji from words (nil = `EmojiMaker`, Image Playground); tests pass a stand-in.
+    init(store: LibraryStore, webCacheRoot: URL?, poseNamer: (any PoseNaming)? = nil,
+         emojiMaker: (any EmojiMaking)? = nil) {
         self.store = store
+        self.emojiMaker = emojiMaker ?? EmojiMaker()
         if let poseNamer {
             self.poseNamer = poseNamer
         } else {
@@ -669,6 +695,10 @@ private struct DescribedPhrase {
         }
         indexer.onLibraryChanged = { [weak self] in
             self?.libraryDidChange()
+        }
+        // Image Playground found missing (or back): the Make buttons, ideas and placeholder follow at once.
+        self.emojiMaker.onAvailabilityChange = { [weak self] in
+            self?.objectWillChange.send()
         }
         indexerObservation = indexer.objectWillChange.sink { [weak self] _ in
             // objectWillChange fires before the new value is stored: read it on the next main-actor turn. Only
@@ -763,10 +793,12 @@ private struct DescribedPhrase {
         showRecentResults()
         refreshFooter()
         refreshHint()
+        emojiMaker.prewarm()
     }
 
     func panelDidHide() {
         isPanelVisible = false
+        discardEmojiCandidates()
         closeMenu()
         cancelClip()
         cancelSessionTasks()
@@ -804,6 +836,7 @@ private struct DescribedPhrase {
     /// first tile.
     func selectSource(_ newSource: PickerSource) {
         guard source != newSource else { return }
+        if source == .emoji { discardEmojiCandidates() }
         source = newSource
         if groupFilter != .all { groupFilter = .all }
         userInteracted = false
@@ -992,6 +1025,7 @@ private struct DescribedPhrase {
         case .favorites: return "star"
         case .onMyMac: return "laptopcomputer"
         case .myStickers: return "face.smiling"
+        case .emoji: return "wand.and.stars"
         case .giphyGIFs, .giphyStickers, .klipyGIFs, .klipyStickers: return "play.rectangle"
         case .classicMemes: return "text.below.photo"
         }
@@ -1205,6 +1239,10 @@ private struct DescribedPhrase {
             clipNotice = nil
             return true
         }
+        if emojiCandidateWords != nil {
+            discardEmojiCandidates()
+            return true
+        }
         // The You're-set card closes with the panel.
         if showSetupCard { return false }
         if faceEdit != nil {
@@ -1279,7 +1317,11 @@ private struct DescribedPhrase {
         if readout != nil { return "Add words to refine…" }
         switch mode {
         case .live, .warming: return "Make a face, or type to search…"
-        default: return "Search GIFs, stickers and memes…"
+        default:
+            if source == .emoji {
+                return emojiMaker.mayBeAvailable ? "Search your emoji, or describe a new one…" : "Search your emoji…"
+            }
+            return "Search GIFs, stickers and memes…"
         }
     }
 
@@ -2201,34 +2243,270 @@ private struct DescribedPhrase {
                 return
             }
             self.isCutting = false
-            var copied = true
+            self.showMadeSticker(made, isGIF: clip.isGIF)
+        }
+    }
+
+    // MARK: - Make emoji
+
+    /// The words "Make emoji" would make a sticker of: what is typed, while your own things show and this Mac may
+    /// make images (Image Playground). nil otherwise, and while one is being made.
+    var emojiOffer: String? {
+        guard makingEmoji == nil, emojiCandidateWords == nil, resultSource == .text,
+              source == .all || source == .myStickers || source == .emoji,
+              emojiMaker.mayBeAvailable else { return nil }
+        let words = EmojiMaker.concept(for: queryText)
+        return words.isEmpty ? nil : words
+    }
+
+    /// Make emoji: Image Playground draws the words typed, the picture is cut out with a white outline, saved to My
+    /// Stickers named after the words, copied, and shown first in the grid, selected, with the notice's Rename and
+    /// Undo. It takes a few seconds; the panel can close meanwhile, and the HUD says when it's ready.
+    func makeEmoji() {
+        guard let words = emojiOffer else { return }
+        if source == .emoji {
+            startEmojiCandidates(words)
+        } else {
+            startMakingEmoji(words)
+        }
+    }
+
+    /// The Emoji section's first visit: a few things to make, one click each.
+    static let emojiStarters = ["sleepy coffee", "proud cat", "taco party", "rainy Monday"]
+
+    /// The starter ideas the Emoji section offers while you have made none and nothing is typed; empty elsewhere.
+    var emojiStarters: [String] {
+        guard source == .emoji, makingEmoji == nil, emojiCandidateWords == nil, emojiMaker.mayBeAvailable,
+              !hasMadeEmoji,
+              queryText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
+        return AppModel.emojiStarters
+    }
+
+    /// A starter idea was clicked: it is typed into the search field and its four options are asked for at once.
+    func makeStarterEmoji(_ words: String) {
+        let concept = EmojiMaker.concept(for: words)
+        guard makingEmoji == nil, emojiMaker.mayBeAvailable, !concept.isEmpty else { return }
+        queryText = concept
+        startEmojiCandidates(concept)
+    }
+
+    /// You made an emoji before (one is kept).
+    private var hasMadeEmoji: Bool {
+        store.items.contains { $0.isSticker && $0.source == PickerSource.madeEmojiSource }
+    }
+
+    /// What the Emoji section says while it shows nothing.
+    private var emojiEmptyMessage: String {
+        // The options strip says what to do.
+        if emojiCandidateWords != nil { return "" }
+        let words = queryText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if mode == .text && !words.isEmpty {
+            return "No emoji match “\(words)”."
+        }
+        if makingEmoji != nil { return "Making your first emoji…" }
+        guard emojiMaker.mayBeAvailable else {
+            return "Emoji are made with Image Playground, which needs Apple Intelligence on this Mac."
+        }
+        return hasMadeEmoji
+            ? "No emoji match."
+            : "Make your own emoji: type anything, a mood, a food, an inside joke. Image Playground draws it on this Mac."
+    }
+
+    // MARK: - Make emoji: four options (the Emoji section)
+
+    /// How many options the Emoji section asks Image Playground for.
+    static let emojiCandidateCount = 4
+
+    /// Where options wait until they are kept: a folder of MemeMe's in the temporary directory, emptied as they go.
+    private static var candidateDirectory: URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("MemeMe-EmojiOptions", isDirectory: true)
+    }
+
+    /// Asks for four options for `words`; they stream into the strip over the grid as Image Playground makes them.
+    /// Nothing is saved until one is kept. Options already showing are dropped first (Try again).
+    private func startEmojiCandidates(_ words: String) {
+        discardEmojiCandidates()
+        clipNotice = nil
+        emojiCandidateWords = words
+        emojiCandidatesPending = AppModel.emojiCandidateCount
+        makingEmoji = words
+        let directory = AppModel.candidateDirectory
+        candidateTask = Task { [weak self] in
+            guard let self else { return }
+            var failure: EmojiMakerError?
             do {
-                try Clipboard.copy(fileURL: made.item.fileURL, item: made.item)
+                for try await image in self.emojiMaker.images(for: words, count: AppModel.emojiCandidateCount) {
+                    let box = EmojiWork(image: image)
+                    let url = try await Task.detached(priority: .userInitiated) { () throws -> URL in
+                        let png = try EmojiMaker.stickerPNG(from: box.image)
+                        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                        let url = directory.appendingPathComponent("option-\(UUID().uuidString).png", isDirectory: false)
+                        try png.write(to: url, options: .atomic)
+                        return url
+                    }.value
+                    guard !Task.isCancelled else {
+                        try? FileManager.default.removeItem(at: url)
+                        return
+                    }
+                    self.emojiCandidates.append(EmojiCandidate(id: UUID(), pngURL: url))
+                    self.emojiCandidatesPending = max(0, self.emojiCandidatesPending - 1)
+                }
             } catch {
-                copied = false
-                modelLog.error("Copying a clipped sticker failed")
+                failure = (error as? EmojiMakerError) ?? .failed
             }
-            guard self.isPanelVisible else {
-                HUDController.shared.show(copied ? "Saved “\(made.item.displayName)” · copied, ⌘V to paste"
-                                                 : "Saved “\(made.item.displayName)” to My Stickers",
-                                          thumbnail: made.item.fileURL)
+            guard !Task.isCancelled else { return }
+            self.emojiCandidatesPending = 0
+            self.makingEmoji = nil
+            if self.emojiCandidates.isEmpty {
+                // Nothing to choose from: the strip goes and the HUD says why.
+                self.emojiCandidateWords = nil
+                HUDController.shared.show((failure ?? .failed).message)
+            }
+        }
+    }
+
+    /// A click on an option: it is kept as one of your emoji (saved, copied, first in the grid, selected, with the
+    /// notice) and the strip goes, the other options with it.
+    func keepEmojiCandidate(id: UUID) {
+        guard let words = emojiCandidateWords, let candidate = emojiCandidates.first(where: { $0.id == id }) else {
+            return
+        }
+        keepEmojiCandidates([candidate], words: words)
+    }
+
+    /// Keep all: every option made so far is kept; the first is copied and selected.
+    func keepAllEmojiCandidates() {
+        guard let words = emojiCandidateWords, !emojiCandidates.isEmpty else { return }
+        keepEmojiCandidates(emojiCandidates, words: words)
+    }
+
+    /// Try again: four new options for the same words, in place of these.
+    func retryEmojiCandidates() {
+        guard let words = emojiCandidateWords, emojiMaker.mayBeAvailable else { return }
+        startEmojiCandidates(words)
+    }
+
+    /// × on the strip, Esc, leaving the Emoji section or closing the panel: the options are dropped unsaved.
+    func discardEmojiCandidates() {
+        candidateTask?.cancel()
+        candidateTask = nil
+        let urls = emojiCandidates.map(\.pngURL)
+        if !urls.isEmpty {
+            Task.detached(priority: .utility) {
+                for url in urls { try? FileManager.default.removeItem(at: url) }
+            }
+        }
+        if emojiCandidateWords != nil, makingEmoji == emojiCandidateWords { makingEmoji = nil }
+        if !emojiCandidates.isEmpty { emojiCandidates = [] }
+        if emojiCandidatesPending != 0 { emojiCandidatesPending = 0 }
+        if emojiCandidateWords != nil { emojiCandidateWords = nil }
+    }
+
+    private func keepEmojiCandidates(_ kept: [EmojiCandidate], words: String) {
+        let name = words.prefix(1).uppercased() + words.dropFirst()
+        let datas = kept.compactMap { try? Data(contentsOf: $0.pngURL) }
+        discardEmojiCandidates()
+        guard !datas.isEmpty else {
+            HUDController.shared.show(EmojiMakerError.failed.message)
+            return
+        }
+        // A GIPHY pick still downloading must not overwrite the emoji on the pasteboard.
+        commitToken += 1
+        let token = commitToken
+        committingSession = nil
+        emojiTask?.cancel()
+        emojiTask = Task { [weak self] in
+            guard let self else { return }
+            var first: (item: LibraryItem, isNew: Bool)?
+            for data in datas {
+                do {
+                    let made = try await self.friends.makeEmojiSticker(png: data, name: name)
+                    if first == nil { first = made }
+                } catch {
+                    modelLog.error("Keeping a made emoji failed")
+                }
+            }
+            guard let first else {
+                HUDController.shared.show(EmojiMakerError.failed.message)
                 return
             }
-            self.newStickerID = made.item.id
-            let recents = self.store.recents
-            self.clipNotice = ClipNotice(itemID: made.item.id, name: made.item.displayName,
-                                         thumbnail: made.item.fileURL, isGIF: clip.isGIF, isNew: made.isNew,
-                                         copied: copied,
-                                         chipGroupIDs: recents.recentGroups(limit: AppModel.noticeGroupLimit).map(\.id),
-                                         groupIDs: Set(recents.groups(containing: made.item.id).map(\.id)))
-            if self.source != .all && self.source != .myStickers {
-                self.selectSource(.myStickers)
-            }
-            self.userInteracted = true
-            self.focusedIndex = 0
-            // In My Stickers' row per group the new sticker isn't first: select it where it is.
-            self.focus(onItem: made.item.id)
+            self.showMadeSticker(first, isGIF: false, copyToken: token)
         }
+    }
+
+    private func startMakingEmoji(_ words: String) {
+        // A GIPHY pick still downloading must not overwrite the sticker on the pasteboard.
+        commitToken += 1
+        let token = commitToken
+        committingSession = nil
+        clipNotice = nil
+        makingEmoji = words
+        let name = words.prefix(1).uppercased() + words.dropFirst()
+        emojiTask?.cancel()
+        emojiTask = Task { [weak self] in
+            guard let self else { return }
+            defer { if !Task.isCancelled { self.makingEmoji = nil } }
+            let png: Data
+            do {
+                let image = try await self.emojiMaker.image(for: words)
+                let box = EmojiWork(image: image)
+                png = try await Task.detached(priority: .userInitiated) {
+                    try EmojiMaker.stickerPNG(from: box.image)
+                }.value
+            } catch {
+                guard !Task.isCancelled else { return }
+                let reason = (error as? EmojiMakerError) ?? .failed
+                HUDController.shared.show(reason.message)
+                return
+            }
+            guard !Task.isCancelled else { return }
+            let made: (item: LibraryItem, isNew: Bool)
+            do {
+                made = try await self.friends.makeEmojiSticker(png: png, name: name)
+            } catch {
+                modelLog.error("Saving a made emoji failed")
+                HUDController.shared.show(EmojiMakerError.failed.message)
+                return
+            }
+            self.makingEmoji = nil
+            self.showMadeSticker(made, isGIF: false, copyToken: token)
+        }
+    }
+
+    /// A sticker just made (Clip me, Make emoji): copied, then, with the panel open, first in the grid, marked NEW and
+    /// selected, with the notice; with it closed, the HUD.
+    /// `copyToken`: the `commitToken` when it was asked for; a pick copied since (a newer token) keeps the clipboard,
+    /// and the sticker is only saved. Make emoji takes seconds, so you may well have copied something else meanwhile.
+    private func showMadeSticker(_ made: (item: LibraryItem, isNew: Bool), isGIF: Bool, copyToken: Int? = nil) {
+        var copied = false
+        if copyToken == nil || copyToken == commitToken {
+            do {
+                try Clipboard.copy(fileURL: made.item.fileURL, item: made.item)
+                copied = true
+            } catch {
+                modelLog.error("Copying a made sticker failed")
+            }
+        }
+        guard isPanelVisible else {
+            HUDController.shared.show(copied ? "Saved “\(made.item.displayName)” · copied, ⌘V to paste"
+                                             : "Saved “\(made.item.displayName)” to My Stickers",
+                                      thumbnail: made.item.fileURL)
+            return
+        }
+        newStickerID = made.item.id
+        let recents = store.recents
+        clipNotice = ClipNotice(itemID: made.item.id, name: made.item.displayName,
+                                thumbnail: made.item.fileURL, isGIF: isGIF, isNew: made.isNew,
+                                copied: copied,
+                                chipGroupIDs: recents.recentGroups(limit: AppModel.noticeGroupLimit).map(\.id),
+                                groupIDs: Set(recents.groups(containing: made.item.id).map(\.id)))
+        if source != .all && source != .myStickers && source != .emoji {
+            selectSource(.myStickers)
+        }
+        userInteracted = true
+        focusedIndex = 0
+        // In My Stickers' row per group the new sticker isn't first: select it where it is.
+        focus(onItem: made.item.id)
     }
 
     /// "You — laughing": the word the camera reads now.
@@ -3000,6 +3278,9 @@ private struct DescribedPhrase {
             if let sectioned = groupedStickersLayout(columns: columns) { return sectioned }
             picks = ownPicks
             message = stickersEmptyMessage
+        case .emoji:
+            picks = ownPicks
+            message = emojiEmptyMessage
         case .giphyGIFs:
             picks = gifPicks
             loading = showsGiphyRow && isGiphyLoading
@@ -3042,9 +3323,9 @@ private struct DescribedPhrase {
                 }
             }
         }
-        // Clip me's new sticker comes first, wherever the ranking put it.
-        if let id = newStickerID, source == .all || source == .myStickers, groupFilterAllows(id),
-           let item = store.item(id: id) {
+        // The sticker just made (Clip me, Make emoji) comes first, wherever the ranking put it.
+        if let id = newStickerID, source == .all || source == .myStickers || source == .emoji, groupFilterAllows(id),
+           let item = store.item(id: id), source.shows(item: item) {
             picks.removeAll { if case let .meme(shown) = $0 { return shown.id == id }; return false }
             picks.insert(.meme(item), at: 0)
         }
@@ -3062,6 +3343,7 @@ private struct DescribedPhrase {
             switch source {
             case .all: return results.isEmpty ? "Trending" : recentTitle + " & Trending"
             case .onMyMac, .myStickers: return recentTitle
+            case .emoji: return "Your emoji"
             case .favorites: return "Favorites"
             case .giphyGIFs, .giphyStickers, .klipyGIFs, .klipyStickers: return "Trending"
             case .classicMemes: return "Popular"
@@ -3236,7 +3518,7 @@ private struct DescribedPhrase {
     private var sourceItems: [LibraryItem] {
         let inGroup = groupFilterAllows
         return store.items.filter { item in
-            item.kind != .web && source.shows(TileKind(item)) && (source != .favorites || savedIDs.contains(item.id))
+            item.kind != .web && source.shows(item: item) && (source != .favorites || savedIDs.contains(item.id))
                 && inGroup(item.id)
         }
     }

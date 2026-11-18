@@ -5,18 +5,20 @@ import XCTest
 final class PickerSourceTests: XCTestCase {
     func testSourcesCycleForwardAndBackWrappingAround() {
         XCTAssertEqual(PickerSource.allCases,
-                       [.all, .favorites, .onMyMac, .myStickers, .giphyGIFs, .giphyStickers, .klipyGIFs, .klipyStickers,
-                        .classicMemes])
+                       [.all, .favorites, .onMyMac, .myStickers, .emoji, .giphyGIFs, .giphyStickers, .klipyGIFs,
+                        .klipyStickers, .classicMemes])
         XCTAssertEqual(PickerSource.all.cycled(by: 1), .favorites)
         XCTAssertEqual(PickerSource.classicMemes.cycled(by: 1), .all)
         XCTAssertEqual(PickerSource.all.cycled(by: -1), .classicMemes)
-        XCTAssertEqual(PickerSource.onMyMac.cycled(by: -9), .onMyMac)
-        XCTAssertEqual(PickerSource.onMyMac.cycled(by: -10), .favorites)
+        XCTAssertEqual(PickerSource.onMyMac.cycled(by: -10), .onMyMac)
+        XCTAssertEqual(PickerSource.onMyMac.cycled(by: -11), .favorites)
+        XCTAssertEqual(PickerSource.myStickers.cycled(by: 1), .emoji)
+        XCTAssertEqual(PickerSource.emoji.title, "Emoji")
         XCTAssertEqual(PickerSource.all.title, "All Sources")
         XCTAssertEqual(PickerSource.onMyMac.title, "On My Mac")
         XCTAssertEqual(PickerSource.giphyGIFs.title, "GIPHY GIFs")
         XCTAssertEqual(PickerSource.klipyStickers.title, "KLIPY Stickers")
-        XCTAssertEqual(PickerSource.allCases.map(\.group), [0, 1, 1, 1, 2, 2, 3, 3, 4])
+        XCTAssertEqual(PickerSource.allCases.map(\.group), [0, 1, 1, 1, 1, 2, 2, 3, 3, 4])
         XCTAssertEqual(PickerSource.allCases.compactMap(\.letter), ["G", "G", "K", "K"])
     }
 
@@ -37,7 +39,19 @@ final class PickerSourceTests: XCTestCase {
         XCTAssertEqual(PickerSource.allCases.filter(\.showsGiphyGIFs), [.all, .giphyGIFs])
         XCTAssertEqual(PickerSource.allCases.filter(\.showsTemplates), [.all, .classicMemes])
         XCTAssertEqual(PickerSource.allCases.filter(\.showsGiphyStickers), [.giphyStickers])
-        XCTAssertEqual(PickerSource.allCases.filter(\.showsOwn), [.all, .favorites, .onMyMac, .myStickers])
+        XCTAssertEqual(PickerSource.allCases.filter(\.showsOwn), [.all, .favorites, .onMyMac, .myStickers, .emoji])
+    }
+
+    func testEmojiShowsOnlyTheEmojiYouMade() {
+        let made = makeItem(source: PickerSource.madeEmojiSource, isSticker: true)
+        let clipped = makeItem(source: "Camera", isSticker: true)
+        let meme = makeItem(source: PickerSource.madeEmojiSource)
+        XCTAssertTrue(PickerSource.emoji.shows(item: made))
+        XCTAssertFalse(PickerSource.emoji.shows(item: clipped), "Clip me's stickers stay in My Stickers")
+        XCTAssertFalse(PickerSource.emoji.shows(item: meme), "only stickers")
+        XCTAssertTrue(PickerSource.myStickers.shows(item: made), "a made emoji is one of your stickers too")
+        XCTAssertTrue(PickerSource.all.shows(item: made))
+        XCTAssertFalse(PickerSource.onMyMac.shows(item: made))
     }
 
     func testAnItemsKindIsStickerThenGIFThenMeme() {
