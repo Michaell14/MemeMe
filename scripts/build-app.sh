@@ -8,6 +8,7 @@
 # Environment (all optional):
 #   GIPHY_API_KEY      written into the bundle; without it the key is empty and the GIPHY row stays
 #                      off until a key is set from the menu-bar menu (the classic memes still work)
+#   KLIPY_API_KEY      the same for KLIPY's GIFs and stickers (the KLIPY sources)
 #   APP_VERSION        CFBundleShortVersionString, e.g. 1.0 (default: the VERSION file)
 #   APP_BUILD          CFBundleVersion, a whole number (default: git rev-list --count HEAD)
 #   UPDATE_FEED_URL    https URL of the release feed, latest.json (default: empty, so the app never
@@ -129,6 +130,13 @@ if [[ -e "${GIPHY_MARKS[0]}" ]]; then
 else
   echo "warning: Resources/GIPHY/GIPHYLogo.png is missing; the GIPHY row shows \"Powered by GIPHY\" as text" >&2
 fi
+# KLIPY's logo for the KLIPY sources' "Powered by" credit, if one has been added (Resources/KLIPY/KLIPYLogo.png);
+# without it they show the word.
+KLIPY_MARKS=("$ROOT"/Resources/KLIPY/KLIPYLogo*.png)
+if [[ -e "${KLIPY_MARKS[0]}" ]]; then
+  cp "${KLIPY_MARKS[@]}" "$APP/Contents/Resources/"
+  log "KLIPY attribution mark: $(basename -a "${KLIPY_MARKS[@]}" | tr '\n' ' ')"
+fi
 
 # 3. Version and update feed. The app compares builds by CFBundleVersion only.
 "$PLISTBUDDY" -c "Set :CFBundleShortVersionString $VERSION_NUMBER" "$PLIST"
@@ -158,6 +166,21 @@ if [[ -n "$GIPHY_KEY" ]]; then
 else
   "$PLISTBUDDY" -c "Add :GiphyAPIKey string" "$PLIST"
   log "GIPHY API key: not set (Web Discover stays off until a key is set from the menu)"
+fi
+
+# 4b. The KLIPY key the same way (KlipyAPIKey; empty when KLIPY_API_KEY is unset). Never printed.
+KLIPY_KEY="$(printf '%s' "${KLIPY_API_KEY:-}" | tr -d '[:space:]')"
+if [[ -n "$KLIPY_KEY" && ! "$KLIPY_KEY" =~ ^[A-Za-z0-9_-]+$ ]]; then
+  echo "warning: KLIPY_API_KEY contains unexpected characters; building without a key" >&2
+  KLIPY_KEY=""
+fi
+"$PLISTBUDDY" -c "Delete :KlipyAPIKey" "$PLIST" >/dev/null 2>&1 || true
+if [[ -n "$KLIPY_KEY" ]]; then
+  "$PLISTBUDDY" -c "Add :KlipyAPIKey string $KLIPY_KEY" "$PLIST"
+  log "KLIPY API key: set"
+else
+  "$PLISTBUDDY" -c "Add :KlipyAPIKey string" "$PLIST"
+  log "KLIPY API key: not set (the KLIPY sources stay off until a key is set from the menu)"
 fi
 plutil -lint "$PLIST"
 

@@ -383,7 +383,7 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(model.menu, .sources)
         XCTAssertEqual(model.menuRows.map(\.title), PickerSource.allCases.map(\.title))
         XCTAssertEqual(model.menuRows.first?.isChecked, true, "All Sources is checked")
-        XCTAssertEqual(model.menuRows.filter(\.startsGroup).count, 3, "a line between each group")
+        XCTAssertEqual(model.menuRows.filter(\.startsGroup).count, 4, "a line between each group")
         model.menuQuery = "mac"
         XCTAssertEqual(model.menuRows.map(\.title), ["On My Mac"])
         model.performMenuRow()

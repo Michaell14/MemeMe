@@ -11,6 +11,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var collectingPausedUntil: Date? = nil
     public var webDiscoverEnabled: Bool = true
     public var giphyAPIKey: String? = nil               // overrides Info.plist GiphyAPIKey
+    public var klipyAPIKey: String? = nil               // overrides Info.plist KlipyAPIKey
     public var hasCompletedFirstRun: Bool = false
     public var libraryOfferDismissals: Int = 0
     public var libraryOfferAccepted: Bool = false
@@ -27,7 +28,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case hotKeyKeyCode, hotKeyModifiers, openAtLogin, stickerPolicy, groupFaces, watchedFolders, collectingPausedUntil
-        case webDiscoverEnabled, giphyAPIKey, hasCompletedFirstRun, libraryOfferDismissals, libraryOfferAccepted, baseline
+        case webDiscoverEnabled, giphyAPIKey, klipyAPIKey, hasCompletedFirstRun, libraryOfferDismissals, libraryOfferAccepted, baseline
         case skippedUpdateBuild
     }
 
@@ -46,6 +47,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         collectingPausedUntil = container.decodeLenientIfPresent(Date.self, forKey: .collectingPausedUntil)
         webDiscoverEnabled = container.decodeLenient(Bool.self, forKey: .webDiscoverEnabled, default: defaults.webDiscoverEnabled)
         giphyAPIKey = container.decodeLenientIfPresent(String.self, forKey: .giphyAPIKey)
+        klipyAPIKey = container.decodeLenientIfPresent(String.self, forKey: .klipyAPIKey)
         hasCompletedFirstRun = container.decodeLenient(Bool.self, forKey: .hasCompletedFirstRun, default: defaults.hasCompletedFirstRun)
         libraryOfferDismissals = container.decodeLenient(Int.self, forKey: .libraryOfferDismissals, default: defaults.libraryOfferDismissals)
         libraryOfferAccepted = container.decodeLenient(Bool.self, forKey: .libraryOfferAccepted, default: defaults.libraryOfferAccepted)
@@ -64,6 +66,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         try container.encodeIfPresent(collectingPausedUntil, forKey: .collectingPausedUntil)
         try container.encode(webDiscoverEnabled, forKey: .webDiscoverEnabled)
         try container.encodeIfPresent(giphyAPIKey, forKey: .giphyAPIKey)
+        try container.encodeIfPresent(klipyAPIKey, forKey: .klipyAPIKey)
         try container.encode(hasCompletedFirstRun, forKey: .hasCompletedFirstRun)
         try container.encode(libraryOfferDismissals, forKey: .libraryOfferDismissals)
         try container.encode(libraryOfferAccepted, forKey: .libraryOfferAccepted)

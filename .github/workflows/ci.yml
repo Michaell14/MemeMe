@@ -271,6 +271,7 @@ jobs:
       - name: Build MemeMe.app
         env:
           GIPHY_API_KEY: ${{ secrets.GIPHY_API_KEY }}
+          KLIPY_API_KEY: ${{ secrets.KLIPY_API_KEY }}
           APP_VERSION: ${{ steps.version.outputs.version }}
           APP_BUILD: ${{ steps.version.outputs.build }}
           UPDATE_FEED_URL: https://github.com/${{ github.repository }}/releases/latest/download/latest.json

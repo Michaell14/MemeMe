@@ -149,18 +149,45 @@ private func makeDragCopy(of url: URL, named fileName: String) -> URL? {
 
 // MARK: - AppModel
 
-/// What a tile holds: one of your memes, a GIF in the GIPHY row, or a classic meme template.
+/// A web source that shows by itself, for the words GIPHY's GIFs go by (its trending before a face or words): GIPHY's
+/// stickers, or KLIPY's GIFs or stickers.
+enum WebFeed: Hashable {
+    case giphyStickers, klipyGIFs, klipyStickers
+
+    /// The feed a source shows; nil for the others.
+    init?(_ source: PickerSource) {
+        switch source {
+        case .giphyStickers: self = .giphyStickers
+        case .klipyGIFs: self = .klipyGIFs
+        case .klipyStickers: self = .klipyStickers
+        case .all, .favorites, .onMyMac, .myStickers, .emoji, .giphyGIFs, .classicMemes: return nil
+        }
+    }
+
+    var service: WebService {
+        switch self {
+        case .giphyStickers: return .giphy
+        case .klipyGIFs, .klipyStickers: return .klipy
+        }
+    }
+
+    /// Stickers (animated, on transparent) rather than GIFs.
+    var isSticker: Bool { self != .klipyGIFs }
+}
+
+/// What a tile holds: one of your memes, a GIF in the GIPHY row, a GIF or sticker of a web feed, or a classic meme
+/// template.
 enum Pick: Equatable {
     case meme(LibraryItem)
     case gif(WebGIF)
-    /// One of GIPHY's stickers (the GIPHY Stickers source): animated, on transparent.
-    case giphySticker(WebGIF)
+    /// One of a feed's results (GIPHY Stickers, KLIPY GIFs, KLIPY Stickers).
+    case feed(WebGIF, WebFeed)
     case template(MemeTemplate)
 
     var title: String {
         switch self {
         case let .meme(item): return item.displayName
-        case let .gif(gif), let .giphySticker(gif): return gif.title
+        case let .gif(gif), let .feed(gif, _): return gif.title
         case let .template(template): return template.name
         }
     }
@@ -172,18 +199,23 @@ enum Pick: Equatable {
             if item.isSticker { return "Sticker" }
             return item.isAnimated ? "GIF" : "Image"
         case .gif: return "GIF"
-        case .giphySticker: return "Sticker"
+        case let .feed(_, feed): return feed.isSticker ? "Sticker" : "GIF"
         case .template: return "Image"
         }
     }
 
-    /// Where it is from, for its tile's small badge: GIPHY, the classic memes, or yours.
-    var isFromGiphy: Bool {
+    /// The web service it is from (GIPHY or KLIPY); nil for yours and the classic memes.
+    var webService: WebService? {
         switch self {
-        case .gif, .giphySticker: return true
-        case .meme, .template: return false
+        case .gif: return .giphy
+        case let .feed(_, feed): return feed.service
+        case .meme, .template: return nil
         }
     }
+
+    /// Where it is from, for its tile's small badge: GIPHY, KLIPY, the classic memes, or yours.
+    var isFromGiphy: Bool { webService == .giphy }
+    var isFromKlipy: Bool { webService == .klipy }
 }
 
 /// A titled run of the grid's picks that starts on its own row: My Stickers shows a row per group, then Ungrouped.
@@ -213,6 +245,8 @@ struct PickerLayout: Equatable {
     let message: String?
     /// GIPHY's GIFs or stickers are among the picks: its credit shows.
     let showsGiphy: Bool
+    /// KLIPY's GIFs or stickers are among the picks: its credit shows.
+    let showsKlipy: Bool
     /// Over the grid: "Recent", "Matching your face", "Results for “sad”".
     let title: String
     /// Titled runs of picks, each from its own row; empty for one plain run.
@@ -253,6 +287,7 @@ struct PickerLayout: Equatable {
         self.isLoading = isLoading
         self.message = picks.isEmpty && !isLoading ? message : nil
         showsGiphy = picks.contains { $0.isFromGiphy }
+        showsKlipy = picks.contains { $0.isFromKlipy }
         self.title = title
         self.sections = sections
     }
@@ -364,10 +399,11 @@ private struct DescribedPhrase {
     }
     /// The highlighted row of the open menu (↑ ↓, ↵ runs it).
     @Published private(set) var menuSelection = 0
-    /// GIPHY's stickers for `giphyQuery` (the GIPHY Stickers source), in GIPHY's order.
-    @Published private(set) var stickerResults: [WebGIF] = []
-    @Published private(set) var isStickersLoading = false
-    @Published private(set) var stickersUnavailable = false
+    /// The feed's results (`feedShown`: GIPHY Stickers, KLIPY GIFs or KLIPY Stickers) for `giphyQuery`, in the
+    /// service's order.
+    @Published private(set) var feedResults: [WebGIF] = []
+    @Published private(set) var isFeedLoading = false
+    @Published private(set) var feedUnavailable = false
     /// You have memes of your own (meme or maybe tier): until then the mirror's column offers "Find my memes".
     @Published private(set) var hasMemes: Bool = false
     @Published private(set) var newResultIDs: Set<UUID> = []          // just arrived, for 600 ms
@@ -378,7 +414,7 @@ private struct DescribedPhrase {
     @Published private(set) var giphyResults: [WebGIF] = []
     @Published private(set) var giphyQuery: WebQuery? {
         didSet {
-            if giphyQuery != oldValue { showGiphyStickers() }
+            if giphyQuery != oldValue { showFeed() }
         }
     }
     @Published private(set) var isGiphyLoading: Bool = false
@@ -386,6 +422,8 @@ private struct DescribedPhrase {
     @Published private(set) var giphyUnavailable: Bool = false
     /// Web Discover is on and has a key (checked each time the panel opens).
     @Published private(set) var showsGiphyRow: Bool = false
+    /// Web Discover is on and has a KLIPY key (checked each time the panel opens).
+    @Published private(set) var showsKlipy: Bool = false
     /// The classic memes: Imgflip templates picked on the Mac for `templateQuery` (popular ones before a face), up to
     /// `templatePickSize`.
     @Published private(set) var templateResults: [MemeTemplate] = []
@@ -450,6 +488,9 @@ private struct DescribedPhrase {
     let web: WebDiscover
     /// GIPHY's stickers, searched for the same words as its GIFs while the GIPHY Stickers source shows.
     let webStickers: WebDiscover
+    /// KLIPY's GIFs and stickers, searched for the same words as GIPHY's GIFs while their source shows.
+    let klipy: WebDiscover
+    let klipyStickers: WebDiscover
     let templates: MemeTemplates
     let friends: FriendService
     /// Update checks and the one-click install; disabled when the bundle has no feed URL (local builds, tests).
@@ -503,9 +544,11 @@ private struct DescribedPhrase {
     private var shownAt: TimeInterval = 0
     /// When face search was turned on: typing right after that stops it instead of keeping the face.
     private var faceOnAt: TimeInterval = 0
-    private var stickerQuery: WebQuery?
-    private var stickerTask: Task<Void, Never>?
-    private var stickerGeneration = 0
+    private var feedQuery: WebQuery?
+    /// Which feed `feedResults` are from.
+    private var feedShown: WebFeed?
+    private var feedTask: Task<Void, Never>?
+    private var feedGeneration = 0
     private var liveSince: TimeInterval?
     private var faceMissing = false
     /// When the face came back while "Can't see your face" shows.
@@ -616,6 +659,17 @@ private struct DescribedPhrase {
             cacheRoot: webCacheRoot.map { $0.deletingLastPathComponent().appendingPathComponent("WebStickers", isDirectory: true) },
             kind: .stickers
         )
+        self.klipy = WebDiscover(
+            store: store,
+            cacheRoot: webCacheRoot.map { $0.deletingLastPathComponent().appendingPathComponent("Klipy", isDirectory: true) },
+            service: .klipy
+        )
+        self.klipyStickers = WebDiscover(
+            store: store,
+            cacheRoot: webCacheRoot.map { $0.deletingLastPathComponent().appendingPathComponent("KlipyStickers", isDirectory: true) },
+            kind: .stickers,
+            service: .klipy
+        )
         self.templates = MemeTemplates(
             store: store,
             cacheRoot: webCacheRoot.map { $0.deletingLastPathComponent().appendingPathComponent("Templates", isDirectory: true) }
@@ -689,6 +743,9 @@ private struct DescribedPhrase {
             while !Task.isCancelled {
                 guard let self else { return }
                 self.web.pruneCache()
+                self.webStickers.pruneCache()
+                self.klipy.pruneCache()
+                self.klipyStickers.pruneCache()
                 self.templates.pruneCache()
                 let onPasteboard = Clipboard.directoryOnPasteboard
                 Task.detached(priority: .utility) {
@@ -783,7 +840,7 @@ private struct DescribedPhrase {
         if newSource.showsGiphyGIFs, giphyQuery == nil {
             showGiphy(for: .trending)
         }
-        showGiphyStickers()
+        showFeed()
         normalizeFocus()
     }
 
@@ -951,11 +1008,7 @@ private struct DescribedPhrase {
         return PickerSource.allCases.map { item in
             let starts = previousGroup.map { $0 != item.group } ?? false
             previousGroup = item.group
-            let letter: String?
-            switch item {
-            case .giphyGIFs, .giphyStickers: letter = "G"
-            default: letter = nil
-            }
+            let letter = item.letter
             return MenuRow(id: item.rawValue, title: item.title, symbol: letter == nil ? AppModel.symbol(for: item) : nil,
                            letter: letter, keys: [], isChecked: item == source, startsGroup: starts)
         }
@@ -969,7 +1022,7 @@ private struct DescribedPhrase {
         case .onMyMac: return "laptopcomputer"
         case .myStickers: return "face.smiling"
         case .emoji: return "wand.and.stars"
-        case .giphyGIFs, .giphyStickers: return "play.rectangle"
+        case .giphyGIFs, .giphyStickers, .klipyGIFs, .klipyStickers: return "play.rectangle"
         case .classicMemes: return "text.below.photo"
         }
     }
@@ -985,7 +1038,7 @@ private struct DescribedPhrase {
             var groups: [[PickAction]] = [[.copy], keep, [.showInFinder]]
             if canDeleteSticker(pick) { groups.append([.deleteSticker]) }
             return groups
-        case .gif, .giphySticker, .template:
+        case .gif, .feed, .template:
             return [[.copy, .copyLink, .copyMarkdown], [.openInBrowser]]
         }
     }
@@ -1098,7 +1151,7 @@ private struct DescribedPhrase {
     /// The page a web result lives on (GIPHY's page, else the file), for Copy Link and Open in Browser.
     static func link(for pick: Pick) -> URL? {
         switch pick {
-        case let .gif(gif), let .giphySticker(gif): return gif.pageURL ?? gif.fullURL
+        case let .gif(gif), let .feed(gif, _): return gif.pageURL ?? gif.fullURL
         case let .template(template): return template.url
         case .meme: return nil
         }
@@ -1108,7 +1161,7 @@ private struct DescribedPhrase {
     static func markdown(for pick: Pick) -> String? {
         let media: URL
         switch pick {
-        case let .gif(gif), let .giphySticker(gif): media = gif.fullURL
+        case let .gif(gif), let .feed(gif, _): media = gif.fullURL
         case let .template(template): media = template.url
         case .meme: return nil
         }
@@ -1896,8 +1949,8 @@ private struct DescribedPhrase {
             return Clipboard.dragItemProvider(for: item, fileURL: item.fileURL)
         case let .gif(gif)?:
             return giphyDragProvider(for: gif, from: web)
-        case let .giphySticker(gif)?:
-            return giphyDragProvider(for: gif, from: webStickers)
+        case let .feed(gif, feed)?:
+            return giphyDragProvider(for: gif, from: discover(for: feed))
         case let .template(template)?:
             return templateDragProvider(for: template)
         case nil:
@@ -2838,8 +2891,9 @@ private struct DescribedPhrase {
     /// caught with the same mood): then the grid shows the next `giphySlots` of GIPHY's results, wrapping around.
     /// After waiting for a pose's name (`awaitGiphyName`), words that came out the same as the row's show its GIFs
     /// again, turned the same way.
+    /// Without a GIPHY key the row searches nothing but still takes the query, so KLIPY's feeds follow it.
     private func showGiphy(for query: WebQuery, turningPage: Bool = false) {
-        guard showsGiphyRow else { return }
+        guard followsWebWords else { return }
         if giphyAwaitsName {
             giphyAwaitsName = false
             if query == giphyQuery && !giphyFound.isEmpty {
@@ -2864,6 +2918,11 @@ private struct DescribedPhrase {
         giphyQuery = query
         giphyPage = 0
         if giphyUnavailable { giphyUnavailable = false }
+        guard showsGiphyRow else {
+            if isGiphyLoading { isGiphyLoading = false }
+            setGiphyResults([])
+            return
+        }
         if let cached = web.cachedGIFs(for: query) {
             if isGiphyLoading { isGiphyLoading = false }
             setGiphyResults(cached)
@@ -2925,7 +2984,7 @@ private struct DescribedPhrase {
     /// its results); what the row found before stays in `giphyFound`, so a name that comes out the same words turns
     /// their page.
     private func awaitGiphyName() {
-        guard showsGiphyRow else { return }
+        guard followsWebWords else { return }
         giphyGeneration += 1
         giphyTask?.cancel()
         giphyTask = nil
@@ -2954,7 +3013,7 @@ private struct DescribedPhrase {
     private func scheduleGiphyWords(_ query: WebQuery?) {
         giphyWordsTask?.cancel()
         giphyWordsTask = nil
-        guard showsGiphyRow, let query, query != giphyQuery else { return }
+        guard followsWebWords, let query, query != giphyQuery else { return }
         if web.cachedGIFs(for: query) != nil {
             showGiphy(for: query)
             return
@@ -2967,57 +3026,80 @@ private struct DescribedPhrase {
         }
     }
 
-    // MARK: - GIPHY's stickers
+    // MARK: - Web feeds (GIPHY Stickers, KLIPY GIFs, KLIPY Stickers)
 
-    /// GIPHY's stickers for the words GIPHY's GIFs go by (its trending before a face or words), while the GIPHY
-    /// Stickers source shows. The same query already showing (or loading) is left alone.
-    private func showGiphyStickers() {
-        guard showsGiphyRow, source.showsGiphyStickers else { return }
+    /// The GIPHY row follows the face and typed words while either service has a key.
+    private var followsWebWords: Bool { showsGiphyRow || showsKlipy }
+
+    /// Whether `feed`'s service is on and has a key.
+    private func isAvailable(_ feed: WebFeed) -> Bool {
+        switch feed.service {
+        case .giphy: return showsGiphyRow
+        case .klipy: return showsKlipy
+        }
+    }
+
+    /// Where `feed`'s results come from.
+    func discover(for feed: WebFeed) -> WebDiscover {
+        switch feed {
+        case .giphyStickers: return webStickers
+        case .klipyGIFs: return klipy
+        case .klipyStickers: return klipyStickers
+        }
+    }
+
+    /// The source's feed for the words GIPHY's GIFs go by (trending before a face or words), while a feed's source
+    /// shows. The same feed and query already showing (or loading) is left alone.
+    private func showFeed() {
+        guard let feed = WebFeed(source), isAvailable(feed) else { return }
         let query = giphyQuery ?? .trending
-        if query == stickerQuery && (isStickersLoading || !stickerResults.isEmpty) { return }
-        stickerGeneration += 1
-        let generation = stickerGeneration
-        stickerTask?.cancel()
-        stickerTask = nil
-        stickerQuery = query
-        if stickersUnavailable { stickersUnavailable = false }
-        if let cached = webStickers.cachedGIFs(for: query) {
-            if isStickersLoading { isStickersLoading = false }
-            setStickerResults(cached)
+        if feed == feedShown && query == feedQuery && (isFeedLoading || !feedResults.isEmpty) { return }
+        feedGeneration += 1
+        let generation = feedGeneration
+        feedTask?.cancel()
+        feedTask = nil
+        feedQuery = query
+        feedShown = feed
+        if feedUnavailable { feedUnavailable = false }
+        let feedSource = discover(for: feed)
+        if let cached = feedSource.cachedGIFs(for: query) {
+            if isFeedLoading { isFeedLoading = false }
+            setFeedResults(cached)
             return
         }
-        setStickerResults([])
-        isStickersLoading = true
-        stickerTask = Task { [weak self] in
+        setFeedResults([])
+        isFeedLoading = true
+        feedTask = Task { [weak self] in
             guard let self else { return }
-            let found = await self.webStickers.gifs(for: query)
-            guard !Task.isCancelled, generation == self.stickerGeneration else { return }
-            self.isStickersLoading = false
-            self.stickerTask = nil
+            let found = await feedSource.gifs(for: query)
+            guard !Task.isCancelled, generation == self.feedGeneration else { return }
+            self.isFeedLoading = false
+            self.feedTask = nil
             if let found {
-                self.setStickerResults(found)
+                self.setFeedResults(found)
             } else {
-                self.stickersUnavailable = true
+                self.feedUnavailable = true
             }
         }
     }
 
-    private func setStickerResults(_ stickers: [WebGIF]) {
-        if stickerResults != stickers { stickerResults = stickers }
+    private func setFeedResults(_ stickers: [WebGIF]) {
+        if feedResults != stickers { feedResults = stickers }
         normalizeFocus()
-        if let first = stickers.first, source.showsGiphyStickers {
-            webStickers.prefetchForCopy([first])
+        if let first = stickers.first, let feed = feedShown, WebFeed(source) == feed {
+            discover(for: feed).prefetchForCopy([first])
         }
     }
 
-    private func clearStickers() {
-        stickerGeneration += 1
-        stickerTask?.cancel()
-        stickerTask = nil
-        stickerQuery = nil
-        if !stickerResults.isEmpty { stickerResults = [] }
-        if isStickersLoading { isStickersLoading = false }
-        if stickersUnavailable { stickersUnavailable = false }
+    private func clearFeed() {
+        feedGeneration += 1
+        feedTask?.cancel()
+        feedTask = nil
+        feedQuery = nil
+        feedShown = nil
+        if !feedResults.isEmpty { feedResults = [] }
+        if isFeedLoading { isFeedLoading = false }
+        if feedUnavailable { feedUnavailable = false }
     }
 
     // MARK: - Classic memes row
@@ -3192,16 +3274,29 @@ private struct DescribedPhrase {
         case .giphyGIFs:
             picks = gifPicks
             loading = showsGiphyRow && isGiphyLoading
-            message = showsGiphyRow ? giphyEmptyMessage : AppModel.webOffMessage
-        case .giphyStickers:
-            picks = showsGiphyRow ? stickerResults.map { Pick.giphySticker($0) } : []
-            loading = showsGiphyRow && isStickersLoading
-            if !showsGiphyRow {
-                message = AppModel.webOffMessage
-            } else if stickersUnavailable {
-                message = "GIPHY isn’t answering right now."
+            if showsGiphyRow {
+                message = giphyEmptyMessage
+            } else if store.settings.webDiscoverEnabled {
+                message = "Set a GIPHY API key in the menu for GIPHY’s GIFs and stickers."
             } else {
-                message = "Nothing on GIPHY for this one."
+                message = AppModel.webOffMessage
+            }
+        case .giphyStickers, .klipyGIFs, .klipyStickers:
+            guard let feed = WebFeed(source) else { break }
+            let available = isAvailable(feed)
+            let name = feed.service.name
+            // Only the feed's own results, never another feed's left from before.
+            let shown = available && feedShown == feed
+            picks = shown ? feedResults.map { Pick.feed($0, feed) } : []
+            loading = shown && isFeedLoading
+            if !store.settings.webDiscoverEnabled {
+                message = AppModel.webOffMessage
+            } else if !available {
+                message = "Set a \(name) API key in the menu for \(name)’s GIFs and stickers."
+            } else if feedUnavailable {
+                message = "\(name) isn’t answering right now."
+            } else {
+                message = "Nothing on \(name) for this one."
             }
         case .classicMemes:
             picks = templatePicks
@@ -3240,7 +3335,7 @@ private struct DescribedPhrase {
             case .onMyMac, .myStickers: return recentTitle
             case .emoji: return "Your emoji"
             case .favorites: return "Favorites"
-            case .giphyGIFs, .giphyStickers: return "Trending"
+            case .giphyGIFs, .giphyStickers, .klipyGIFs, .klipyStickers: return "Trending"
             case .classicMemes: return "Popular"
             }
         case .expression:
@@ -3477,8 +3572,8 @@ private struct DescribedPhrase {
         switch focusedPick {
         case let .gif(gif)?:
             web.prefetchForCopy([gif])
-        case let .giphySticker(gif)?:
-            webStickers.prefetchForCopy([gif])
+        case let .feed(gif, feed)?:
+            discover(for: feed).prefetchForCopy([gif])
         case let .template(template)?:
             templates.prefetchForCopy(template)
         case .meme?, nil:
@@ -3725,9 +3820,9 @@ private struct DescribedPhrase {
             let url = await web.prepareForCopy(gif)
             slowNotice.cancel()
             return url
-        case let .giphySticker(gif):
+        case let .feed(gif, feed):
             let slowNotice = AppModel.slowCopyNotice()
-            let url = await webStickers.prepareForCopy(gif)
+            let url = await discover(for: feed).prepareForCopy(gif)
             slowNotice.cancel()
             return url
         case let .template(template):
@@ -3753,8 +3848,8 @@ private struct DescribedPhrase {
         switch pick {
         case let .meme(item):
             return item
-        case let .gif(gif), let .giphySticker(gif):
-            return LibraryItem(fileURL: fileURL, displayName: gif.title, kind: .web, source: "GIPHY", contentHash: "giphy:" + gif.id, isAnimated: true, remoteURL: gif.fullURL)
+        case let .gif(gif), let .feed(gif, _):
+            return LibraryItem(fileURL: fileURL, displayName: gif.title, kind: .web, source: gif.provider, contentHash: gif.provider.lowercased() + ":" + gif.id, isAnimated: true, remoteURL: gif.fullURL)
         case let .template(template):
             return LibraryItem(fileURL: fileURL, displayName: template.name, kind: .web, source: "Imgflip", contentHash: "imgflip:" + template.id, isAnimated: false, remoteURL: template.url)
         }
@@ -3942,6 +4037,7 @@ private struct DescribedPhrase {
         describedPhrase = nil
         clearGiphyRow()
         showsGiphyRow = store.settings.webDiscoverEnabled && web.hasAPIKey
+        showsKlipy = store.settings.webDiscoverEnabled && klipy.hasAPIKey
         clearTemplateRow()
         showsTemplateRow = store.settings.webDiscoverEnabled
         endFaceEdit()
@@ -3955,7 +4051,7 @@ private struct DescribedPhrase {
         if faceSearchOn { faceSearchOn = false }
         if leanRegion != nil { leanRegion = nil }
         closeMenu()
-        clearStickers()
+        clearFeed()
         lastTextEditAt = 0
         liveSince = nil
         faceMissing = false
@@ -3977,9 +4073,9 @@ private struct DescribedPhrase {
         templateTask?.cancel()
         templateTask = nil
         templateGeneration += 1
-        stickerTask?.cancel()
-        stickerTask = nil
-        stickerGeneration += 1
+        feedTask?.cancel()
+        feedTask = nil
+        feedGeneration += 1
         cancelDescribing()
         imageTask?.cancel()
         imageTask = nil
