@@ -106,6 +106,8 @@ final class MemeTemplatesTests: XCTestCase {
         XCTAssertFalse(rockOn.isTyped)
         XCTAssertFalse(WebQuery.mood(.flex).isTyped)
         XCTAssertTrue(WebQuery.words("rock on").isTyped)
+        XCTAssertFalse(WebQuery.trending.isTyped)
+        XCTAssertEqual(WebQuery.trending.searchTerms, "", "trending sends no words")
     }
 
     @MainActor
@@ -152,6 +154,9 @@ final class MemeTemplatesTests: XCTestCase {
         XCTAssertEqual(AppModel.pickTemplates(for: .mood(.shocked), from: list).first?.name, "Surprised Pikachu")
         XCTAssertEqual(AppModel.pickTemplates(for: .mood(.reaction), from: list).map(\.name),
                        ["Distracted Boyfriend", "Surprised Pikachu", "Sad Pablo Escobar"])
+        XCTAssertEqual(AppModel.pickTemplates(for: .trending, from: list).map(\.name),
+                       ["Distracted Boyfriend", "Surprised Pikachu", "Sad Pablo Escobar"],
+                       "the home page: Imgflip's most popular, in its order")
         XCTAssertEqual(AppModel.pickTemplates(for: .words("sad"), from: list).map(\.name), ["Sad Pablo Escobar"])
         XCTAssertEqual(AppModel.pickTemplates(for: .words("guy looking back"), from: list).map(\.name), ["Distracted Boyfriend"])
     }

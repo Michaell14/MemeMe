@@ -75,4 +75,16 @@ final class PickerSourceTests: XCTestCase {
                        [.own(0), .own(1), .own(2), .own(3), .own(4)], "no memes and no classic memes: stickers only")
         XCTAssertTrue(ForYouMix.row(own: [.meme], templates: 3, slots: 0).isEmpty)
     }
+
+    func testTheHomePageTakesTurnsBetweenYoursTrendingGIFsAndClassicMemes() {
+        XCTAssertEqual(HomeMix.picks(own: 2, gifs: 2, templates: 2),
+                       [.own(0), .gif(0), .template(0), .own(1), .gif(1), .template(1)])
+        // Yours run out first: GIPHY's and the classic memes keep taking turns.
+        XCTAssertEqual(HomeMix.picks(own: 1, gifs: 3, templates: 1),
+                       [.own(0), .gif(0), .template(0), .gif(1), .gif(2)])
+        // First run (nothing of yours) or Web Discover off.
+        XCTAssertEqual(HomeMix.picks(own: 0, gifs: 1, templates: 2), [.gif(0), .template(0), .template(1)])
+        XCTAssertEqual(HomeMix.picks(own: 3, gifs: 0, templates: 0), [.own(0), .own(1), .own(2)])
+        XCTAssertTrue(HomeMix.picks(own: 0, gifs: 0, templates: -1).isEmpty)
+    }
 }
