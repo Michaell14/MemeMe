@@ -26,6 +26,8 @@ struct GroupChip: Identifiable, Equatable {
     let title: String
     /// Its stickers; nil for All.
     let count: Int?
+    /// A saved search: it fills itself (sparkles on the chip).
+    var isLive = false
     var id: StickerGroupFilter { filter }
     var groupID: UUID? {
         if case let .group(id) = filter { return id }
@@ -982,7 +984,7 @@ private struct DescribedPhrase {
     /// ⌘K's Groups section: each group, checked when the sticker is in it, then New Group….
     private func groupRows(for stickerID: UUID) -> [MenuRow] {
         var rows: [MenuRow] = []
-        for group in stickerGroups {
+        for group in filableGroups {
             let first = rows.isEmpty
             rows.append(MenuRow(id: AppModel.groupRowPrefix + group.id.uuidString, title: group.name,
                                 symbol: "square.stack", letter: nil, keys: [], isChecked: group.contains(stickerID),
@@ -1325,16 +1327,34 @@ private struct DescribedPhrase {
         return byID
     }
 
+    /// Groups you file stickers in (⌘K, the right-click menu): not live ones, whose words pick their stickers.
+    var filableGroups: [StickerGroup] {
+        stickerGroups.filter { !$0.isLive }
+    }
+
+    /// Each group's stickers that still exist, the latest filed first (a live group's: what its words match, newest
+    /// first), by group.
+    private func groupMembers() -> [UUID: [UUID]] {
+        var members: [UUID: [UUID]] = [:]
+        let items = store.items
+        let people = store.people
+        for group in stickerGroups {
+            members[group.id] = group.members(in: items, people: people)
+        }
+        return members
+    }
+
     /// My Stickers' chips: All, each group with its count, Ungrouped (once there are groups).
     var groupChips: [GroupChip] {
         let stickers = stickersByID
         var chips = [GroupChip(filter: .all, title: "All", count: nil)]
         guard !stickerGroups.isEmpty else { return chips }
+        let membersByGroup = groupMembers()
         var grouped = Set<UUID>()
         for group in stickerGroups {
-            let members = group.stickerIDs.filter { stickers[$0] != nil }
+            let members = membersByGroup[group.id] ?? []
             grouped.formUnion(members)
-            chips.append(GroupChip(filter: .group(group.id), title: group.name, count: members.count))
+            chips.append(GroupChip(filter: .group(group.id), title: group.name, count: members.count, isLive: group.isLive))
         }
         let ungrouped = stickers.keys.filter { !grouped.contains($0) }.count
         chips.append(GroupChip(filter: .ungrouped, title: "Ungrouped", count: ungrouped))
@@ -1358,10 +1378,11 @@ private struct DescribedPhrase {
             return nil
         }
         let stickers = stickersByID
+        let membersByGroup = groupMembers()
         var sections: [(title: String, total: Int, filter: StickerGroupFilter, picks: [Pick])] = []
         var grouped = Set<UUID>()
         for group in stickerGroups {
-            let members = group.stickerIDs.compactMap { stickers[$0] }
+            let members = (membersByGroup[group.id] ?? []).compactMap { stickers[$0] }
             grouped.formUnion(members.map(\.id))
             guard !members.isEmpty else { continue }
             sections.append((title: group.name, total: members.count, filter: StickerGroupFilter.group(group.id),
@@ -1391,7 +1412,7 @@ private struct DescribedPhrase {
     /// Files the sticker in the group, or takes it out (⌘K's Groups, the Clip me notice's chips).
     func toggleGroup(_ groupID: UUID, forSticker stickerID: UUID) {
         guard let item = store.item(id: stickerID), item.isSticker, item.kind != .web,
-              stickerGroups.contains(where: { $0.id == groupID }) else { return }
+              stickerGroups.contains(where: { $0.id == groupID && !$0.isLive }) else { return }
         updateGroups { $0.toggleSticker(stickerID, inGroup: groupID) }
         noteGroupsChanged(forSticker: stickerID)
     }
@@ -1504,10 +1525,71 @@ private struct DescribedPhrase {
         return store.recents.groups(containing: stickerID).map(\.name)
     }
 
+    // MARK: Suggested groups
+
+    /// Groups MemeMe offers over My Stickers' All, with nothing searched: the same named friend, the word your face
+    /// was read as, the app a screen cut came from (`GroupSuggestion`). At most three.
+    var groupSuggestions: [GroupSuggestion] {
+        guard source == .myStickers, groupFilter == .all, resultSource == .recent else { return [] }
+        let items = store.items
+        let people = store.people
+        let groups = stickerGroups.map { (name: $0.name, members: Set($0.members(in: items, people: people))) }
+        return GroupSuggestion.suggest(items: items, people: people, groups: groups,
+                                       dismissed: store.recents.dismissedSuggestions)
+    }
+
+    /// Make group on a suggestion: the group, named as offered, with all its stickers (the newest first).
+    func acceptSuggestion(_ suggestion: GroupSuggestion) {
+        var created: StickerGroup?
+        updateGroups { recents in
+            guard let group = recents.addGroup(named: suggestion.name) else { return }
+            created = group
+            for id in suggestion.stickerIDs.reversed() {
+                recents.setSticker(id, inGroup: group.id, true)
+            }
+        }
+        guard let made = created else { return }
+        if source == .myStickers { refreshCurrentResults() }
+        HUDController.shared.show("Made “\(made.name)” with \(suggestion.stickerIDs.count) stickers")
+    }
+
+    /// Not now on a suggestion: it isn't offered again until it has more stickers.
+    func dismissSuggestion(_ suggestion: GroupSuggestion) {
+        // Only the turned-down list changes, which nothing published follows: the grid redraws on this.
+        objectWillChange.send()
+        updateGroups { $0.dismissSuggestion(suggestion.key, count: suggestion.stickerIDs.count) }
+    }
+
+    // MARK: Live groups
+
+    /// The words searched in My Stickers (All), which Save as Group keeps as a group that fills itself.
+    var savableSearch: String? {
+        guard source == .myStickers, groupFilter == .all, resultSource == .text else { return nil }
+        let words = queryText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return words.isEmpty ? nil : words
+    }
+
+    /// Save as Group: asks for a name ("Cat" for "cat"), keeps the search as a live group holding every sticker the
+    /// words match, now and later, and shows its chip.
+    func saveSearchAsGroup() {
+        guard let words = savableSearch else { return }
+        let suggested = words.prefix(1).uppercased() + words.dropFirst()
+        guard let name = askGroupName(title: "Save as Group", button: "Save Group", initial: suggested,
+                                      message: "It holds every sticker matching “\(words)”: those you have now and the ones you make later.")
+        else { return }
+        var created: StickerGroup?
+        updateGroups { created = $0.addLiveGroup(named: name, query: words) }
+        guard let made = created else { return }
+        clearTextState()
+        returnToFace()
+        selectGroupFilter(.group(made.id))
+    }
+
     /// A group's name, asked for in a small sheet; nil when cancelled or left empty.
-    private func askGroupName(title: String, button: String, initial: String = "") -> String? {
+    private func askGroupName(title: String, button: String, initial: String = "", message: String? = nil) -> String? {
         let alert = NSAlert()
         alert.messageText = title
+        if let message { alert.informativeText = message }
         alert.addButton(withTitle: button)
         alert.addButton(withTitle: "Cancel")
         let field = NSTextField(string: initial)
@@ -2282,8 +2364,8 @@ private struct DescribedPhrase {
         if source == .favorites {
             recentIDs = store.recents.saved
         } else if source == .myStickers, case let .group(id) = groupFilter, let group = store.recents.group(id: id) {
-            // A group: the latest filed first.
-            recentIDs = group.stickerIDs
+            // A group: the latest filed first (a live one: newest first).
+            recentIDs = group.members(in: store.items, people: store.people)
         } else {
             recentIDs = store.recents.recent(appBundleID: previousBundleID)
         }
@@ -3071,10 +3153,10 @@ private struct DescribedPhrase {
         case .all:
             return { _ in true }
         case let .group(id):
-            let members = Set(stickerGroups.first { $0.id == id }?.stickerIDs ?? [])
+            let members = Set(stickerGroups.first { $0.id == id }?.members(in: store.items, people: store.people) ?? [])
             return { members.contains($0) }
         case .ungrouped:
-            let grouped = Set(stickerGroups.flatMap { $0.stickerIDs })
+            let grouped = Set(groupMembers().values.flatMap { $0 })
             return { !grouped.contains($0) }
         }
     }

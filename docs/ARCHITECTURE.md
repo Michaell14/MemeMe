@@ -752,7 +752,10 @@ public struct RecentStore: Codable, Equatable, Sendable {
     public func group(named name: String) -> StickerGroup?           // any case
     public func groups(containing stickerID: UUID) -> [StickerGroup]
     public func isGrouped(_ stickerID: UUID) -> Bool
-    public func recentGroups(limit: Int) -> [StickerGroup]           // latest used first (ties: the order made)
+    public func recentGroups(limit: Int) -> [StickerGroup]           // not live ones; latest used first (ties: the order made)
+    @discardableResult public mutating func addLiveGroup(named name: String, query: String, now: Date = Date()) -> StickerGroup?
+    public private(set) var dismissedSuggestions: [String: Int]      // Not Now: key → stickers it had then
+    public mutating func dismissSuggestion(_ key: String, count: Int)
     @discardableResult public mutating func addGroup(named name: String, now: Date = Date()) -> StickerGroup?   // a name taken is that group
     @discardableResult public mutating func renameGroup(_ id: UUID, to name: String) -> Bool
     @discardableResult public mutating func removeGroup(_ id: UUID) -> (group: StickerGroup, index: Int)?      // its stickers stay
@@ -766,6 +769,19 @@ public struct StickerGroup: Codable, Equatable, Identifiable, Sendable {
     public var name: String                          // StickerGroup.cleanName: trimmed, one space between words, ≤ 40 characters
     public private(set) var stickerIDs: [UUID]       // the latest filed first
     public var lastUsedAt: Date
+    public var query: String?                        // a live group (a saved search): its words; nil otherwise
+    public var isLive: Bool { get }
+    public func members(in items: [LibraryItem], people: [Person]) -> [UUID]   // filed ones that exist; live: what the words match, newest first
+    public static func matches(_ raw: String, item: LibraryItem, people: [Person]) -> Bool   // as the search field matches
+}
+/// Groups MemeMe offers in My Stickers (GroupSuggestion.swift): a named friend, a Clip me mood word, a screen cut's app.
+public struct GroupSuggestion: Equatable, Identifiable, Sendable {
+    public let key: String                           // "person:<id>", "word:shocked", "app:slack"
+    public let name: String, reason: String
+    public let stickerIDs: [UUID]                    // newest first
+    public static let minimumStickers: Int           // 3
+    public static func suggest(items: [LibraryItem], people: [Person], groups: [(name: String, members: Set<UUID>)],
+                               dismissed: [String: Int], limit: Int = 3) -> [GroupSuggestion]
 }
 /// The Frequent row: your things sent ≥ minimumSends (2) times, most sent first (ties: latest sent, then name), not
 /// GIPHY's, not skipped, without `excluded`.

@@ -68,6 +68,27 @@ struct PickerGrid: View {
                 .truncationMode(.tail)
                 .accessibilityAddTraits(.isHeader)
             Spacer(minLength: 8)
+            if model.savableSearch != nil {
+                Button {
+                    model.saveSearchAsGroup()
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(Theme.accent)
+                        Text("Save as Group")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(Theme.text)
+                    }
+                    .padding(.horizontal, 10)
+                    .frame(height: 24)
+                    .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Theme.glassFillStrong))
+                    .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).strokeBorder(Color.white.opacity(0.22), lineWidth: 1))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Keep this search as a group that fills itself with the stickers it matches")
+            }
             if showsLookInDocuments {
                 Button("Look in Documents…") {
                     guard let url = documentsURL else { return }
@@ -115,6 +136,12 @@ struct PickerGrid: View {
                 // lift need past a tile's edge. Scrolling to the focused row then brings that room into view too, so
                 // the ring is never clipped at the top or bottom.
                 LazyVStack(alignment: .leading, spacing: 0) {
+                    // My Stickers' All, nothing searched: the groups MemeMe offers to make, above the rows.
+                    let suggestions = model.groupSuggestions
+                    if !suggestions.isEmpty {
+                        GroupSuggestionsRow(model: model, suggestions: suggestions)
+                            .padding(.vertical, Theme.gridRowSpacing / 2)
+                    }
                     ForEach(0..<rowCount, id: \.self) { row in
                         VStack(alignment: .leading, spacing: 8) {
                             if let section = layout.section(startingAt: row) {
@@ -216,13 +243,13 @@ struct PickerGrid: View {
                     }
                     if model.canGroup(pick), case let .meme(item) = pick {
                         Menu("Groups") {
-                            ForEach(model.stickerGroups) { group in
+                            ForEach(model.filableGroups) { group in
                                 Toggle(isOn: Binding(get: { group.contains(item.id) },
                                                      set: { _ in model.toggleGroup(group.id, forSticker: item.id) })) {
                                     Text(verbatim: group.name)
                                 }
                             }
-                            if !model.stickerGroups.isEmpty { Divider() }
+                            if !model.filableGroups.isEmpty { Divider() }
                             Button("New Group…") { model.newGroup(filing: item.id) }
                         }
                     }

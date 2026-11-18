@@ -521,6 +521,64 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(model.store.recents.group(id: work.id)?.stickerIDs, [a.id], "a deleted sticker leaves its groups")
     }
 
+    /// My Stickers offers groups it can see (here: three clips read as "shocked"), and a saved search is a live group
+    /// that fills itself with what its words match and takes no filing.
+    @MainActor
+    func testMyStickersSuggestsGroupsAndKeepsLiveGroups() throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.remove() }
+        let folder = try sandbox.directory("Library/Stickers")
+        func sticker(_ name: String, day: Double, labels: [String] = []) throws -> LibraryItem {
+            let fileURL = folder.appendingPathComponent("sticker-\(UUID().uuidString).png", isDirectory: false)
+            try Data([0x89, 0x50, 0x4E, 0x47]).write(to: fileURL)
+            return LibraryItem(fileURL: fileURL, displayName: name, kind: .mine, tier: .meme, source: "Camera",
+                               addedAt: AppModelTests.march15.addingTimeInterval(day * 86_400),
+                               contentHash: "hash-\(name)-\(day)", isSticker: true, labels: labels)
+        }
+        let shocked = try (0..<3).map { try sticker("You — shocked", day: Double($0)) }
+        let cat = try sticker("Judging Cat", day: 5, labels: ["cat"])
+        let loaf = try sticker("Loaf", day: 6, labels: ["cat"])
+        let model = try makeModel(in: sandbox, items: shocked + [cat, loaf])
+
+        model.panelWillShow(previousApp: nil)
+        defer {
+            model.panelDidHide()
+            model.saveNow()
+        }
+        XCTAssertTrue(model.groupSuggestions.isEmpty, "only over My Stickers")
+        model.selectSource(.myStickers)
+        let suggestion = try XCTUnwrap(model.groupSuggestions.first)
+        XCTAssertEqual(suggestion.name, "Shocked")
+        XCTAssertEqual(Set(suggestion.stickerIDs), Set(shocked.map(\.id)))
+        model.dismissSuggestion(suggestion)
+        XCTAssertTrue(model.groupSuggestions.isEmpty, "Not Now hides it")
+        XCTAssertNil(model.savableSearch, "nothing is searched")
+
+        var recents = model.store.recents
+        let cats = try XCTUnwrap(recents.addLiveGroup(named: "Cats", query: "cat"))
+        let work = try XCTUnwrap(recents.addGroup(named: "Work"))
+        model.store.recents = recents
+        model.panelDidHide()
+        model.panelWillShow(previousApp: nil)
+        model.selectSource(.myStickers)
+        XCTAssertEqual(model.groupChips.map(\.title), ["All", "Cats", "Work", "Ungrouped"])
+        XCTAssertEqual(model.groupChips.map(\.isLive), [false, true, false, false])
+        XCTAssertEqual(model.groupChips.map(\.count), [nil, 2, 0, 3], "the live group counts what its words match")
+        XCTAssertEqual(model.layout.sections.map(\.title), ["Cats", "Ungrouped"])
+        XCTAssertEqual(model.layout.pick(at: 0), .meme(loaf), "newest first")
+
+        model.selectGroupFilter(.group(cats.id))
+        XCTAssertEqual(Set(model.results.map { $0.item.id }), [cat.id, loaf.id])
+        model.hover(index: 0)
+        model.toggleMenu(.actions)
+        let groupRows = model.menuRows.filter { $0.id.hasPrefix(AppModel.groupRowPrefix) }
+        XCTAssertEqual(groupRows.map(\.title), ["Work"], "nothing is filed in a live group from ⌘K")
+        model.closeMenu()
+        model.toggleGroup(cats.id, forSticker: shocked[0].id)
+        XCTAssertEqual(model.store.recents.group(id: cats.id)?.stickerIDs, [], "or anywhere else")
+        XCTAssertNotNil(work)
+    }
+
     @MainActor
     func testEscapeWithNothingToClearCloses() throws {
         let sandbox = try TestSandbox()

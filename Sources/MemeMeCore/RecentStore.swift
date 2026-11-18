@@ -9,6 +9,9 @@ public struct RecentStore: Codable, Equatable, Sendable {
     public private(set) var saved: [UUID]
     /// Your sticker groups, in the order they were made (the order of My Stickers' chips).
     public private(set) var groups: [StickerGroup]
+    /// Suggested groups you turned down (`GroupSuggestion.key`), with how many stickers each had then: one comes back
+    /// only once it has more.
+    public private(set) var dismissedSuggestions: [String: Int]
 
     /// Key of the list that records every send regardless of app.
     public static let globalKey = "*"
@@ -20,6 +23,7 @@ public struct RecentStore: Codable, Equatable, Sendable {
         byApp = [:]
         saved = []
         groups = []
+        dismissedSuggestions = [:]
     }
 
     public func isSaved(_ id: UUID) -> Bool {
@@ -100,24 +104,43 @@ public struct RecentStore: Codable, Equatable, Sendable {
         groups.contains { $0.contains(stickerID) }
     }
 
-    /// Up to `limit` groups, the latest used first (ties: the order they were made).
+    /// Up to `limit` groups you file stickers in (not live ones), the latest used first (ties: the order they were
+    /// made).
     public func recentGroups(limit: Int) -> [StickerGroup] {
         guard limit > 0 else { return [] }
-        let ordered = groups.enumerated().sorted { lhs, rhs in
+        let ordered = groups.enumerated().filter { !$0.element.isLive }.sorted { lhs, rhs in
             if lhs.element.lastUsedAt != rhs.element.lastUsedAt { return lhs.element.lastUsedAt > rhs.element.lastUsedAt }
             return lhs.offset < rhs.offset
         }
         return Array(ordered.prefix(limit).map { $0.element })
     }
 
-    /// Makes a group named `name` (after the others), or returns the one already named so. nil when the name is empty.
+    /// Makes a group named `name` (after the others), or returns the one you file in already named so. A name a live
+    /// group has makes a numbered one ("Cats 2"), since nothing can be filed in a live group. nil when the name is
+    /// empty.
     @discardableResult
     public mutating func addGroup(named name: String, now: Date = Date()) -> StickerGroup? {
-        if let existing = group(named: name) { return existing }
+        if let existing = group(named: name), !existing.isLive { return existing }
         guard let clean = StickerGroup.cleanName(name) else { return nil }
-        let made = StickerGroup(name: clean, lastUsedAt: now)
+        let made = StickerGroup(name: unusedName(like: clean), lastUsedAt: now)
         groups.append(made)
         return made
+    }
+
+    /// Saves a search as a live group named `name` (numbered when the name is taken: "Cats 2"). nil when the name or
+    /// the words are empty.
+    @discardableResult
+    public mutating func addLiveGroup(named name: String, query: String, now: Date = Date()) -> StickerGroup? {
+        let words = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let clean = StickerGroup.cleanName(name), !words.isEmpty else { return nil }
+        let made = StickerGroup(name: unusedName(like: clean), lastUsedAt: now, query: words)
+        groups.append(made)
+        return made
+    }
+
+    /// A suggested group turned down while it had `count` stickers.
+    public mutating func dismissSuggestion(_ key: String, count: Int) {
+        dismissedSuggestions[key] = max(count, dismissedSuggestions[key] ?? 0)
     }
 
     /// Renames the group; false when the name is empty or another group has it.
@@ -164,7 +187,8 @@ public struct RecentStore: Codable, Equatable, Sendable {
 
     /// Files the sticker in the group (first), or takes it out. Filing it counts as using the group.
     public mutating func setSticker(_ stickerID: UUID, inGroup groupID: UUID, _ isIn: Bool, now: Date = Date()) {
-        guard let index = groups.firstIndex(where: { $0.id == groupID }) else { return }
+        // Nothing is filed in a live group: its words pick its stickers.
+        guard let index = groups.firstIndex(where: { $0.id == groupID }), !groups[index].isLive else { return }
         if isIn {
             groups[index].insert(stickerID)
             groups[index].lastUsedAt = now
@@ -195,7 +219,7 @@ public struct RecentStore: Codable, Equatable, Sendable {
     // MARK: Codable
 
     private enum CodingKeys: String, CodingKey {
-        case byApp, saved, groups
+        case byApp, saved, groups, dismissedSuggestions
     }
 
     public init(from decoder: Decoder) throws {
@@ -214,6 +238,7 @@ public struct RecentStore: Codable, Equatable, Sendable {
         groups = container.decodeLenient([LossyDecodable<StickerGroup>].self, forKey: .groups, default: [])
             .compactMap { $0.value }
             .filter { groupIDs.insert($0.id).inserted }
+        dismissedSuggestions = container.decodeLenient([String: Int].self, forKey: .dismissedSuggestions, default: [:])
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -221,6 +246,7 @@ public struct RecentStore: Codable, Equatable, Sendable {
         try container.encode(byApp, forKey: .byApp)
         try container.encode(saved, forKey: .saved)
         try container.encode(groups, forKey: .groups)
+        try container.encode(dismissedSuggestions, forKey: .dismissedSuggestions)
     }
 }
 
