@@ -68,6 +68,18 @@ struct PickerGrid: View {
                 .truncationMode(.tail)
                 .accessibilityAddTraits(.isHeader)
             Spacer(minLength: 8)
+            if let words = model.makingEmoji {
+                MakeEmojiLabel(title: "Making “\(words)”…", isBusy: true)
+                    .accessibilityElement(children: .combine)
+            } else if let words = model.emojiOffer {
+                Button {
+                    model.makeEmoji()
+                } label: {
+                    MakeEmojiLabel(title: "Make “\(words)”", isBusy: false)
+                }
+                .buttonStyle(.plain)
+                .help("Make a sticker of “\(words)” with Image Playground, on this Mac. It is saved to My Stickers and copied.")
+            }
             if model.savableSearch != nil {
                 Button {
                     model.saveSearchAsGroup()
@@ -307,6 +319,11 @@ struct PickerGrid: View {
                     model.findMyMemes()
                 }
                 .buttonStyle(PanelCapsuleButtonStyle(fontSize: 12, foreground: Theme.text))
+            } else if let words = model.emojiOffer {
+                Button("Make “\(words)” with Image Playground") {
+                    model.makeEmoji()
+                }
+                .buttonStyle(PanelCapsuleButtonStyle(fontSize: 12, foreground: Theme.text))
             }
         }
         .padding(.horizontal, 40)
@@ -316,6 +333,38 @@ struct PickerGrid: View {
 
 /// GIPHY's attribution beside the grid's title while GIPHY's GIFs show: "Powered by" and GIPHY's logo from the app's
 /// resources (the word "GIPHY" if it's missing).
+/// Make emoji's button beside the grid's title ("✨ Make “apple pie”"), or, while Image Playground works, the same
+/// capsule with a spinner ("Making “apple pie”…"). Styled like Save as Group.
+struct MakeEmojiLabel: View {
+    let title: String
+    let isBusy: Bool
+
+    var body: some View {
+        HStack(spacing: 5) {
+            if isBusy {
+                ProgressView()
+                    .controlSize(.mini)
+                    .frame(width: 10, height: 10)
+            } else {
+                Image(systemName: "wand.and.stars")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(Theme.accent)
+            }
+            Text(verbatim: title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(isBusy ? Theme.mutedText : Theme.text)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 24)
+        .frame(maxWidth: 260)
+        .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Theme.glassFillStrong))
+        .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).strokeBorder(Color.white.opacity(0.22), lineWidth: 1))
+        .contentShape(Rectangle())
+    }
+}
+
 struct PoweredByGiphyMark: View {
     var body: some View {
         HStack(alignment: .center, spacing: 5) {

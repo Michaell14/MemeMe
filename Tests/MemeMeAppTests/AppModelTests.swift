@@ -77,7 +77,7 @@ final class AppModelTests: XCTestCase {
             namer = StubPoseNamer()
         }
         let model = AppModel(store: store, webCacheRoot: sandbox.url.appendingPathComponent("WebCache", isDirectory: true),
-                             poseNamer: namer)
+                             poseNamer: namer, emojiMaker: StubEmojiMaker())
         model.requestsCameraAccessOnShow = false
         return model
     }

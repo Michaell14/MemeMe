@@ -129,39 +129,42 @@ jobs:
       - name: Build
         run: swift build
 
-      # FoundationModels exists only on macOS 26, and MemeMe runs on macOS 14 and later, so the framework must be
-      # weak-linked: a strong link keeps the app (and the test bundle) from loading on macOS 14 and 15. Swift links it
-      # weakly by itself only while every use is inside #if canImport(FoundationModels) and a macOS 26 availability
-      # check, so this fails on a stray use, before the tests would fail to load. The arm64 slice must link it (else
-      # the app was built without the macOS 26 SDK); another slice may leave it out, but never link it strongly. The
-      # script stays in $RUNNER_TEMP for the same check on the app's universal binary after "Build MemeMe.app".
-      - name: Check FoundationModels is weak-linked
+      # FoundationModels exists only on macOS 26 and Image Playground's ImageCreator only on macOS 15.4, and MemeMe
+      # runs on macOS 14 and later, so both frameworks must be weak-linked: a strong link keeps the app (and the test
+      # bundle) from loading on older macOS. Swift links them weakly by itself only while every use is inside
+      # #if canImport(…) and an availability check, so this fails on a stray use, before the tests would fail to load.
+      # The arm64 slice must link each (else the app was built without the macOS 26 SDK); another slice may leave one
+      # out, but never link it strongly. The script stays in $RUNNER_TEMP for the same check on the app's universal
+      # binary after "Build MemeMe.app".
+      - name: Check FoundationModels and ImagePlayground are weak-linked
         run: |
           checker="$RUNNER_TEMP/check-weak-link.sh"
           cat > "$checker" << 'CHECKER'
           #!/usr/bin/env bash
-          # check-weak-link.sh BINARY: fails unless BINARY's arm64 slice links FoundationModels and no slice links it
-          # with anything but LC_LOAD_WEAK_DYLIB.
+          # check-weak-link.sh BINARY: fails unless BINARY's arm64 slice links FoundationModels and ImagePlayground and
+          # no slice links either with anything but LC_LOAD_WEAK_DYLIB.
           set -euo pipefail
           binary="$1"
           failed=0
-          for arch in $(lipo -archs "$binary"); do
-            # The load command of each library in FoundationModels.framework ("cmd" comes before "name" in each).
-            commands="$(otool -arch "$arch" -l "$binary" \
-              | awk '$1 == "cmd" { cmd = $2 } $1 == "name" && $2 ~ /\/FoundationModels\.framework\// { print cmd }')"
-            if [[ -z "$commands" ]]; then
-              if [[ "$arch" == "arm64" ]]; then
-                echo "::error::$binary ($arch) doesn't link FoundationModels: it was built without the macOS 26 SDK (check DEVELOPER_DIR)"
+          for framework in FoundationModels ImagePlayground; do
+            for arch in $(lipo -archs "$binary"); do
+              # The load command of each library in the framework ("cmd" comes before "name" in each).
+              commands="$(otool -arch "$arch" -l "$binary" \
+                | awk -v fw="/$framework.framework/" '$1 == "cmd" { cmd = $2 } $1 == "name" && index($2, fw) { print cmd }')"
+              if [[ -z "$commands" ]]; then
+                if [[ "$arch" == "arm64" ]]; then
+                  echo "::error::$binary ($arch) doesn't link $framework: it was built without the macOS 26 SDK (check DEVELOPER_DIR)"
+                  failed=1
+                else
+                  echo "$binary ($arch): no $framework"
+                fi
+              elif grep -qvx 'LC_LOAD_WEAK_DYLIB' <<< "$commands"; then
+                echo "::error::$binary ($arch) links $framework strongly (${commands//$'\n'/, }), so it can't load on older macOS: keep every use of $framework inside #if canImport($framework) and an availability check"
                 failed=1
               else
-                echo "$binary ($arch): no FoundationModels"
+                echo "$binary ($arch): $framework is weak-linked"
               fi
-            elif grep -qvx 'LC_LOAD_WEAK_DYLIB' <<< "$commands"; then
-              echo "::error::$binary ($arch) links FoundationModels strongly (${commands//$'\n'/, }), so it can't load on macOS 14 or 15: keep every use of FoundationModels inside #if canImport(FoundationModels) and a macOS 26 availability check"
-              failed=1
-            else
-              echo "$binary ($arch): FoundationModels is weak-linked"
-            fi
+            done
           done
           exit "$failed"
           CHECKER
@@ -280,8 +283,8 @@ jobs:
           chmod +x scripts/build-app.sh
           ./scripts/build-app.sh
 
-      # The shipped binary, every slice of it (see "Check FoundationModels is weak-linked").
-      - name: Check MemeMe.app links FoundationModels weakly
+      # The shipped binary, every slice of it (see "Check FoundationModels and ImagePlayground are weak-linked").
+      - name: Check MemeMe.app links FoundationModels and ImagePlayground weakly
         run: |
           "$RUNNER_TEMP/check-weak-link.sh" build/MemeMe.app/Contents/MacOS/MemeMe
 

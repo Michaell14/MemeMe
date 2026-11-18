@@ -1298,6 +1298,26 @@ enum StickerMaker {
 }
 ```
 
+### Stickers/EmojiMaker.swift
+
+```swift
+enum EmojiMakerError: Error, Equatable { case notSupported, unavailable, refused, failed; var message: String { get } }   // HUD wording
+@MainActor protocol EmojiMaking: AnyObject {
+    var mayBeAvailable: Bool { get }          // false once this Mac is known not to make images
+    func prewarm()                            // panelWillShow: finds out (ImageCreator()) ahead of the first picture
+    func image(for words: String) async throws -> CGImage
+}
+@MainActor final class EmojiMaker: EmojiMaking {
+    static let timeout: TimeInterval          // 60 s, then .failed
+    static var osSupports: Bool { get }       // built with ImagePlayground and running on macOS 15.4+
+    static func concept(for words: String) -> String          // spaces folded, ≤ 60 characters
+    nonisolated static func stickerPNG(from image: CGImage) throws -> Data   // ScreenSubjects lifting + StickerMaker.render; off the main thread
+}
+```
+Image Playground's `ImageCreator` (macOS 15.4): one image for `[.text(concept)]` in `.animation` when `availableStyles` has it, else the first style. `.notSupported` marks the Mac unsupported for the session; `.unavailable` drops the kept creator so the next call asks again; `.unsupportedLanguage` and `.conceptsRequirePersonIdentity` are `.refused`; `.backgroundCreationForbidden` activates MemeMe (`NSApp.activate`) and retries once. Every ImagePlayground reference is behind `#if canImport(ImagePlayground)` and `#available(macOS 15.4, *)`; the creator is stored as `Any?`. CI checks the framework is weak-linked, like FoundationModels.
+
+`AppModel.emojiOffer` (the typed words while `resultSource == .text`, source All or My Stickers, `mayBeAvailable`, nothing being made), `makingEmoji` (the words being made) and `makeEmoji()`; the result goes through `FriendService.makeEmojiSticker(png:name:)` (source "Made", detail "Image Playground") and `showMadeSticker`, shared with Clip me. Tests pass `StubEmojiMaker` (MakeEmojiTests.swift) so no test asks the Mac's model.
+
 ### Stickers/FriendService.swift
 
 ```swift
