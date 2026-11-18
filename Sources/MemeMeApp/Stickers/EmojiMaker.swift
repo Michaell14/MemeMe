@@ -105,7 +105,7 @@ enum EmojiMakerError: Error, Equatable {
     }
 
     /// What Image Playground is asked for: the words, tidied (spaces folded, at most 60 characters).
-    static func concept(for words: String) -> String {
+    nonisolated static func concept(for words: String) -> String {
         let folded = words.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         return String(folded.prefix(60))
     }
