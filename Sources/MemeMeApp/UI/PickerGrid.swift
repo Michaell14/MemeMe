@@ -36,6 +36,14 @@ struct PickerGrid: View {
             if layout.sections.isEmpty {
                 header(layout)
             }
+            // The Emoji section's options for the words typed, over your emoji until one is kept.
+            if let words = model.emojiCandidateWords {
+                EmojiOptionsStrip(model: model, words: words,
+                                  tileSize: tileSize(width: width - 2 * gutter - 16, columns: layout.columns))
+                    .padding(.horizontal, gutter - 8)
+                    .padding(.top, 8)
+                    .padding(.bottom, 4)
+            }
             if layout.picks.isEmpty && !layout.isLoading {
                 emptyState(layout)
             } else {
@@ -341,6 +349,109 @@ struct PickerGrid: View {
         }
         .padding(.horizontal, 40)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// The Emoji section's four options for the words typed (`AppModel.emojiCandidates`), each as Image Playground makes
+/// it, a spinner for each still on its way. A click keeps one (saved, copied, selected); Keep all keeps every one made;
+/// Try again asks for four new ones; × or Esc drops them unsaved. Tinted in the signal color: nothing here is yours yet.
+struct EmojiOptionsStrip: View {
+    @ObservedObject var model: AppModel
+    let words: String
+    let tileSize: CGFloat
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "wand.and.stars")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(Theme.accent)
+                Text(verbatim: "New for “\(words)”")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(Theme.text)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(verbatim: model.emojiCandidates.isEmpty
+                     ? "Made on this Mac" : "Made on this Mac · click one to keep it")
+                    .font(.system(size: 11))
+                    .foregroundColor(Theme.mutedText)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                if model.emojiCandidates.count > 1 && model.emojiCandidatesPending == 0 {
+                    Button("Keep all") { model.keepAllEmojiCandidates() }
+                        .buttonStyle(PanelCapsuleButtonStyle(fontSize: 11, foreground: Theme.text))
+                }
+                if model.emojiCandidatesPending == 0 {
+                    Button("Try again") { model.retryEmojiCandidates() }
+                        .buttonStyle(PanelCapsuleButtonStyle(fontSize: 11, foreground: Theme.text))
+                }
+                Button {
+                    model.discardEmojiCandidates()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(Theme.mutedText)
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Drop these (Esc)")
+                .accessibilityLabel("Drop these options")
+            }
+            .frame(height: 24)
+            HStack(spacing: Theme.gridSpacing) {
+                ForEach(model.emojiCandidates) { candidate in
+                    Button {
+                        model.keepEmojiCandidate(id: candidate.id)
+                    } label: {
+                        EmojiOptionImage(url: candidate.pngURL)
+                            .frame(width: tileSize, height: tileSize)
+                            .background(RoundedRectangle(cornerRadius: Theme.tileRadius, style: .continuous)
+                                .fill(Theme.tileBackground))
+                            .overlay(RoundedRectangle(cornerRadius: Theme.tileRadius, style: .continuous)
+                                .strokeBorder(Theme.tileEdge, lineWidth: 1))
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Keep this one: saved to Emoji and copied")
+                    .accessibilityLabel(Text(verbatim: "Keep this “\(words)” emoji"))
+                }
+                ForEach(0..<model.emojiCandidatesPending, id: \.self) { _ in
+                    RoundedRectangle(cornerRadius: Theme.tileRadius, style: .continuous)
+                        .fill(Theme.tileBackground.opacity(0.6))
+                        .overlay(ProgressView().controlSize(.small))
+                        .frame(width: tileSize, height: tileSize)
+                        .accessibilityLabel("Making")
+                }
+            }
+        }
+        .padding(8)
+        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Theme.accent.opacity(0.05)))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .strokeBorder(Theme.accent.opacity(0.28), lineWidth: 1))
+    }
+}
+
+/// One option's cut-out, loaded from its temporary file.
+private struct EmojiOptionImage: View {
+    let url: URL
+    @State private var image: NSImage?
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(nsImage: image)
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fit)
+                    .padding(10)
+            } else {
+                Color.clear
+            }
+        }
+        .task(id: url) {
+            image = NSImage(contentsOf: url)
+        }
     }
 }
 

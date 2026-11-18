@@ -23,13 +23,29 @@ final class StubEmojiMaker: EmojiMaking {
         return StubEmojiMaker.disc()
     }
 
-    static func disc(side: Int = 256) -> CGImage {
+    /// Four different discs (so each makes its own sticker), or `error` before any.
+    func images(for words: String, count: Int) -> AsyncThrowingStream<CGImage, Error> {
+        asked.append(words)
+        let error = self.error
+        return AsyncThrowingStream { continuation in
+            if let error {
+                continuation.finish(throwing: error)
+                return
+            }
+            for index in 0..<count {
+                continuation.yield(StubEmojiMaker.disc(red: 0.2 + 0.2 * CGFloat(index)))
+            }
+            continuation.finish()
+        }
+    }
+
+    static func disc(side: Int = 256, red: CGFloat = 0.9) -> CGImage {
         let context = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: 0,
                                 space: CGColorSpaceCreateDeviceRGB(),
                                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
         context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: side, height: side))
-        context.setFillColor(CGColor(red: 0.9, green: 0.1, blue: 0.1, alpha: 1))
+        context.setFillColor(CGColor(red: red, green: 0.1, blue: 0.1, alpha: 1))
         let inset = CGFloat(side) * 0.2
         context.fillEllipse(in: CGRect(x: inset, y: inset, width: CGFloat(side) - 2 * inset,
                                        height: CGFloat(side) - 2 * inset))
@@ -141,8 +157,17 @@ final class MakeEmojiTests: XCTestCase {
         model.makeStarterEmoji("proud cat")
         XCTAssertEqual(model.queryText, "proud cat", "The idea is typed in, so the search finds it after")
         XCTAssertEqual(model.makingEmoji, "proud cat")
+        XCTAssertEqual(model.emojiCandidateWords, "proud cat")
         XCTAssertTrue(model.emojiStarters.isEmpty, "One at a time")
-        let done = await waitUntil(timeout: MakeEmojiTests.budget) { model.makingEmoji == nil }
+        let made4 = await waitUntil(timeout: MakeEmojiTests.budget) { model.emojiCandidates.count == 4 }
+        XCTAssertTrue(made4, "Four options stream in")
+        XCTAssertTrue(model.store.items.filter { $0.source == PickerSource.madeEmojiSource }.isEmpty,
+                      "Nothing is kept until you pick")
+
+        let pick = try XCTUnwrap(model.emojiCandidates.first?.id)
+        model.keepEmojiCandidate(id: pick)
+        XCTAssertNil(model.emojiCandidateWords, "Keeping one closes the strip")
+        let done = await waitUntil(timeout: MakeEmojiTests.budget) { model.newStickerID != nil }
         XCTAssertTrue(done)
 
         XCTAssertEqual(maker.asked, ["proud cat"])
@@ -157,6 +182,73 @@ final class MakeEmojiTests: XCTestCase {
         model.queryText = ""
         _ = await waitUntil(timeout: MakeEmojiTests.budget) { model.mode != .text }
         XCTAssertTrue(model.emojiStarters.isEmpty, "Ideas only until the first emoji")
+    }
+
+    @MainActor
+    func testKeepAllTryAgainAndEscape() async throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.remove() }
+        let maker = StubEmojiMaker()
+        let model = try makeModel(in: sandbox, maker: maker)
+
+        model.panelWillShow(previousApp: nil)
+        defer {
+            model.panelDidHide()
+            model.saveNow()
+        }
+        model.selectSource(.emoji)
+        model.queryText = "apple pie"
+        _ = await waitUntil(timeout: MakeEmojiTests.budget) { model.emojiOffer != nil }
+        model.makeEmoji()
+        XCTAssertNil(model.emojiOffer, "The strip has its own Try again")
+        _ = await waitUntil(timeout: MakeEmojiTests.budget) { model.emojiCandidates.count == 4 }
+
+        // Esc drops them, files included, and keeps nothing.
+        let files = model.emojiCandidates.map(\.pngURL)
+        XCTAssertTrue(model.handleEscape())
+        XCTAssertNil(model.emojiCandidateWords)
+        XCTAssertTrue(model.emojiCandidates.isEmpty)
+        let gone = await waitUntil(timeout: MakeEmojiTests.budget) {
+            files.allSatisfy { !FileManager.default.fileExists(atPath: $0.path) }
+        }
+        XCTAssertTrue(gone, "Dropped options leave no files")
+        XCTAssertTrue(model.store.items.filter { $0.source == PickerSource.madeEmojiSource }.isEmpty)
+
+        // Try again asks once more; Keep all keeps every one.
+        _ = await waitUntil(timeout: MakeEmojiTests.budget) { model.emojiOffer != nil }
+        model.makeEmoji()
+        _ = await waitUntil(timeout: MakeEmojiTests.budget) { model.emojiCandidates.count == 4 }
+        model.retryEmojiCandidates()
+        _ = await waitUntil(timeout: MakeEmojiTests.budget) { model.emojiCandidates.count == 4 }
+        XCTAssertEqual(maker.asked, ["apple pie", "apple pie", "apple pie"])
+        model.keepAllEmojiCandidates()
+        let kept = await waitUntil(timeout: MakeEmojiTests.budget) {
+            model.store.items.filter { $0.source == PickerSource.madeEmojiSource }.count == 4
+        }
+        XCTAssertTrue(kept, "Keep all keeps the four")
+        XCTAssertNil(model.emojiCandidateWords)
+        XCTAssertEqual(model.source, .emoji)
+    }
+
+    @MainActor
+    func testLeavingTheEmojiSectionDropsItsOptions() async throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.remove() }
+        let maker = StubEmojiMaker()
+        let model = try makeModel(in: sandbox, maker: maker)
+
+        model.panelWillShow(previousApp: nil)
+        defer {
+            model.panelDidHide()
+            model.saveNow()
+        }
+        model.selectSource(.emoji)
+        model.makeStarterEmoji("taco party")
+        _ = await waitUntil(timeout: MakeEmojiTests.budget) { model.emojiCandidates.count == 4 }
+        model.selectSource(.all)
+        XCTAssertNil(model.emojiCandidateWords)
+        XCTAssertTrue(model.emojiCandidates.isEmpty)
+        XCTAssertNil(model.makingEmoji)
     }
 
     @MainActor
@@ -201,5 +293,14 @@ final class MakeEmojiTests: XCTestCase {
         XCTAssertTrue(model.store.items.filter { $0.source == "Made" }.isEmpty)
         XCTAssertNil(model.clipNotice)
         XCTAssertEqual(model.emojiOffer, "someone famous", "It can be tried again")
+
+        // In the Emoji section the strip goes too, with nothing kept.
+        model.selectSource(.emoji)
+        _ = await waitUntil(timeout: MakeEmojiTests.budget) { model.emojiOffer != nil }
+        model.makeEmoji()
+        let gone = await waitUntil(timeout: MakeEmojiTests.budget) { model.emojiCandidateWords == nil }
+        XCTAssertTrue(gone)
+        XCTAssertNil(model.makingEmoji)
+        XCTAssertTrue(model.store.items.filter { $0.source == "Made" }.isEmpty)
     }
 }

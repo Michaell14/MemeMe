@@ -38,6 +38,9 @@ enum EmojiMakerError: Error, Equatable {
     func prewarm()
     /// One picture for `words`, its background left in.
     func image(for words: String) async throws -> CGImage
+    /// Up to `count` pictures for `words`, each as soon as it is made (Make emoji's four options). Ends with an
+    /// `EmojiMakerError` when none or only some could be made; cancelling the stream stops the model.
+    func images(for words: String, count: Int) -> AsyncThrowingStream<CGImage, Error>
 }
 
 /// "Make emoji": a picture for a few words from Image Playground (`ImageCreator`, macOS 15.4, Apple Intelligence),
@@ -104,6 +107,38 @@ enum EmojiMakerError: Error, Equatable {
         throw EmojiMakerError.notSupported
     }
 
+    func images(for words: String, count: Int) -> AsyncThrowingStream<CGImage, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task { @MainActor in
+                do {
+                    let concept = EmojiMaker.concept(for: words)
+                    guard !concept.isEmpty else { throw EmojiMakerError.refused }
+                    #if canImport(ImagePlayground)
+                    if #available(macOS 15.4, *) {
+                        var made = 0
+                        do {
+                            try await self.stream(concept, count: count) { image in
+                                made += 1
+                                continuation.yield(image)
+                            }
+                        } catch ImageCreator.Error.backgroundCreationForbidden where made == 0 {
+                            // As in `image(for:)`: come forward and ask once more.
+                            NSApp.activate(ignoringOtherApps: true)
+                            try await self.stream(concept, count: count) { continuation.yield($0) }
+                        }
+                        continuation.finish()
+                        return
+                    }
+                    #endif
+                    throw EmojiMakerError.notSupported
+                } catch {
+                    continuation.finish(throwing: (error as? EmojiMakerError) ?? EmojiMakerError.failed)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
     /// What Image Playground is asked for: the words, tidied (spaces folded, at most 60 characters).
     nonisolated static func concept(for words: String) -> String {
         let folded = words.split(whereSeparator: \.isWhitespace).joined(separator: " ")
@@ -151,6 +186,31 @@ enum EmojiMakerError: Error, Equatable {
             return image
         } catch let error as ImageCreator.Error {
             // Passed on as it is: `image(for:)` comes forward and tries again.
+            if case .backgroundCreationForbidden = error { throw error }
+            throw mapped(error)
+        } catch let error as EmojiMakerError {
+            throw error
+        } catch {
+            emojiLog.error("Image Playground failed: \(error.localizedDescription, privacy: .public)")
+            throw EmojiMakerError.failed
+        }
+    }
+
+    /// Up to `count` pictures of `concept`, each handed to `onImage` as it comes.
+    @available(macOS 15.4, *)
+    private func stream(_ concept: String, count: Int, onImage: (CGImage) -> Void) async throws {
+        let creator = try await readyCreator()
+        let styles = creator.availableStyles
+        let preferred: ImagePlaygroundStyle? = styles.contains(.animation) ? .animation : styles.first
+        guard let style = preferred else {
+            supported = false
+            throw EmojiMakerError.notSupported
+        }
+        do {
+            for try await created in creator.images(for: [.text(concept)], style: style, limit: count) {
+                onImage(created.cgImage)
+            }
+        } catch let error as ImageCreator.Error {
             if case .backgroundCreationForbidden = error { throw error }
             throw mapped(error)
         } catch let error as EmojiMakerError {
