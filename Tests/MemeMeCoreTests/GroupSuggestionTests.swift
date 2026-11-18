@@ -78,6 +78,26 @@ final class GroupSuggestionTests: XCTestCase {
         XCTAssertEqual(recents.recentGroups(limit: 5).map(\.name), ["Work"], "only groups you file stickers in")
     }
 
+    func testANameALiveGroupHasMakesANumberedGroupToFileIn() throws {
+        var recents = RecentStore()
+        let live = try XCTUnwrap(recents.addLiveGroup(named: "Cats", query: "cat"))
+        let filed = try XCTUnwrap(recents.addGroup(named: "cats"))
+        XCTAssertNotEqual(filed.id, live.id)
+        XCTAssertEqual(filed.name, "cats 2")
+        XCTAssertFalse(filed.isLive)
+        let a = UUID()
+        recents.setSticker(a, inGroup: filed.id, true)
+        XCTAssertEqual(recents.group(id: filed.id)?.stickerIDs, [a], "the sticker is filed, not dropped")
+        XCTAssertEqual(recents.addGroup(named: "Cats 2")?.id, filed.id, "and that one is found again by its name")
+    }
+
+    func testASuggestionWhoseNameAGroupHasInAnyAccentIsLeftOut() {
+        let jose = Person(name: "José")
+        let items = (0..<3).map { sticker("José \($0)", source: "Friend sticker", person: jose.id, day: Double($0)) }
+        XCTAssertEqual(GroupSuggestion.suggest(items: items, people: [jose], groups: [], dismissed: [:]).map(\.name), ["José"])
+        XCTAssertTrue(GroupSuggestion.suggest(items: items, people: [jose], groups: [("JOSE", [])], dismissed: [:]).isEmpty)
+    }
+
     func testLiveGroupsAndDismissalsAreKeptInTheFile() throws {
         var recents = RecentStore()
         _ = recents.addLiveGroup(named: "Cats", query: "cat")

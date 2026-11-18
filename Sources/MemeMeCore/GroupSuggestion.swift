@@ -80,12 +80,14 @@ public struct GroupSuggestion: Equatable, Identifiable, Sendable {
                                               reason: "\(entry.ids.count) cut from \(app)", stickerIDs: entry.ids))
         }
 
-        let takenNames = Set(groups.map { $0.name.lowercased() })
+        // Names compare as `RecentStore.group(named:)` does: any case, any accents.
+        let fold: (String) -> String = { $0.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil) }
+        let takenNames = Set(groups.map { fold($0.name) })
         let kept = candidates.filter { suggestion in
             let count = suggestion.stickerIDs.count
             guard count >= minimumStickers else { return false }
             if let before = dismissed[suggestion.key], count <= before { return false }
-            if takenNames.contains(suggestion.name.lowercased()) { return false }
+            if takenNames.contains(fold(suggestion.name)) { return false }
             let ids = Set(suggestion.stickerIDs)
             return !groups.contains { ids.isSubset(of: $0.members) }
         }

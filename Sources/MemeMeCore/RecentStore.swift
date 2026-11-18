@@ -115,12 +115,14 @@ public struct RecentStore: Codable, Equatable, Sendable {
         return Array(ordered.prefix(limit).map { $0.element })
     }
 
-    /// Makes a group named `name` (after the others), or returns the one already named so. nil when the name is empty.
+    /// Makes a group named `name` (after the others), or returns the one you file in already named so. A name a live
+    /// group has makes a numbered one ("Cats 2"), since nothing can be filed in a live group. nil when the name is
+    /// empty.
     @discardableResult
     public mutating func addGroup(named name: String, now: Date = Date()) -> StickerGroup? {
-        if let existing = group(named: name) { return existing }
+        if let existing = group(named: name), !existing.isLive { return existing }
         guard let clean = StickerGroup.cleanName(name) else { return nil }
-        let made = StickerGroup(name: clean, lastUsedAt: now)
+        let made = StickerGroup(name: unusedName(like: clean), lastUsedAt: now)
         groups.append(made)
         return made
     }

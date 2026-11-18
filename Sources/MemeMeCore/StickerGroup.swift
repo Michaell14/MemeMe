@@ -41,8 +41,9 @@ public struct StickerGroup: Codable, Equatable, Identifiable, Sendable {
             let existing = Set(stickers.map(\.id))
             return stickerIDs.filter { existing.contains($0) }
         }
+        guard let matches = StickerGroup.matcher(for: query, people: people) else { return [] }
         return stickers
-            .filter { StickerGroup.matches(query, item: $0, people: people) }
+            .filter(matches)
             .sorted { lhs, rhs in
                 if lhs.addedAt != rhs.addedAt { return lhs.addedAt > rhs.addedAt }
                 return lhs.id.uuidString < rhs.id.uuidString
@@ -54,13 +55,25 @@ public struct StickerGroup: Codable, Equatable, Identifiable, Sendable {
     /// its name, text, labels, source or person's name, and the filter words (`sticker`, `gif`, a friend's name).
     /// Words that are only filter words match on the filters alone; no words at all match nothing.
     public static func matches(_ raw: String, item: LibraryItem, people: [Person]) -> Bool {
+        matcher(for: raw, people: people)?(item) ?? false
+    }
+
+    /// The words parsed once, and people's names looked up once, for testing many items; nil when the words hold
+    /// nothing to match by.
+    static func matcher(for raw: String, people: [Person]) -> ((LibraryItem) -> Bool)? {
         let query = TextQuery.parse(raw, people: people)
         guard !query.terms.isEmpty || !query.personIDs.isEmpty || query.onlyGIFs || query.onlyStickers || query.onlyMine
-        else { return false }
-        guard Ranker.passesFilters(item, query: query) else { return false }
-        let personName = item.personID.flatMap { id in people.first { $0.id == id }?.name } ?? ""
-        let haystack = Ranker.searchableText(of: item, personName: personName)
-        return query.terms.allSatisfy { haystack.contains($0) }
+        else { return nil }
+        var names: [UUID: String] = [:]
+        for person in people {
+            if let name = person.name { names[person.id] = name }
+        }
+        return { item in
+            guard Ranker.passesFilters(item, query: query) else { return false }
+            let personName = item.personID.flatMap { names[$0] } ?? ""
+            let haystack = Ranker.searchableText(of: item, personName: personName)
+            return query.terms.allSatisfy { haystack.contains($0) }
+        }
     }
 
     /// Files `stickerID` first; false when it already was in the group (or it is live).
