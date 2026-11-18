@@ -120,6 +120,66 @@ final class MakeEmojiTests: XCTestCase {
     }
 
     @MainActor
+    func testTheEmojiSectionOffersIdeasFirstAndKeepsWhatYouMake() async throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.remove() }
+        let maker = StubEmojiMaker()
+        let model = try makeModel(in: sandbox, maker: maker)
+
+        model.panelWillShow(previousApp: nil)
+        defer {
+            model.panelDidHide()
+            model.saveNow()
+        }
+        model.selectSource(.emoji)
+        XCTAssertEqual(model.searchPlaceholder, "Search your emoji, or describe a new one…")
+        XCTAssertTrue(model.layout.picks.isEmpty, "Nothing made yet")
+        XCTAssertEqual(model.layout.title, "Your emoji")
+        XCTAssertTrue(model.layout.message?.hasPrefix("Make your own emoji") == true)
+        XCTAssertEqual(model.emojiStarters, AppModel.emojiStarters)
+
+        model.makeStarterEmoji("proud cat")
+        XCTAssertEqual(model.queryText, "proud cat", "The idea is typed in, so the search finds it after")
+        XCTAssertEqual(model.makingEmoji, "proud cat")
+        XCTAssertTrue(model.emojiStarters.isEmpty, "One at a time")
+        let done = await waitUntil(timeout: MakeEmojiTests.budget) { model.makingEmoji == nil }
+        XCTAssertTrue(done)
+
+        XCTAssertEqual(maker.asked, ["proud cat"])
+        XCTAssertEqual(model.source, .emoji, "It stays in the Emoji section")
+        let made = model.store.items.filter { $0.source == PickerSource.madeEmojiSource }
+        XCTAssertEqual(made.map(\.displayName), ["Proud cat"])
+        guard case let .meme(first)? = model.layout.picks.first else {
+            return XCTFail("The new emoji should be the first tile")
+        }
+        XCTAssertEqual(first.id, made.first?.id)
+
+        model.queryText = ""
+        _ = await waitUntil(timeout: MakeEmojiTests.budget) { model.mode != .text }
+        XCTAssertTrue(model.emojiStarters.isEmpty, "Ideas only until the first emoji")
+    }
+
+    @MainActor
+    func testTheEmojiSectionSaysWhyWithoutImagePlayground() async throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.remove() }
+        let maker = StubEmojiMaker()
+        maker.mayBeAvailable = false
+        let model = try makeModel(in: sandbox, maker: maker)
+
+        model.panelWillShow(previousApp: nil)
+        defer {
+            model.panelDidHide()
+            model.saveNow()
+        }
+        model.selectSource(.emoji)
+        XCTAssertEqual(model.searchPlaceholder, "Search your emoji…")
+        XCTAssertEqual(model.layout.message,
+                       "Emoji are made with Image Playground, which needs Apple Intelligence on this Mac.")
+        XCTAssertTrue(model.emojiStarters.isEmpty)
+    }
+
+    @MainActor
     func testARefusalSavesNothing() async throws {
         let sandbox = try TestSandbox()
         defer { sandbox.remove() }

@@ -953,6 +953,7 @@ private struct DescribedPhrase {
         case .favorites: return "star"
         case .onMyMac: return "laptopcomputer"
         case .myStickers: return "face.smiling"
+        case .emoji: return "wand.and.stars"
         case .giphyGIFs, .giphyStickers: return "play.rectangle"
         case .classicMemes: return "text.below.photo"
         }
@@ -1240,7 +1241,11 @@ private struct DescribedPhrase {
         if readout != nil { return "Add words to refine…" }
         switch mode {
         case .live, .warming: return "Make a face, or type to search…"
-        default: return "Search GIFs, stickers and memes…"
+        default:
+            if source == .emoji {
+                return emojiMaker.mayBeAvailable ? "Search your emoji, or describe a new one…" : "Search your emoji…"
+            }
+            return "Search GIFs, stickers and memes…"
         }
     }
 
@@ -2171,7 +2176,7 @@ private struct DescribedPhrase {
     /// The words "Make emoji" would make a sticker of: what is typed, while your own things show and this Mac may
     /// make images (Image Playground). nil otherwise, and while one is being made.
     var emojiOffer: String? {
-        guard makingEmoji == nil, resultSource == .text, source == .all || source == .myStickers,
+        guard makingEmoji == nil, resultSource == .text, source == .all || source == .myStickers || source == .emoji,
               emojiMaker.mayBeAvailable else { return nil }
         let words = EmojiMaker.concept(for: queryText)
         return words.isEmpty ? nil : words
@@ -2182,6 +2187,48 @@ private struct DescribedPhrase {
     /// Undo. It takes a few seconds; the panel can close meanwhile, and the HUD says when it's ready.
     func makeEmoji() {
         guard let words = emojiOffer else { return }
+        startMakingEmoji(words)
+    }
+
+    /// The Emoji section's first visit: a few things to make, one click each.
+    static let emojiStarters = ["sleepy coffee", "proud cat", "taco party", "rainy Monday"]
+
+    /// The starter ideas the Emoji section offers while you have made none and nothing is typed; empty elsewhere.
+    var emojiStarters: [String] {
+        guard source == .emoji, makingEmoji == nil, emojiMaker.mayBeAvailable, !hasMadeEmoji,
+              queryText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
+        return AppModel.emojiStarters
+    }
+
+    /// A starter idea was clicked: it is typed into the search field and made at once.
+    func makeStarterEmoji(_ words: String) {
+        let concept = EmojiMaker.concept(for: words)
+        guard makingEmoji == nil, emojiMaker.mayBeAvailable, !concept.isEmpty else { return }
+        queryText = concept
+        startMakingEmoji(concept)
+    }
+
+    /// You made an emoji before (one is kept).
+    private var hasMadeEmoji: Bool {
+        store.items.contains { $0.isSticker && $0.source == PickerSource.madeEmojiSource }
+    }
+
+    /// What the Emoji section says while it shows nothing.
+    private var emojiEmptyMessage: String {
+        let words = queryText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if mode == .text && !words.isEmpty {
+            return "No emoji match “\(words)”."
+        }
+        if makingEmoji != nil { return "Making your first emoji…" }
+        guard emojiMaker.mayBeAvailable else {
+            return "Emoji are made with Image Playground, which needs Apple Intelligence on this Mac."
+        }
+        return hasMadeEmoji
+            ? "No emoji match."
+            : "Make your own emoji: type anything, a mood, a food, an inside joke. Image Playground draws it on this Mac."
+    }
+
+    private func startMakingEmoji(_ words: String) {
         // A GIPHY pick still downloading must not overwrite the sticker on the pasteboard.
         commitToken += 1
         committingSession = nil
@@ -2242,7 +2289,7 @@ private struct DescribedPhrase {
                                 copied: copied,
                                 chipGroupIDs: recents.recentGroups(limit: AppModel.noticeGroupLimit).map(\.id),
                                 groupIDs: Set(recents.groups(containing: made.item.id).map(\.id)))
-        if source != .all && source != .myStickers {
+        if source != .all && source != .myStickers && source != .emoji {
             selectSource(.myStickers)
         }
         userInteracted = true
@@ -2991,6 +3038,9 @@ private struct DescribedPhrase {
             if let sectioned = groupedStickersLayout(columns: columns) { return sectioned }
             picks = ownPicks
             message = stickersEmptyMessage
+        case .emoji:
+            picks = ownPicks
+            message = emojiEmptyMessage
         case .giphyGIFs:
             picks = gifPicks
             loading = showsGiphyRow && isGiphyLoading
@@ -3021,7 +3071,7 @@ private struct DescribedPhrase {
             }
         }
         // The sticker just made (Clip me, Make emoji) comes first, wherever the ranking put it.
-        if let id = newStickerID, source == .all || source == .myStickers, groupFilterAllows(id),
+        if let id = newStickerID, source == .all || source == .myStickers || source == .emoji, groupFilterAllows(id),
            let item = store.item(id: id) {
             picks.removeAll { if case let .meme(shown) = $0 { return shown.id == id }; return false }
             picks.insert(.meme(item), at: 0)
@@ -3040,6 +3090,7 @@ private struct DescribedPhrase {
             switch source {
             case .all: return results.isEmpty ? "Trending" : recentTitle + " & Trending"
             case .onMyMac, .myStickers: return recentTitle
+            case .emoji: return "Your emoji"
             case .favorites: return "Favorites"
             case .giphyGIFs, .giphyStickers: return "Trending"
             case .classicMemes: return "Popular"
@@ -3214,7 +3265,7 @@ private struct DescribedPhrase {
     private var sourceItems: [LibraryItem] {
         let inGroup = groupFilterAllows
         return store.items.filter { item in
-            item.kind != .web && source.shows(TileKind(item)) && (source != .favorites || savedIDs.contains(item.id))
+            item.kind != .web && source.shows(item: item) && (source != .favorites || savedIDs.contains(item.id))
                 && inGroup(item.id)
         }
     }

@@ -169,7 +169,8 @@ private struct BatchRecord {
     /// "Make emoji": the die-cut PNG of what Image Playground made for `words`, kept as one of your own stickers
     /// named after them (source "Made", detail "Image Playground"), so a later search for the same words finds it.
     func makeEmojiSticker(png: Data, name: String) async throws -> (item: LibraryItem, isNew: Bool) {
-        try await makeSticker(data: png, isGIF: false, name: name, source: "Made", sourceDetail: "Image Playground")
+        try await makeSticker(data: png, isGIF: false, name: name, source: PickerSource.madeEmojiSource,
+                              sourceDetail: "Image Playground")
     }
 
     private func makeSticker(data: Data, isGIF: Bool, name: String, source: String,

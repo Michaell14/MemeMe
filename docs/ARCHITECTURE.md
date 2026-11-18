@@ -642,11 +642,13 @@ My Stickers' row per group: picks in sections, each from its own row, so slots a
 
 ```swift
 public enum PickerSource: String, CaseIterable, Sendable {
-    case all, favorites, onMyMac, myStickers, giphyGIFs, giphyStickers, classicMemes
-    public var title: String { get }                    // "All Sources", "Favorites", "On My Mac", "My Stickers", "GIPHY GIFs", "GIPHY Stickers", "Classic Memes"
+    case all, favorites, onMyMac, myStickers, emoji, giphyGIFs, giphyStickers, classicMemes
+    public static let madeEmojiSource: String           // "Made": the source of an emoji made with Make emoji
+    public var title: String { get }                    // "All Sources", "Favorites", "On My Mac", "My Stickers", "Emoji", "GIPHY GIFs", "GIPHY Stickers", "Classic Memes"
     public var group: Int { get }                       // the menu's groups: 0 all; 1 yours; 2 GIPHY's; 3 classic memes
     public func cycled(by offset: Int) -> PickerSource  // wrapping around (Tab, Shift-Tab)
-    public func shows(_ kind: TileKind) -> Bool         // every kind in all and favorites; onMyMac all but stickers; myStickers stickers; none on the web's
+    public func shows(_ kind: TileKind) -> Bool         // every kind in all and favorites; onMyMac all but stickers; myStickers and emoji stickers; none on the web's
+    public func shows(item: LibraryItem) -> Bool        // shows(kind), and in emoji only items whose source is madeEmojiSource
     public var showsOwn: Bool { get }
     public var isGiphy: Bool { get }
     public var showsGiphyGIFs: Bool { get }             // all, giphyGIFs
@@ -1316,7 +1318,7 @@ enum EmojiMakerError: Error, Equatable { case notSupported, unavailable, refused
 ```
 Image Playground's `ImageCreator` (macOS 15.4): one image for `[.text(concept)]` in `.animation` when `availableStyles` has it, else the first style. `.notSupported` marks the Mac unsupported for the session; `.unavailable` drops the kept creator so the next call asks again; `.unsupportedLanguage` and `.conceptsRequirePersonIdentity` are `.refused`; `.backgroundCreationForbidden` activates MemeMe (`NSApp.activate`) and retries once. Every ImagePlayground reference is behind `#if canImport(ImagePlayground)` and `#available(macOS 15.4, *)`; the creator is stored as `Any?`. CI checks the framework is weak-linked, like FoundationModels.
 
-`AppModel.emojiOffer` (the typed words while `resultSource == .text`, source All or My Stickers, `mayBeAvailable`, nothing being made), `makingEmoji` (the words being made) and `makeEmoji()`; the result goes through `FriendService.makeEmojiSticker(png:name:)` (source "Made", detail "Image Playground") and `showMadeSticker`, shared with Clip me. Tests pass `StubEmojiMaker` (MakeEmojiTests.swift) so no test asks the Mac's model.
+`AppModel.emojiOffer` (the typed words while `resultSource == .text`, source All, My Stickers or Emoji, `mayBeAvailable`, nothing being made), `makingEmoji` (the words being made) and `makeEmoji()`; the result goes through `FriendService.makeEmojiSticker(png:name:)` (source "Made", detail "Image Playground") and `showMadeSticker`, shared with Clip me. The Emoji source (`PickerSource.emoji`): `emojiStarters` (`AppModel.emojiStarters` while you made none and nothing is typed), `makeStarterEmoji(_:)` (types the idea and makes it), its placeholder, title "Your emoji" and empty messages. Tests pass `StubEmojiMaker` (MakeEmojiTests.swift) so no test asks the Mac's model.
 
 ### Stickers/FriendService.swift
 

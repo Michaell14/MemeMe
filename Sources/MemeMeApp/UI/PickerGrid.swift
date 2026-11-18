@@ -108,7 +108,7 @@ struct PickerGrid: View {
                     model.indexer.addWatchedFolders([url])
                 }
                 .buttonStyle(PanelLinkButtonStyle(fontSize: 11))
-            } else if model.source.showsOwn && !model.hasMemes && model.offersFindMyMemes {
+            } else if model.source.showsOwn && model.source != .emoji && !model.hasMemes && model.offersFindMyMemes {
                 Button("Find my memes") {
                     model.findMyMemes()
                 }
@@ -128,7 +128,7 @@ struct PickerGrid: View {
     }
 
     private var showsLookInDocuments: Bool {
-        guard model.mode == .text, model.source.showsOwn, !documentsAdded, model.results.count < Theme.columns,
+        guard model.mode == .text, model.source.showsOwn, model.source != .emoji, !documentsAdded, model.results.count < Theme.columns,
               let url = documentsURL else { return false }
         return !model.indexer.isWatching(url)
     }
@@ -314,7 +314,7 @@ struct PickerGrid: View {
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if model.source.showsOwn && !model.hasMemes && model.offersFindMyMemes {
+            if model.source.showsOwn && model.source != .emoji && !model.hasMemes && model.offersFindMyMemes {
                 Button("Find my memes") {
                     model.findMyMemes()
                 }
@@ -325,14 +325,25 @@ struct PickerGrid: View {
                 }
                 .buttonStyle(PanelCapsuleButtonStyle(fontSize: 12, foreground: Theme.text))
             }
+            // The Emoji section's first visit: a few ideas, one click each to make.
+            let starters = model.emojiStarters
+            if !starters.isEmpty {
+                HStack(spacing: 6) {
+                    ForEach(starters, id: \.self) { words in
+                        Button(words) {
+                            model.makeStarterEmoji(words)
+                        }
+                        .buttonStyle(PanelCapsuleButtonStyle(fontSize: 12, foreground: Theme.text))
+                        .help("Make “\(words)” with Image Playground")
+                    }
+                }
+            }
         }
         .padding(.horizontal, 40)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
-/// GIPHY's attribution beside the grid's title while GIPHY's GIFs show: "Powered by" and GIPHY's logo from the app's
-/// resources (the word "GIPHY" if it's missing).
 /// Make emoji's button beside the grid's title ("✨ Make “apple pie”"), or, while Image Playground works, the same
 /// capsule with a spinner ("Making “apple pie”…"). Styled like Save as Group.
 struct MakeEmojiLabel: View {
@@ -365,6 +376,8 @@ struct MakeEmojiLabel: View {
     }
 }
 
+/// GIPHY's attribution beside the grid's title while GIPHY's GIFs show: "Powered by" and GIPHY's logo from the app's
+/// resources (the word "GIPHY" if it's missing).
 struct PoweredByGiphyMark: View {
     var body: some View {
         HStack(alignment: .center, spacing: 5) {
