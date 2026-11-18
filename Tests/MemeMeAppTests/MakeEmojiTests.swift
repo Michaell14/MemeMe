@@ -9,6 +9,7 @@ import XCTest
 @MainActor
 final class StubEmojiMaker: EmojiMaking {
     var mayBeAvailable = true
+    var onAvailabilityChange: (() -> Void)?
     var error: EmojiMakerError?
     private(set) var asked: [String] = []
     private(set) var prewarms = 0

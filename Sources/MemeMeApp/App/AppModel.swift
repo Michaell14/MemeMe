@@ -696,6 +696,10 @@ private struct DescribedPhrase {
         indexer.onLibraryChanged = { [weak self] in
             self?.libraryDidChange()
         }
+        // Image Playground found missing (or back): the Make buttons, ideas and placeholder follow at once.
+        self.emojiMaker.onAvailabilityChange = { [weak self] in
+            self?.objectWillChange.send()
+        }
         indexerObservation = indexer.objectWillChange.sink { [weak self] _ in
             // objectWillChange fires before the new value is stored: read it on the next main-actor turn. Only
             // the open panel shows the footer (opening it refreshes the footer), so a first scan's thousands of
@@ -2408,6 +2412,7 @@ private struct DescribedPhrase {
         }
         // A GIPHY pick still downloading must not overwrite the emoji on the pasteboard.
         commitToken += 1
+        let token = commitToken
         committingSession = nil
         emojiTask?.cancel()
         emojiTask = Task { [weak self] in
@@ -2425,13 +2430,14 @@ private struct DescribedPhrase {
                 HUDController.shared.show(EmojiMakerError.failed.message)
                 return
             }
-            self.showMadeSticker(first, isGIF: false)
+            self.showMadeSticker(first, isGIF: false, copyToken: token)
         }
     }
 
     private func startMakingEmoji(_ words: String) {
         // A GIPHY pick still downloading must not overwrite the sticker on the pasteboard.
         commitToken += 1
+        let token = commitToken
         committingSession = nil
         clipNotice = nil
         makingEmoji = words
@@ -2463,19 +2469,23 @@ private struct DescribedPhrase {
                 return
             }
             self.makingEmoji = nil
-            self.showMadeSticker(made, isGIF: false)
+            self.showMadeSticker(made, isGIF: false, copyToken: token)
         }
     }
 
     /// A sticker just made (Clip me, Make emoji): copied, then, with the panel open, first in the grid, marked NEW and
     /// selected, with the notice; with it closed, the HUD.
-    private func showMadeSticker(_ made: (item: LibraryItem, isNew: Bool), isGIF: Bool) {
-        var copied = true
-        do {
-            try Clipboard.copy(fileURL: made.item.fileURL, item: made.item)
-        } catch {
-            copied = false
-            modelLog.error("Copying a made sticker failed")
+    /// `copyToken`: the `commitToken` when it was asked for; a pick copied since (a newer token) keeps the clipboard,
+    /// and the sticker is only saved. Make emoji takes seconds, so you may well have copied something else meanwhile.
+    private func showMadeSticker(_ made: (item: LibraryItem, isNew: Bool), isGIF: Bool, copyToken: Int? = nil) {
+        var copied = false
+        if copyToken == nil || copyToken == commitToken {
+            do {
+                try Clipboard.copy(fileURL: made.item.fileURL, item: made.item)
+                copied = true
+            } catch {
+                modelLog.error("Copying a made sticker failed")
+            }
         }
         guard isPanelVisible else {
             HUDController.shared.show(copied ? "Saved “\(made.item.displayName)” · copied, ⌘V to paste"
@@ -3315,7 +3325,7 @@ private struct DescribedPhrase {
         }
         // The sticker just made (Clip me, Make emoji) comes first, wherever the ranking put it.
         if let id = newStickerID, source == .all || source == .myStickers || source == .emoji, groupFilterAllows(id),
-           let item = store.item(id: id) {
+           let item = store.item(id: id), source.shows(item: item) {
             picks.removeAll { if case let .meme(shown) = $0 { return shown.id == id }; return false }
             picks.insert(.meme(item), at: 0)
         }

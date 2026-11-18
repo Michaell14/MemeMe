@@ -34,6 +34,8 @@ enum EmojiMakerError: Error, Equatable {
     /// False once this Mac is known not to make images (macOS before 15.4, no Apple Intelligence). True until then,
     /// including before `prewarm` found out.
     var mayBeAvailable: Bool { get }
+    /// Called when `mayBeAvailable` changes (`prewarm` or a picture found out), so the panel redraws its offers.
+    var onAvailabilityChange: (() -> Void)? { get set }
     /// Finds out whether images can be made, ahead of the first one (cheap after the first call).
     func prewarm()
     /// One picture for `words`, its background left in.
@@ -54,7 +56,12 @@ enum EmojiMakerError: Error, Equatable {
     static let timeout: TimeInterval = 60
 
     /// nil until `prewarm` or the first picture found out.
-    private var supported: Bool?
+    private var supported: Bool? {
+        didSet {
+            if oldValue != supported { onAvailabilityChange?() }
+        }
+    }
+    var onAvailabilityChange: (() -> Void)?
     /// The creator kept between pictures (an `ImageCreator`). Typed `Any` because a stored property can't be limited
     /// to macOS 15.4.
     private var creator: Any?
