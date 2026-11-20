@@ -17,6 +17,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var libraryOfferAccepted: Bool = false
     public var baseline: RestingBaseline = RestingBaseline()
     public var skippedUpdateBuild: Int? = nil           // the build whose panel line got "Not now"
+    /// Which ranker a held face uses: the benchmarked hybrid model (default) or the face-geometry ranker from before.
+    /// No menu item; `defaults write com.mememe.app MatchingModel classic` (or `hybrid`) sets it at the next launch.
+    public var matchingModel: MatchingModel = .hybrid
 
     /// The shortcut before ⌥M (⌃⌘M: Carbon controlKey | cmdKey). v1 has no rebinding UI, so a saved ⌃⌘M is the
     /// old default and moves to the new one.
@@ -29,7 +32,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case hotKeyKeyCode, hotKeyModifiers, openAtLogin, stickerPolicy, groupFaces, watchedFolders, collectingPausedUntil
         case webDiscoverEnabled, giphyAPIKey, klipyAPIKey, hasCompletedFirstRun, libraryOfferDismissals, libraryOfferAccepted, baseline
-        case skippedUpdateBuild
+        case skippedUpdateBuild, matchingModel
     }
 
     public init(from decoder: Decoder) throws {
@@ -53,6 +56,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         libraryOfferAccepted = container.decodeLenient(Bool.self, forKey: .libraryOfferAccepted, default: defaults.libraryOfferAccepted)
         baseline = container.decodeLenient(RestingBaseline.self, forKey: .baseline, default: defaults.baseline)
         skippedUpdateBuild = container.decodeLenientIfPresent(Int.self, forKey: .skippedUpdateBuild)
+        matchingModel = container.decodeLenient(MatchingModel.self, forKey: .matchingModel, default: defaults.matchingModel)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -72,5 +76,6 @@ public struct AppSettings: Codable, Equatable, Sendable {
         try container.encode(libraryOfferAccepted, forKey: .libraryOfferAccepted)
         try container.encode(baseline, forKey: .baseline)
         try container.encodeIfPresent(skippedUpdateBuild, forKey: .skippedUpdateBuild)
+        try container.encode(matchingModel, forKey: .matchingModel)
     }
 }

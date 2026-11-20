@@ -131,6 +131,8 @@ final class MoodTests: XCTestCase {
             .duckFace: "duck face",
             .smirk: "smirk",
             .eyeRoll: "eye roll",
+            .disgusted: "disgusted reaction",
+            .scared: "scared reaction",
         ]
         XCTAssertEqual(expected.count, Mood.allCases.count)
         for mood in Mood.allCases {

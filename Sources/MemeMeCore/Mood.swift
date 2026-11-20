@@ -4,6 +4,8 @@ import Foundation
 /// and a pose with no word of its own as the 1–3 words naming it, made on the Mac: `PoseDescription`).
 public enum Mood: String, CaseIterable, Codable, Hashable, Sendable {
     case shocked, screaming, laughing, happy, smug, sideEye, crying, sad, angry, confused, unimpressed, nervous, excited, reaction
+    // Emotions the hybrid matcher's emotion model reads that the face rules have no word for (`HSEmotionClass.mood`)
+    case disgusted, scared
     // Body language
     case celebrate, facepalm, mindBlown, shrug, thumbsUp, pointing, clapping
     case tPose, flex, dab, handsOnHips, armsCrossed, pickMe, hello, ohNo, peace, bow
@@ -44,6 +46,8 @@ public enum Mood: String, CaseIterable, Codable, Hashable, Sendable {
         case .unimpressed: return "unimpressed"
         case .nervous: return "nervous"
         case .excited: return "excited"
+        case .disgusted: return "disgusted"
+        case .scared: return "scared"
         case .reaction: return "reaction"
         case .celebrate: return "celebrate"
         case .facepalm: return "facepalm"

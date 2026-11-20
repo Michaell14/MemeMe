@@ -83,6 +83,28 @@ public enum HeldFaceReading {
         return Array(ordered.prefix(limit).map(\.element))
     }
 
+    /// The hybrid matcher's reading for the same meters: the emotion model's words (contempt and neutral both read
+    /// "Unimpressed", their probabilities added), most probable first, level = round(5 × probability), no region.
+    public static func emotionCues(_ probabilities: [Double], limit: Int = 4) -> [Cue] {
+        guard limit > 0, probabilities.count == HSEmotionClass.allCases.count else { return [] }
+        var byMood: [(mood: Mood, p: Double)] = []
+        for c in HSEmotionClass.allCases {
+            if let i = byMood.firstIndex(where: { $0.mood == c.mood }) {
+                byMood[i].p += probabilities[c.rawValue]
+            } else {
+                byMood.append((c.mood, probabilities[c.rawValue]))
+            }
+        }
+        let ordered = byMood.enumerated().sorted { lhs, rhs in
+            lhs.element.p != rhs.element.p ? lhs.element.p > rhs.element.p : lhs.offset < rhs.offset
+        }
+        return ordered.prefix(limit).map { entry in
+            let label = entry.element.mood.label
+            return Cue(label: label.prefix(1).uppercased() + label.dropFirst(), region: nil,
+                       level: Int((5 * min(1, max(0, entry.element.p))).rounded()))
+        }
+    }
+
     /// How much each part of the face shows in `cues`: its strongest cue's level (the mirror's glow while you hold a
     /// face). Parts with nothing (level 0) are left out.
     public static func glow(of cues: [Cue]) -> [FaceRegion: Double] {
