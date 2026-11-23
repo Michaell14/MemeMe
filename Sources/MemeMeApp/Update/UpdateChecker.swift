@@ -387,8 +387,7 @@ private let updateLog = Logger(subsystem: "com.mememe.app", category: "update")
         for button in buttons {
             alert.addButton(withTitle: button)
         }
-        NSApplication.shared.activate()
-        return alert.runModal()
+        return FrontModal.run(alert)
     }
 }
 

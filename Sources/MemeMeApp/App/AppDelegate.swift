@@ -147,8 +147,7 @@ private let launchLog = Logger(subsystem: "com.mememe.app", category: "app")
         alert.messageText = "MemeMe can’t open its library"
         alert.informativeText = "It couldn’t create a folder in Application Support or in the temporary folder. Check the disk’s free space and permissions, then open MemeMe again."
         alert.addButton(withTitle: "Quit")
-        NSApplication.shared.activate()
-        _ = alert.runModal()
+        _ = FrontModal.run(alert)
         NSApplication.shared.terminate(nil)
     }
 }

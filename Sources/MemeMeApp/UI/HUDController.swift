@@ -116,7 +116,7 @@ final class HUDController {
         )
         newPanel.isFloatingPanel = true
         // Over the menu bar, like the drawer it stands in for.
-        newPanel.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 2)
+        newPanel.level = .overMenuBar
         newPanel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient, .ignoresCycle]
         newPanel.ignoresMouseEvents = true
         newPanel.hidesOnDeactivate = false
