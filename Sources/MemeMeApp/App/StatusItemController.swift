@@ -425,8 +425,7 @@ import SwiftUI
         panel.canCreateDirectories = false
         panel.prompt = "Collect"
         panel.message = "Choose folders with memes. MemeMe indexes them in place; files are never copied or moved."
-        NSApplication.shared.activate()
-        guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
+        guard FrontModal.run(panel) == .OK, !panel.urls.isEmpty else { return }
         model.indexer.addWatchedFolders(panel.urls)
     }
 
@@ -483,8 +482,7 @@ import SwiftUI
         alert.accessoryView = field
         alert.window.initialFirstResponder = field
 
-        NSApplication.shared.activate()
-        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+        guard FrontModal.run(alert) == .alertFirstButtonReturn else { return nil }
         return field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 

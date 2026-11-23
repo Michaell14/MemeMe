@@ -170,7 +170,7 @@ final class PanelController: NSObject {
     private func configurePanel(initialFrame: NSRect) {
         panel.isFloatingPanel = true
         // Over every app's windows, like Spotlight.
-        panel.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 2)
+        panel.level = .overMenuBar
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
         panel.hidesOnDeactivate = false
         panel.backgroundColor = .clear
