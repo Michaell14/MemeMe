@@ -1,5 +1,4 @@
 import AppKit
-import Carbon.HIToolbox
 import MemeMeCore
 import os
 
@@ -11,9 +10,9 @@ private let launchLog = Logger(subsystem: "com.mememe.app", category: "app")
     private var panel: PanelController?
     private var statusItem: StatusItemController?
     private var popoverModel: StickerPopoverModel?
-    private var hotKey: HotKey?
-    /// ⌥S from anywhere: cut a sticker out of the screen.
-    private var screenCutHotKey: HotKey?
+    /// The panel's (⌥M) and the screen cut's (⌥S) hot keys, as picked in Change Shortcut…, and what each does.
+    private var hotKeys: [HotKeyRole: HotKey] = [:]
+    private var hotKeyActions: [HotKeyRole: @MainActor () -> Void] = [:]
     private var screenCut: ScreenCutController?
 
     /// Set once the first-run panel has opened by itself, so later launches (login) stay quiet until ⌥M.
@@ -34,7 +33,6 @@ private let launchLog = Logger(subsystem: "com.mememe.app", category: "app")
         let statusItem = StatusItemController(model: model, popoverModel: popoverModel, openPanel: { [weak panel] in
             panel?.show()
         })
-        let hotKey = AppDelegate.makePanelHotKey(store.settings.hotKey, panel: panel)
 
         let screenCut = ScreenCutController(model: model)
         let startScreenCut: @MainActor () -> Void = { [weak panel, weak screenCut] in
@@ -42,9 +40,12 @@ private let launchLog = Logger(subsystem: "com.mememe.app", category: "app")
             screenCut?.start()
         }
         model.onRequestScreenCut = startScreenCut
+        hotKeyActions[.panel] = { [weak panel] in
+            panel?.toggle()
+        }
         // ⌥S: Clip me while the panel's face search reads you (a still sticker of your reaction); else a cut from
         // the screen.
-        let screenCutHotKey = HotKey(keyCode: UInt32(kVK_ANSI_S), modifiers: UInt32(optionKey)) { [weak model] in
+        hotKeyActions[.screenCut] = { [weak model] in
             guard let model else { return }
             if model.isPanelVisible && model.faceSearchOn {
                 model.clipTap()
@@ -56,20 +57,24 @@ private let launchLog = Logger(subsystem: "com.mememe.app", category: "app")
         self.model = model
         self.panel = panel
         self.screenCut = screenCut
-        self.screenCutHotKey = screenCutHotKey
         self.popoverModel = popoverModel
         self.statusItem = statusItem
-        self.hotKey = hotKey
 
-        model.setHotKey(store.settings.hotKey, available: hotKey.register())
-        model.onChangeHotKey = { [weak self] shortcut in
-            self?.rebindPanelHotKey(to: shortcut) ?? false
+        for role in HotKeyRole.allCases {
+            let shortcut = store.settings.shortcut(for: role)
+            let hotKey = makeHotKey(role, shortcut)
+            hotKeys[role] = hotKey
+            let registered = hotKey.register()
+            if !registered && role == .screenCut {
+                launchLog.error("The screen cut's shortcut is taken by another app: it opens from the panel's ✂ only")
+            }
+            model.setHotKey(shortcut, available: registered, for: role)
+        }
+        model.onChangeHotKey = { [weak self] role, shortcut in
+            self?.rebindHotKey(role, to: shortcut) ?? false
         }
         model.onSuspendHotKeys = { [weak self] suspended in
-            self?.suspendHotKeys(suspended) ?? false
-        }
-        if !screenCutHotKey.register() {
-            launchLog.error("⌥S is taken by another app: the screen cut opens from the panel's ✂ only")
+            self?.suspendHotKeys(suspended) ?? []
         }
         model.start()
 
@@ -84,8 +89,9 @@ private let launchLog = Logger(subsystem: "com.mememe.app", category: "app")
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        hotKey?.unregister()
-        screenCutHotKey?.unregister()
+        for hotKey in hotKeys.values {
+            hotKey.unregister()
+        }
         model?.saveNow()
     }
 
@@ -101,22 +107,22 @@ private let launchLog = Logger(subsystem: "com.mememe.app", category: "app")
 
     // MARK: - Private
 
-    private static func makePanelHotKey(_ shortcut: HotKeyShortcut, panel: PanelController) -> HotKey {
-        HotKey(keyCode: shortcut.keyCode, modifiers: shortcut.modifiers, action: { [weak panel] in
-            panel?.toggle()
+    private func makeHotKey(_ role: HotKeyRole, _ shortcut: HotKeyShortcut) -> HotKey {
+        let action = hotKeyActions[role]
+        return HotKey(keyCode: shortcut.keyCode, modifiers: shortcut.modifiers, action: {
+            action?()
         })
     }
 
-    /// Change Shortcut…: the new shortcut replaces the panel's hot key only once it is registered; when another app
+    /// Change Shortcut…: the new shortcut replaces `role`'s hot key only once it is registered; when another app
     /// holds it, the old one stays (registered again unless the hot keys are suspended meanwhile).
-    private func rebindPanelHotKey(to shortcut: HotKeyShortcut) -> Bool {
-        guard let panel else { return false }
-        let old = hotKey
+    private func rebindHotKey(_ role: HotKeyRole, to shortcut: HotKeyShortcut) -> Bool {
+        let old = hotKeys[role]
         let oldWasRegistered = old?.isRegistered ?? false
         old?.unregister()
-        let new = AppDelegate.makePanelHotKey(shortcut, panel: panel)
+        let new = makeHotKey(role, shortcut)
         if new.register() {
-            hotKey = new
+            hotKeys[role] = new
             return true
         }
         if oldWasRegistered {
@@ -125,18 +131,23 @@ private let launchLog = Logger(subsystem: "com.mememe.app", category: "app")
         return false
     }
 
-    /// Lets go of the hot keys while Change Shortcut… records keys, so they reach its alert; true after taking them
-    /// back when the panel's is registered.
-    private func suspendHotKeys(_ suspended: Bool) -> Bool {
+    /// Lets go of the hot keys while Change Shortcut… records keys, so they reach its alert; after, takes them back
+    /// and returns the roles whose hot key is registered.
+    private func suspendHotKeys(_ suspended: Bool) -> Set<HotKeyRole> {
         if suspended {
-            hotKey?.unregister()
-            screenCutHotKey?.unregister()
-            return false
+            for hotKey in hotKeys.values {
+                hotKey.unregister()
+            }
+            return []
         }
-        if screenCutHotKey?.register() == false {
-            launchLog.error("⌥S is taken by another app: the screen cut opens from the panel's ✂ only")
+        var registered = Set<HotKeyRole>()
+        for (role, hotKey) in hotKeys where hotKey.register() {
+            registered.insert(role)
         }
-        return hotKey?.register() ?? false
+        if !registered.contains(.screenCut) {
+            launchLog.error("The screen cut's shortcut is taken by another app: it opens from the panel's ✂ only")
+        }
+        return registered
     }
 
     /// An accessory app shows no menu bar, but AppKit still resolves ⌘Z/⌘X/⌘C/⌘V/⌘A through the main menu.

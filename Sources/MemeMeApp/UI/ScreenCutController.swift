@@ -309,7 +309,9 @@ private final class ScreenCutPanel: NSPanel {
         guard panel == nil, !isStarting else { return }
         guard CGPreflightScreenCaptureAccess() else {
             _ = CGRequestScreenCaptureAccess()
-            HUDController.shared.show("Allow MemeMe to record the screen in System Settings › Privacy & Security, then press ⌥S again.")
+            HUDController.shared.show(model.screenCutHotKeyAvailable
+                ? "Allow MemeMe to record the screen in System Settings › Privacy & Security, then press \(model.screenCutHotKey.label) again."
+                : "Allow MemeMe to record the screen in System Settings › Privacy & Security, then try again.")
             return
         }
         isStarting = true

@@ -337,7 +337,7 @@ struct PanelView: View {
     }
 
     /// ✂: with face search on, "Clip me" clips your reaction from the camera (tap a still, hold a moving one); off, it
-    /// cuts a sticker out of the screen. ⌥S does the same.
+    /// cuts a sticker out of the screen. The screen cut's shortcut (⌥S) does the same.
     @ViewBuilder
     private var scissorsButton: some View {
         if model.faceSearchOn {
@@ -353,7 +353,9 @@ struct PanelView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(IslandButtonStyle())
-            .help("Cut a sticker out of your screen (⌥S)")
+            .help(model.screenCutHotKeyAvailable
+                  ? "Cut a sticker out of your screen (\(model.screenCutHotKey.label))"
+                  : "Cut a sticker out of your screen")
             .accessibilityLabel("Cut a sticker out of your screen")
         }
     }
@@ -866,7 +868,9 @@ private struct ClipButton: View {
                 .font(.system(size: 13, weight: .medium).monospacedDigit())
                 .foregroundColor(Theme.text)
                 .frame(width: 58, alignment: .leading)
-            Keycap("⌥S")
+            if model.screenCutHotKeyAvailable {
+                Keycap(model.screenCutHotKey.label)
+            }
         }
         .padding(.leading, 8)
         .padding(.trailing, 5)

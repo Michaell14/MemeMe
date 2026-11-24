@@ -56,7 +56,9 @@ extension HotKeyShortcut {
     @MainActor var keycaps: [String] { symbols(keyName: layoutKeyName) }
     /// "Option M".
     @MainActor var accessibilityName: String { spokenName(keyName: layoutKeyName) }
-    @MainActor var problemText: String? { problemMessage(keyName: layoutKeyName) }
+    @MainActor func problemText(as role: HotKeyRole, besides other: HotKeyShortcut) -> String? {
+        problemMessage(as: role, besides: other, keyName: layoutKeyName)
+    }
 
     /// The menu item's key equivalent ("m" with [.option]); nil for keys a menu can't show as one character.
     @MainActor var menuKeyEquivalent: (key: String, modifiers: NSEvent.ModifierFlags)? {
@@ -78,19 +80,26 @@ extension HotKeyShortcut {
     private static let enterKey: UInt16 = 76
     private static let escapeKey: UInt16 = 53
 
-    /// Runs until a shortcut is saved, the alert is cancelled, or the panel is back on ⌥M. MemeMe's hot keys are let
-    /// go meanwhile, so pressing the current one (or ⌥S) is recorded instead of acting.
-    static func run(model: AppModel) {
+    /// Runs until `role`'s shortcut is saved, the alert is cancelled, or it is back on its standard keys. MemeMe's hot
+    /// keys are let go meanwhile, so pressing the current ones (⌥M, ⌥S) is recorded instead of acting.
+    static func run(model: AppModel, role: HotKeyRole) {
         model.suspendHotKeys(true)
         defer { model.suspendHotKeys(false) }
 
         var candidate: HotKeyShortcut? = nil
-        var notice: String? = model.hotKeyAvailable ? nil : "\(model.hotKey.label) is taken by another app."
+        let current = model.shortcut(for: role)
+        var notice: String? = model.isHotKeyAvailable(role) ? nil : "\(current.label) is taken by another app."
         while true {
-            guard let outcome = ask(model: model, candidate: candidate, notice: notice) else { return }
-            if outcome == model.hotKey && model.hotKeyAvailable { return }
-            if model.changeHotKey(to: outcome) {
-                HUDController.shared.show("Open MemeMe with \(outcome.label)")
+            guard let outcome = ask(model: model, role: role, candidate: candidate, notice: notice) else { return }
+            if outcome == current && model.isHotKeyAvailable(role) { return }
+            // "Use ⌥S" while the other shortcut is ⌥S.
+            if let problem = outcome.problemText(as: role, besides: model.shortcut(for: role.other)) {
+                candidate = nil
+                notice = problem
+                continue
+            }
+            if model.changeHotKey(role, to: outcome) {
+                HUDController.shared.show(savedText(role, outcome))
                 return
             }
             candidate = outcome
@@ -98,23 +107,40 @@ extension HotKeyShortcut {
         }
     }
 
+    /// "Open MemeMe with ⌃⌥K", "Cut from the screen with ⌃⌥X".
+    private static func savedText(_ role: HotKeyRole, _ shortcut: HotKeyShortcut) -> String {
+        switch role {
+        case .panel: return "Open MemeMe with \(shortcut.label)"
+        case .screenCut: return "Cut from the screen with \(shortcut.label)"
+        }
+    }
+
     /// One round of the alert: the shortcut to save, or nil when cancelled.
-    private static func ask(model: AppModel, candidate: HotKeyShortcut?, notice: String?) -> HotKeyShortcut? {
-        let current = model.hotKey
+    private static func ask(model: AppModel, role: HotKeyRole, candidate: HotKeyShortcut?,
+                            notice: String?) -> HotKeyShortcut? {
+        let current = model.shortcut(for: role)
+        let other = model.shortcut(for: role.other)
         let alert = NSAlert()
-        alert.messageText = "Shortcut for MemeMe"
-        alert.informativeText = "Press the keys that open MemeMe from any app. Use ⌃, ⌥ or ⌘ with a key, or an F key on its own."
+        let rule = "Use ⌃, ⌥ or ⌘ with a key, or an F key on its own."
+        switch role {
+        case .panel:
+            alert.messageText = "Shortcut for MemeMe"
+            alert.informativeText = "Press the keys that open MemeMe from any app. \(rule)"
+        case .screenCut:
+            alert.messageText = "Shortcut for Cutting from the Screen"
+            alert.informativeText = "Press the keys that cut a sticker out of the screen from any app. While face search is on, they take Clip me. \(rule)"
+        }
         let save = alert.addButton(withTitle: "Save")
         alert.addButton(withTitle: "Cancel")
-        if current != .standard {
-            alert.addButton(withTitle: "Use \(HotKeyShortcut.standard.label)")
+        if current != role.standard {
+            alert.addButton(withTitle: "Use \(role.standard.label)")
         }
 
         let field = ShortcutField(frame: NSRect(x: 0, y: 0, width: 300, height: 58))
         field.show(candidate ?? current, notice: notice, isWarning: notice != nil)
         alert.accessoryView = field
         var recorded = candidate
-        save.isEnabled = candidate.map { $0.problem == nil } ?? false
+        save.isEnabled = candidate.map { $0.problem(as: role, besides: other) == nil } ?? false
 
         let monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             guard event.window === alert.window else { return event }
@@ -124,7 +150,7 @@ extension HotKeyShortcut {
                 // Return saves and Escape cancels, as in any alert.
                 if [ShortcutPrompt.returnKey, ShortcutPrompt.enterKey, ShortcutPrompt.escapeKey].contains(event.keyCode) && pressed.modifiers == 0 { return event }
             }
-            if let problem = pressed.problemText {
+            if let problem = pressed.problemText(as: role, besides: other) {
                 field.show(pressed, notice: problem, isWarning: true)
                 recorded = nil
                 save.isEnabled = false
@@ -141,7 +167,7 @@ extension HotKeyShortcut {
 
         switch FrontModal.run(alert) {
         case .alertFirstButtonReturn: return recorded
-        case .alertThirdButtonReturn: return .standard
+        case .alertThirdButtonReturn: return role.standard
         default: return nil
         }
     }

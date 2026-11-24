@@ -26,6 +26,7 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(settings.baseline, RestingBaseline())
         XCTAssertNil(settings.skippedUpdateBuild)
         XCTAssertFalse(settings.hotKeyChosen)
+        XCTAssertEqual(settings.screenCutHotKey, .screenCut)
     }
 
     func testDecodingAnEmptyObjectGivesDefaults() throws {
@@ -67,11 +68,25 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(settings.hotKeyModifiers, 6144)
     }
 
+    func testSettingAShortcutPerRole() {
+        var settings = AppSettings()
+        let x = HotKeyShortcut(keyCode: 7, modifiers: HotKeyShortcut.control | HotKeyShortcut.option)
+        settings.setShortcut(x, for: .screenCut)
+        XCTAssertEqual(settings.shortcut(for: .screenCut), x)
+        XCTAssertEqual(settings.screenCutKeyCode, 7)
+        XCTAssertEqual(settings.screenCutModifiers, 6144)
+        XCTAssertEqual(settings.shortcut(for: .panel), .standard)
+        XCTAssertFalse(settings.hotKeyChosen)
+        settings.setShortcut(.standard, for: .panel)
+        XCTAssertTrue(settings.hotKeyChosen)
+    }
+
     func testRoundTripWithEveryFieldChanged() throws {
         var settings = AppSettings()
         settings.hotKeyKeyCode = 12
         settings.hotKeyModifiers = 256
         settings.hotKeyChosen = true
+        settings.screenCutHotKey = HotKeyShortcut(keyCode: 7, modifiers: HotKeyShortcut.control | HotKeyShortcut.option)
         settings.openAtLogin = false
         settings.stickerPolicy = .ask
         settings.groupFaces = false
