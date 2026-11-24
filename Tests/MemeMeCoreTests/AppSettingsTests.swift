@@ -25,6 +25,7 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertFalse(settings.libraryOfferAccepted)
         XCTAssertEqual(settings.baseline, RestingBaseline())
         XCTAssertNil(settings.skippedUpdateBuild)
+        XCTAssertFalse(settings.hotKeyChosen)
     }
 
     func testDecodingAnEmptyObjectGivesDefaults() throws {
@@ -51,10 +52,26 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(settings.hotKeyModifiers, 2048)
     }
 
+    func testAPickedControlCommandMStays() throws {
+        let json = #"{"hotKeyKeyCode": 46, "hotKeyModifiers": 4352, "hotKeyChosen": true}"#
+        let settings = try makeDecoder().decode(AppSettings.self, from: Data(json.utf8))
+        XCTAssertEqual(settings.hotKey, HotKeyShortcut(keyCode: 46, modifiers: HotKeyShortcut.control | HotKeyShortcut.command))
+        XCTAssertTrue(settings.hotKeyChosen)
+    }
+
+    func testHotKeyReadsAndWritesTheKeyCodeAndModifiers() {
+        var settings = AppSettings()
+        XCTAssertEqual(settings.hotKey, .standard)
+        settings.hotKey = HotKeyShortcut(keyCode: 40, modifiers: HotKeyShortcut.control | HotKeyShortcut.option)
+        XCTAssertEqual(settings.hotKeyKeyCode, 40)
+        XCTAssertEqual(settings.hotKeyModifiers, 6144)
+    }
+
     func testRoundTripWithEveryFieldChanged() throws {
         var settings = AppSettings()
         settings.hotKeyKeyCode = 12
         settings.hotKeyModifiers = 256
+        settings.hotKeyChosen = true
         settings.openAtLogin = false
         settings.stickerPolicy = .ask
         settings.groupFaces = false

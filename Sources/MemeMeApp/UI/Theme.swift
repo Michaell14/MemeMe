@@ -182,13 +182,14 @@ struct PanelLinkButtonStyle: ButtonStyle {
     }
 }
 
-/// ⌥ M keycaps.
+/// Keycaps: ⌥ M unless given other keys.
 struct KeycapRow: View {
     var keys: [String] = ["⌥", "M"]
     var color: Color = Theme.mutedText
     var fontSize: CGFloat = 11
     /// Filled caps with brighter text (used on the setup card).
     var filled: Bool = false
+    var spokenName: String = "Option M"
 
     var body: some View {
         HStack(spacing: 3) {
@@ -210,6 +211,6 @@ struct KeycapRow: View {
         }
         .fixedSize()
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Option M")
+        .accessibilityLabel(spokenName)
     }
 }

@@ -174,15 +174,16 @@ A white speech bubble with a wink in it on an orange tile (`#FF9A5C` to a deeper
   - Kept memes: "Kept 23 · 4 duplicates merged" + "Undo".
   - The popover closes on outside click or after 8 s without hover.
 - Menu:
-  - Open MemeMe ⌥M
+  - Open MemeMe ⌥M (the shortcut picked, if it isn't ⌥M; none shown while another app holds it)
   - — Collecting from: ✓ Downloads · ✓ Desktop · ✓ Screenshots (each toggles) · Add Folder… · Find Memes on This Mac (when nothing is watched)
   - Pause Collecting for 1 Hour (or Resume Collecting)
   - — Web Discover (GIPHY) ✓ · Set GIPHY API Key…
   - — Photos with People ▸ Make Stickers Automatically / Ask Each Time / Never
   - Group Friends’ Faces ✓ · Forget My Resting Face
-  - — Open at Login ✓ · Show Library in Finder
+  - — Open at Login ✓ · Change Shortcut (⌥M)… (while another app holds it: "Change Shortcut (⌥M Is Taken)…") · Show Library in Finder
   - — Check for Updates… · Version 1.0 (57) (disabled; both only in builds that can update, see Updates)
   - — Quit MemeMe
+  - The icon's tooltip: "MemeMe (⌥M). Drop images here to keep them." ("MemeMe. …" while the shortcut is taken).
   - When an update is available, the menu starts with **Update to MemeMe 1.0 (58)…** and a separator (while it downloads or installs: **Updating MemeMe…**, disabled).
 
 ## Sticker groups
@@ -219,8 +220,16 @@ GIPHY's results are shown the way GIPHY's rules ask: together, in GIPHY's order,
 
 1. App launches (LSUIElement, no Dock icon). On the first launch per install only, the panel opens by itself (later login launches stay quiet until ⌥M), in its usual place under the menu bar, in the prompt state, with [Find my memes] under the mirror, the most popular classic memes and GIPHY's "reaction" results (no GIFs when offline or without a key).
 2. 0.6 s later the camera permission request (the app is activated for this one prompt so the system alert is in front).
-3. Make any face → results. Pick → the You're set card. ⌥M is registered without any permission (Carbon hot key). If the shortcut can't be registered, the card says "⌥M is taken by another app." (rebinding UI is out of scope for v1).
+3. Make any face → results. Pick → the You're set card. ⌥M is registered without any permission (Carbon hot key). If the shortcut can't be registered, the card says "⌥M is taken by another app." with **Change…** (Change Shortcut, below).
 4. Open at login is registered via `SMAppService.mainApp` (checked by default, toggle in card and menu).
+
+## Change Shortcut
+
+- **Where:** the menu's **Change Shortcut (⌥M)…**, and **Change…** on the You're set card while another app holds the shortcut. Settings stay out of the panel otherwise.
+- **The alert:** "Shortcut for MemeMe" / "Press the keys that open MemeMe from any app. Use ⌃, ⌥ or ⌘ with a key, or an F key on its own." Under it, the keys (the current shortcut until others are pressed) and a line: "Press a new shortcut.", "That’s the shortcut now." or, in red, why the keys can't be used. [Save] [Cancel] and, when the shortcut isn't ⌥M, [Use ⌥M]. Save is off until usable keys are pressed; ↩ saves and ⎋ cancels.
+- **Refused keys:** a key without ⌃, ⌥ or ⌘ (F1–F20 excepted): "Add ⌃, ⌥ or ⌘ to the key."; ⌘ alone: "⌘ shortcuts belong to the app you’re in. Add ⌃, ⌥ or ⇧."; ⌥S: "⌥S cuts stickers from the screen. Pick another."; shortcuts macOS keeps (⌘Space, ⌃Space, ⌥⌘Space, ⌃⌘Space, ⇧⌘Tab, ⇧⌘3/4/5, ⌃⌘Q, ⌥⌘⎋): "macOS uses ⌃Space. Pick another." (`HotKeyShortcut.problem`).
+- **While it's open** MemeMe lets go of ⌥M (or the current shortcut) and ⌥S, so pressing them is recorded instead of opening the panel or a screen cut; both come back when it closes. Keys another app holds still go to that app.
+- **Saving:** the new shortcut replaces the old only once it is registered: HUD "Open MemeMe with ⌃⌥K". Taken by another app: the alert comes back with the keys and, in red, "⌃⌥K is taken by another app. Try another." The menu, the icon's tooltip and the card show the shortcut picked; letter keys as the current keyboard layout labels them (⌥A on AZERTY for the ANSI Q key).
 
 ## Updates
 
@@ -245,4 +254,4 @@ MemeMe updates itself from GitHub Releases. Every change to the app on the defau
 
 ## Out of scope for v1
 
-Showing the camera's picture to the on-device model (image input needs the macOS 27 SDK; a possible follow-up once CI has Xcode 27), auto-paste, rebinding the shortcut, a full library window, KLIPY (protocol is ready; endpoint shape unverified), Imgflip starter set, Photos library access, Messages history import.
+Showing the camera's picture to the on-device model (image input needs the macOS 27 SDK; a possible follow-up once CI has Xcode 27), auto-paste, a full library window, Imgflip starter set, Photos library access, Messages history import.
