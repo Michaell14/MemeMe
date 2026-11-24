@@ -6,6 +6,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var hotKeyModifiers: UInt32 = 2048           // Carbon optionKey (⌥M)
     /// Set once a shortcut was picked with Change Shortcut…, so a picked ⌃⌘M isn't taken for the old default.
     public var hotKeyChosen: Bool = false
+    public var screenCutKeyCode: UInt32 = 1             // kVK_ANSI_S
+    public var screenCutModifiers: UInt32 = 2048        // Carbon optionKey (⌥S)
     public var openAtLogin: Bool = true
     public var stickerPolicy: StickerPolicy = .automatic
     public var groupFaces: Bool? = nil                  // nil = not asked yet
@@ -38,10 +40,37 @@ public struct AppSettings: Codable, Equatable, Sendable {
         }
     }
 
+    /// The screen cut's shortcut, from `screenCutKeyCode` and `screenCutModifiers`.
+    public var screenCutHotKey: HotKeyShortcut {
+        get { HotKeyShortcut(keyCode: screenCutKeyCode, modifiers: screenCutModifiers) }
+        set {
+            screenCutKeyCode = newValue.keyCode
+            screenCutModifiers = newValue.modifiers
+        }
+    }
+
+    public func shortcut(for role: HotKeyRole) -> HotKeyShortcut {
+        switch role {
+        case .panel: return hotKey
+        case .screenCut: return screenCutHotKey
+        }
+    }
+
+    /// Keeps a shortcut picked with Change Shortcut… (for the panel, also `hotKeyChosen`).
+    public mutating func setShortcut(_ shortcut: HotKeyShortcut, for role: HotKeyRole) {
+        switch role {
+        case .panel:
+            hotKey = shortcut
+            hotKeyChosen = true
+        case .screenCut:
+            screenCutHotKey = shortcut
+        }
+    }
+
     // MARK: Codable (every key optional; missing or malformed keys keep their defaults)
 
     private enum CodingKeys: String, CodingKey {
-        case hotKeyKeyCode, hotKeyModifiers, hotKeyChosen, openAtLogin, stickerPolicy, groupFaces, watchedFolders, collectingPausedUntil
+        case hotKeyKeyCode, hotKeyModifiers, hotKeyChosen, screenCutKeyCode, screenCutModifiers, openAtLogin, stickerPolicy, groupFaces, watchedFolders, collectingPausedUntil
         case webDiscoverEnabled, giphyAPIKey, klipyAPIKey, hasCompletedFirstRun, libraryOfferDismissals, libraryOfferAccepted, baseline
         case skippedUpdateBuild, matchingModel
     }
@@ -55,6 +84,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
         if !hotKeyChosen && hotKeyKeyCode == defaults.hotKeyKeyCode && hotKeyModifiers == AppSettings.legacyHotKeyModifiers {
             hotKeyModifiers = defaults.hotKeyModifiers
         }
+        screenCutKeyCode = container.decodeLenient(UInt32.self, forKey: .screenCutKeyCode, default: defaults.screenCutKeyCode)
+        screenCutModifiers = container.decodeLenient(UInt32.self, forKey: .screenCutModifiers, default: defaults.screenCutModifiers)
         openAtLogin = container.decodeLenient(Bool.self, forKey: .openAtLogin, default: defaults.openAtLogin)
         stickerPolicy = container.decodeLenient(StickerPolicy.self, forKey: .stickerPolicy, default: defaults.stickerPolicy)
         groupFaces = container.decodeLenientIfPresent(Bool.self, forKey: .groupFaces)
@@ -76,6 +107,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
         try container.encode(hotKeyKeyCode, forKey: .hotKeyKeyCode)
         try container.encode(hotKeyModifiers, forKey: .hotKeyModifiers)
         try container.encode(hotKeyChosen, forKey: .hotKeyChosen)
+        try container.encode(screenCutKeyCode, forKey: .screenCutKeyCode)
+        try container.encode(screenCutModifiers, forKey: .screenCutModifiers)
         try container.encode(openAtLogin, forKey: .openAtLogin)
         try container.encode(stickerPolicy, forKey: .stickerPolicy)
         try container.encodeIfPresent(groupFaces, forKey: .groupFaces)

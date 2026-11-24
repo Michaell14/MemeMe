@@ -7,11 +7,19 @@ final class HotKeyShortcutTests: XCTestCase {
     private let f5: UInt32 = 96
     private let left: UInt32 = 123
 
+    /// The problem as the panel's shortcut while the screen cut is on ⌥S.
+    private func panelProblem(_ keyCode: UInt32, _ modifiers: UInt32) -> HotKeyShortcut.Problem? {
+        HotKeyShortcut(keyCode: keyCode, modifiers: modifiers).problem(as: .panel, besides: .screenCut)
+    }
+
     func testStandardIsOptionM() {
         XCTAssertEqual(HotKeyShortcut.standard.display(), "⌥M")
         XCTAssertEqual(HotKeyShortcut.standard.symbols(), ["⌥", "M"])
         XCTAssertEqual(HotKeyShortcut.standard.spokenName(), "Option M")
-        XCTAssertNil(HotKeyShortcut.standard.problem)
+        XCTAssertNil(HotKeyShortcut.standard.problem(as: .panel, besides: .screenCut))
+        XCTAssertEqual(HotKeyRole.panel.standard, .standard)
+        XCTAssertEqual(HotKeyRole.screenCut.standard, .screenCut)
+        XCTAssertEqual(HotKeyShortcut.screenCut.display(), "⌥S")
     }
 
     func testModifiersShowInMenuOrder() {
@@ -42,28 +50,39 @@ final class HotKeyShortcutTests: XCTestCase {
     }
 
     func testAKeyNeedsControlOptionOrCommand() {
-        XCTAssertEqual(HotKeyShortcut(keyCode: k, modifiers: 0).problem, .needsModifier)
-        XCTAssertEqual(HotKeyShortcut(keyCode: k, modifiers: HotKeyShortcut.shift).problem, .needsModifier)
-        XCTAssertNil(HotKeyShortcut(keyCode: k, modifiers: HotKeyShortcut.control).problem)
-        XCTAssertNil(HotKeyShortcut(keyCode: k, modifiers: HotKeyShortcut.option | HotKeyShortcut.shift).problem)
+        XCTAssertEqual(panelProblem(k, 0), .needsModifier)
+        XCTAssertEqual(panelProblem(k, HotKeyShortcut.shift), .needsModifier)
+        XCTAssertNil(panelProblem(k, HotKeyShortcut.control))
+        XCTAssertNil(panelProblem(k, HotKeyShortcut.option | HotKeyShortcut.shift))
     }
 
     func testFunctionKeysWorkAlone() {
-        XCTAssertNil(HotKeyShortcut(keyCode: f5, modifiers: 0).problem)
-        XCTAssertNil(HotKeyShortcut(keyCode: f5, modifiers: HotKeyShortcut.command).problem)
+        XCTAssertNil(panelProblem(f5, 0))
+        XCTAssertNil(panelProblem(f5, HotKeyShortcut.command))
     }
 
     func testCommandAloneIsLeftToTheAppInFront() {
-        XCTAssertEqual(HotKeyShortcut(keyCode: k, modifiers: HotKeyShortcut.command).problem, .commandOnly)
-        XCTAssertNil(HotKeyShortcut(keyCode: k, modifiers: HotKeyShortcut.command | HotKeyShortcut.shift).problem)
+        XCTAssertEqual(panelProblem(k, HotKeyShortcut.command), .commandOnly)
+        XCTAssertNil(panelProblem(k, HotKeyShortcut.command | HotKeyShortcut.shift))
     }
 
-    func testTheScreenCutAndMacOSShortcutsAreRefused() {
-        XCTAssertEqual(HotKeyShortcut.screenCut.problem, .screenCut)
-        XCTAssertEqual(HotKeyShortcut(keyCode: space, modifiers: HotKeyShortcut.control).problem, .reserved)
-        XCTAssertEqual(HotKeyShortcut(keyCode: 21, modifiers: HotKeyShortcut.command | HotKeyShortcut.shift).problem, .reserved)
-        XCTAssertEqual(HotKeyShortcut(keyCode: space, modifiers: HotKeyShortcut.control).problemMessage(),
+    func testEachShortcutRefusesTheOthersKeys() {
+        XCTAssertEqual(HotKeyShortcut.screenCut.problem(as: .panel, besides: .screenCut), .inUse)
+        XCTAssertEqual(HotKeyShortcut.screenCut.problemMessage(as: .panel, besides: .screenCut),
+                       "⌥S cuts stickers from the screen. Pick another.")
+        XCTAssertEqual(HotKeyShortcut.standard.problemMessage(as: .screenCut, besides: .standard),
+                       "⌥M opens MemeMe. Pick another.")
+        // Once the panel moved off ⌥M, the screen cut can have it.
+        let controlOptionK = HotKeyShortcut(keyCode: k, modifiers: HotKeyShortcut.control | HotKeyShortcut.option)
+        XCTAssertNil(HotKeyShortcut.standard.problem(as: .screenCut, besides: controlOptionK))
+    }
+
+    func testMacOSShortcutsAreRefused() {
+        XCTAssertEqual(panelProblem(space, HotKeyShortcut.control), .reserved)
+        XCTAssertEqual(panelProblem(21, HotKeyShortcut.command | HotKeyShortcut.shift), .reserved)
+        XCTAssertEqual(HotKeyShortcut(keyCode: space, modifiers: HotKeyShortcut.control)
+                        .problemMessage(as: .screenCut, besides: .standard),
                        "macOS uses ⌃Space. Pick another.")
-        XCTAssertNil(HotKeyShortcut.standard.problemMessage())
+        XCTAssertNil(HotKeyShortcut.standard.problemMessage(as: .panel, besides: .screenCut))
     }
 }

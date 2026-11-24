@@ -864,6 +864,11 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var hotKeyModifiers: UInt32          // 2048 = Carbon optionKey
     public var hotKeyChosen: Bool               // false; true once Change Shortcut… saved one
     public var hotKey: HotKeyShortcut           // get/set over hotKeyKeyCode and hotKeyModifiers
+    public var screenCutKeyCode: UInt32         // 1 (kVK_ANSI_S)
+    public var screenCutModifiers: UInt32       // 2048 = Carbon optionKey
+    public var screenCutHotKey: HotKeyShortcut  // get/set over screenCutKeyCode and screenCutModifiers
+    public func shortcut(for role: HotKeyRole) -> HotKeyShortcut
+    public mutating func setShortcut(_ shortcut: HotKeyShortcut, for role: HotKeyRole)   // .panel also sets hotKeyChosen
     public var openAtLogin: Bool                // true
     public var stickerPolicy: StickerPolicy     // .automatic
     public var groupFaces: Bool?                // nil = not asked yet
@@ -890,14 +895,20 @@ public struct HotKeyShortcut: Equatable, Hashable, Sendable {
     public var modifiers: UInt32                     // only ⌘ ⇧ ⌥ ⌃ kept
     public static let standard: HotKeyShortcut       // ⌥M
     public static let screenCut: HotKeyShortcut      // ⌥S
-    public var problem: Problem?                     // .needsModifier (no ⌃/⌥/⌘, not F1–F20), .commandOnly (⌘ alone, not an F key), .screenCut, .reserved (macOS's: ⌘Space, ⌃Space, ⌥⌘Space, ⌃⌘Space, ⇧⌘Tab, ⇧⌘3/4/5, ⌃⌘Q, ⌥⌘⎋)
-    public func problemMessage(keyName: String? = nil) -> String?
+    public func problem(as role: HotKeyRole, besides other: HotKeyShortcut) -> Problem?   // .needsModifier (no ⌃/⌥/⌘, not F1–F20), .commandOnly (⌘ alone, not an F key), .inUse (== the other role's), .reserved (macOS's: ⌘Space, ⌃Space, ⌥⌘Space, ⌃⌘Space, ⇧⌘Tab, ⇧⌘3/4/5, ⌃⌘Q, ⌥⌘⎋)
+    public func problemMessage(as role: HotKeyRole, besides other: HotKeyShortcut, keyName: String? = nil) -> String?   // .inUse: "⌥S cuts stickers from the screen. Pick another."
     public func symbols(keyName: String? = nil) -> [String]   // ["⌃", "⌥", "⇧", "⌘", key] in menu order
     public func display(keyName: String? = nil) -> String     // "⌥M"
     public func spokenName(keyName: String? = nil) -> String  // "Option M", "Control Left Arrow"
     public static func isFunctionKey(_ keyCode: UInt32) -> Bool
     public static func isCharacterKey(_ keyCode: UInt32) -> Bool   // the main block's letters, digits and symbols
     public static func keyName(for keyCode: UInt32) -> String     // ANSI label; "Key 93" when unknown
+}
+public enum HotKeyRole: String, CaseIterable, Sendable {
+    case panel, screenCut
+    public var standard: HotKeyShortcut              // ⌥M, ⌥S
+    public var other: HotKeyRole
+    public var use: String                           // "opens MemeMe", "cuts stickers from the screen"
 }
 ```
 `keyName` replaces a character key's ANSI label (the app passes the current layout's, `KeyboardLayout.label(for:)` in UI/ShortcutPrompt.swift, via UCKeyTranslate); other keys keep their own ("Space", "F5", "←").
@@ -1458,7 +1469,7 @@ Copy writes one `NSPasteboardItem` with `.fileURL` of a temp copy named by `neut
 
 ### UI/ShortcutPrompt.swift
 
-`ShortcutPrompt.run(model:)` (Change Shortcut…): suspends the hot keys, then runs an NSAlert whose accessory view shows the keys pressed, read by a local key-down monitor on the alert's window (plain ↩ / ⌤ / ⎋ go on to the alert's buttons). Keys with a `problem` turn Save off and show its message. Save calls `changeHotKey(to:)`; when that fails the alert runs again with the keys and "… is taken by another app. Try another."; [Use ⌥M] (only when the shortcut isn't ⌥M) saves the standard one. `KeyboardLayout.label(for:)` reads a character key's label from the current ASCII-capable layout (UCKeyTranslate); `HotKeyShortcut`'s app extension gives `label`, `keycaps`, `accessibilityName`, `problemText` and `menuKeyEquivalent` with it.
+`ShortcutPrompt.run(model:role:)` (Change Shortcut…, for either `HotKeyRole`): suspends the hot keys, then runs an NSAlert whose accessory view shows the keys pressed, read by a local key-down monitor on the alert's window (plain ↩ / ⌤ / ⎋ go on to the alert's buttons). Keys with a `problem` turn Save off and show its message. Save calls `changeHotKey(role, to:)`; when that fails the alert runs again with the keys and "… is taken by another app. Try another."; [Use ⌥M] / [Use ⌥S] (only when the shortcut isn't the role's standard one) saves the standard one, or runs the alert again with the problem when the other role has it. `KeyboardLayout.label(for:)` reads a character key's label from the current ASCII-capable layout (UCKeyTranslate); `HotKeyShortcut`'s app extension gives `label`, `keycaps`, `accessibilityName`, `problemText` and `menuKeyEquivalent` with it.
 
 ### UI/Theme.swift
 
@@ -1841,12 +1852,15 @@ struct PickerLayout: Equatable {
     var requestsCameraAccessOnShow: Bool             // default true; tests turn it off
     func start()                                     // after launch: SystemConditions.startMonitoring(), indexer.startWatching(), a cleanup every 10 min (web.pruneCache(), templates.pruneCache(), Clipboard.removeStaleCopies()), updates.start()
     func setHotKeyAvailable(_ available: Bool)
-    func setHotKey(_ shortcut: HotKeyShortcut, available: Bool)   // at launch
-    var onChangeHotKey: ((HotKeyShortcut) -> Bool)?  // the app delegate's: registers a new panel hot key in place of the old, false (old kept) when taken
-    var onSuspendHotKeys: ((Bool) -> Bool)?          // the app delegate's: unregisters ⌥M and ⌥S (true), registers them again (false; returns whether the panel's came back)
-    func changeHotKey(to: HotKeyShortcut) -> Bool    // refuses a shortcut with a problem; on success saves it in settings (hotKeyChosen = true)
-    func suspendHotKeys(_ suspended: Bool)           // resuming sets hotKeyAvailable
-    func requestShortcutChange()                     // ShortcutPrompt.run(model:): the menu's Change Shortcut… and the setup card's Change…
+    @Published private(set) var screenCutHotKey: HotKeyShortcut, screenCutHotKeyAvailable: Bool
+    func shortcut(for role: HotKeyRole) -> HotKeyShortcut
+    func isHotKeyAvailable(_ role: HotKeyRole) -> Bool
+    func setHotKey(_ shortcut: HotKeyShortcut, available: Bool, for role: HotKeyRole = .panel)   // at launch
+    var onChangeHotKey: ((HotKeyRole, HotKeyShortcut) -> Bool)?   // the app delegate's: registers a new hot key for the role in place of the old, false (old kept) when taken
+    var onSuspendHotKeys: ((Bool) -> Set<HotKeyRole>)?           // the app delegate's: unregisters both (true), registers them again (false; returns the roles registered)
+    func changeHotKey(_ role: HotKeyRole = .panel, to: HotKeyShortcut) -> Bool   // refuses a shortcut with a problem besides the other role's; on success saves it (settings.setShortcut)
+    func suspendHotKeys(_ suspended: Bool)           // resuming sets both availabilities
+    func requestShortcutChange(_ role: HotKeyRole = .panel)   // ShortcutPrompt.run(model:role:): the menu's Shortcuts ▸ items and the setup card's Change…
 
     // Panel lifecycle
     func panelWillShow(previousApp: NSRunningApplication?)   // dismisses a HUD still showing and forgets kept files deleted in Finder (indexer.removeItemsWithMissingFiles) first

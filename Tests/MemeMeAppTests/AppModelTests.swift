@@ -625,7 +625,8 @@ final class AppModelTests: XCTestCase {
         let pick = HotKeyShortcut(keyCode: 40, modifiers: HotKeyShortcut.control | HotKeyShortcut.option)   // ⌃⌥K
         var asked: [HotKeyShortcut] = []
         var registers = false
-        model.onChangeHotKey = { shortcut in
+        model.onChangeHotKey = { role, shortcut in
+            XCTAssertEqual(role, .panel)
             asked.append(shortcut)
             return registers
         }
@@ -637,7 +638,7 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(model.store.settings.hotKey, .standard)
         XCTAssertFalse(model.store.settings.hotKeyChosen)
 
-        // A shortcut that can't be used is never registered.
+        // The screen cut's keys are never registered for the panel.
         XCTAssertFalse(model.changeHotKey(to: .screenCut))
         XCTAssertEqual(asked, [pick])
 
@@ -650,20 +651,52 @@ final class AppModelTests: XCTestCase {
     }
 
     @MainActor
-    func testResumingTheHotKeysReportsWhetherThePanelsCameBack() throws {
+    func testChangingTheScreenCutShortcut() throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.remove() }
+        let model = try makeModel(in: sandbox, items: [])
+        let pick = HotKeyShortcut(keyCode: 7, modifiers: HotKeyShortcut.control | HotKeyShortcut.option)   // ⌃⌥X
+        var asked: [HotKeyRole] = []
+        model.onChangeHotKey = { role, _ in
+            asked.append(role)
+            return true
+        }
+        model.setHotKey(.standard, available: true, for: .panel)
+        model.setHotKey(.screenCut, available: false, for: .screenCut)
+
+        // ⌥M is the panel's.
+        XCTAssertFalse(model.changeHotKey(.screenCut, to: .standard))
+        XCTAssertTrue(model.changeHotKey(.screenCut, to: pick))
+        XCTAssertEqual(asked, [.screenCut])
+        XCTAssertEqual(model.screenCutHotKey, pick)
+        XCTAssertTrue(model.screenCutHotKeyAvailable)
+        XCTAssertEqual(model.store.settings.screenCutHotKey, pick)
+        XCTAssertEqual(model.hotKey, .standard)
+        XCTAssertFalse(model.store.settings.hotKeyChosen)
+
+        // With the screen cut moved, the panel can have ⌥S.
+        XCTAssertTrue(model.changeHotKey(.panel, to: .screenCut))
+        XCTAssertEqual(model.hotKey, .screenCut)
+    }
+
+    @MainActor
+    func testResumingTheHotKeysReportsWhichCameBack() throws {
         let sandbox = try TestSandbox()
         defer { sandbox.remove() }
         let model = try makeModel(in: sandbox, items: [])
         var calls: [Bool] = []
         model.onSuspendHotKeys = { suspended in
             calls.append(suspended)
-            return false
+            return [.screenCut]
         }
-        model.setHotKey(.standard, available: true)
+        model.setHotKey(.standard, available: true, for: .panel)
+        model.setHotKey(.screenCut, available: false, for: .screenCut)
         model.suspendHotKeys(true)
         XCTAssertTrue(model.hotKeyAvailable)
+        XCTAssertFalse(model.screenCutHotKeyAvailable)
         model.suspendHotKeys(false)
         XCTAssertFalse(model.hotKeyAvailable)
+        XCTAssertTrue(model.screenCutHotKeyAvailable)
         XCTAssertEqual(calls, [true, false])
     }
 }

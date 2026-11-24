@@ -106,7 +106,7 @@ Every change to the app on the default branch is released automatically. When `S
 | ⌥S, or ✂ in the panel (face search off) | Cut a sticker out of anything on your screen: click a subject, or draw around it (draw over another to add it, or over one you took to take it out), name it, tick the groups it goes in, then **Save** it to My Stickers or **Copy** it. Apple's subject lifting finds it, on your Mac |
 | Drag a tile into a chat | Drops it into the message box and closes the panel; the clipboard is left alone |
 
-**The menu-bar icon** has the settings: folders to collect from, pausing collection, Web Discover, the GIPHY key, what to do with photos of people, grouping friends' faces, forgetting your resting face, Open at Login, changing the shortcut (⌥M by default), and showing the library in Finder.
+**The menu-bar icon** has the settings: folders to collect from, pausing collection, Web Discover, the GIPHY key, what to do with photos of people, grouping friends' faces, forgetting your resting face, Open at Login, changing the shortcuts (⌥M opens MemeMe, ⌥S cuts from the screen), and showing the library in Finder.
 
 **Drop images on the menu-bar icon** to keep them: files, images from a browser, or photos straight from Photos or Mail. Photos of people (not animated, little text, faces at least 6 % of the image height) become die-cut friend stickers. Everything else is kept as a meme. A popover reports what happened, with Undo.
 

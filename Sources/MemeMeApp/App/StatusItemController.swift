@@ -372,10 +372,16 @@ import SwiftUI
         let login = makeItem("Open at Login", action: #selector(toggleOpenAtLogin(_:)))
         login.state = settings.openAtLogin ? .on : .off
         menu.addItem(login)
-        let shortcutTitle = model.hotKeyAvailable
-            ? "Change Shortcut (\(model.hotKey.label))…"
-            : "Change Shortcut (\(model.hotKey.label) Is Taken)…"
-        menu.addItem(makeItem(shortcutTitle, action: #selector(changeShortcut(_:))))
+        let shortcutsMenu = NSMenu(title: "Shortcuts")
+        shortcutsMenu.autoenablesItems = false
+        for role in HotKeyRole.allCases {
+            let item = makeItem(shortcutTitle(role), action: #selector(changeShortcut(_:)))
+            item.representedObject = role.rawValue
+            shortcutsMenu.addItem(item)
+        }
+        let shortcuts = NSMenuItem(title: "Shortcuts", action: nil, keyEquivalent: "")
+        shortcuts.submenu = shortcutsMenu
+        menu.addItem(shortcuts)
         menu.addItem(makeItem("Show Library in Finder", action: #selector(showLibrary(_:))))
 
         if updates.isEnabled {
@@ -526,8 +532,16 @@ import SwiftUI
         model.toggleOpenAtLogin()
     }
 
-    @objc private func changeShortcut(_ sender: Any?) {
-        model.requestShortcutChange()
+    /// "Open MemeMe (⌥M)…", "Cut from the Screen (⌥S Is Taken)…".
+    private func shortcutTitle(_ role: HotKeyRole) -> String {
+        let name = role == .panel ? "Open MemeMe" : "Cut from the Screen"
+        let keys = model.shortcut(for: role).label
+        return model.isHotKeyAvailable(role) ? "\(name) (\(keys))…" : "\(name) (\(keys) Is Taken)…"
+    }
+
+    @objc private func changeShortcut(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let role = HotKeyRole(rawValue: raw) else { return }
+        model.requestShortcutChange(role)
     }
 
     @objc private func showLibrary(_ sender: Any?) {

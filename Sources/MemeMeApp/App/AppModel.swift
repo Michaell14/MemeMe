@@ -462,6 +462,9 @@ private struct DescribedPhrase {
     @Published private(set) var hotKeyAvailable: Bool = true
     /// The shortcut that opens the panel (⌥M unless changed with Change Shortcut…).
     @Published private(set) var hotKey: HotKeyShortcut = .standard
+    /// The screen cut's shortcut (⌥S unless changed) and whether it could be registered.
+    @Published private(set) var screenCutHotKey: HotKeyShortcut = .screenCut
+    @Published private(set) var screenCutHotKeyAvailable: Bool = true
     @Published private(set) var isPanelVisible: Bool = false
     /// A tile of the panel is being dragged out: the panel takes no drop of its own tile (set and cleared by the
     /// panel controller, which watches the drag).
@@ -837,32 +840,50 @@ private struct DescribedPhrase {
         }
     }
 
-    /// The app delegate's: registers `shortcut` as the panel's hot key in place of the current one; false when it
-    /// can't (another app holds it), and the current one stays.
-    var onChangeHotKey: ((HotKeyShortcut) -> Bool)?
+    /// The app delegate's: registers `shortcut` as `role`'s hot key in place of the current one; false when it can't
+    /// (another app holds it), and the current one stays.
+    var onChangeHotKey: ((HotKeyRole, HotKeyShortcut) -> Bool)?
     /// The app delegate's: lets go of MemeMe's hot keys (true) while Change Shortcut… records keys, takes them back
-    /// (false) after, reporting whether the panel's could be registered.
-    var onSuspendHotKeys: ((Bool) -> Bool)?
+    /// (false) after, reporting which could be registered.
+    var onSuspendHotKeys: ((Bool) -> Set<HotKeyRole>)?
 
-    /// At launch: the shortcut from settings and whether it could be registered.
-    func setHotKey(_ shortcut: HotKeyShortcut, available: Bool) {
-        if hotKey != shortcut {
-            hotKey = shortcut
+    func shortcut(for role: HotKeyRole) -> HotKeyShortcut {
+        switch role {
+        case .panel: return hotKey
+        case .screenCut: return screenCutHotKey
         }
-        setHotKeyAvailable(available)
     }
 
-    /// Change Shortcut…: registers `shortcut` and keeps it in settings; false when another app holds it (nothing
-    /// changes then).
+    func isHotKeyAvailable(_ role: HotKeyRole) -> Bool {
+        switch role {
+        case .panel: return hotKeyAvailable
+        case .screenCut: return screenCutHotKeyAvailable
+        }
+    }
+
+    /// At launch: `role`'s shortcut from settings and whether it could be registered.
+    func setHotKey(_ shortcut: HotKeyShortcut, available: Bool, for role: HotKeyRole = .panel) {
+        switch role {
+        case .panel:
+            if hotKey != shortcut { hotKey = shortcut }
+            setHotKeyAvailable(available)
+        case .screenCut:
+            if screenCutHotKey != shortcut { screenCutHotKey = shortcut }
+            if screenCutHotKeyAvailable != available { screenCutHotKeyAvailable = available }
+        }
+    }
+
+    /// Change Shortcut…: registers `shortcut` for `role` and keeps it in settings; false when it can't be used or
+    /// another app holds it (nothing changes then).
     @discardableResult
-    func changeHotKey(to shortcut: HotKeyShortcut) -> Bool {
-        guard shortcut.problem == nil, let onChangeHotKey, onChangeHotKey(shortcut) else { return false }
+    func changeHotKey(_ role: HotKeyRole = .panel, to shortcut: HotKeyShortcut) -> Bool {
+        guard shortcut.problem(as: role, besides: self.shortcut(for: role.other)) == nil,
+              let onChangeHotKey, onChangeHotKey(role, shortcut) else { return false }
         var settings = store.settings
-        settings.hotKey = shortcut
-        settings.hotKeyChosen = true
+        settings.setShortcut(shortcut, for: role)
         store.settings = settings
         saveSoon()
-        setHotKey(shortcut, available: true)
+        setHotKey(shortcut, available: true, for: role)
         return true
     }
 
@@ -870,13 +891,15 @@ private struct DescribedPhrase {
         guard let onSuspendHotKeys else { return }
         let registered = onSuspendHotKeys(suspended)
         if !suspended {
-            setHotKeyAvailable(registered)
+            for role in HotKeyRole.allCases {
+                setHotKey(shortcut(for: role), available: registered.contains(role), for: role)
+            }
         }
     }
 
-    /// Change Shortcut… from the menu or the setup card.
-    func requestShortcutChange() {
-        ShortcutPrompt.run(model: self)
+    /// Change Shortcut… from the menu (either shortcut) or the setup card (the panel's).
+    func requestShortcutChange(_ role: HotKeyRole = .panel) {
+        ShortcutPrompt.run(model: self, role: role)
     }
 
     // MARK: - Panel lifecycle

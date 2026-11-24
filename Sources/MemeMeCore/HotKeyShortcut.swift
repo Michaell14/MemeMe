@@ -21,7 +21,7 @@ public struct HotKeyShortcut: Equatable, Hashable, Sendable {
 
     /// ⌥M, the shortcut MemeMe ships with.
     public static let standard = HotKeyShortcut(keyCode: 46, modifiers: option)
-    /// ⌥S, the screen cut's own shortcut.
+    /// ⌥S, the screen cut's shortcut unless changed.
     public static let screenCut = HotKeyShortcut(keyCode: 1, modifiers: option)
 
     /// Shortcuts macOS keeps for itself: Spotlight, input sources, the app switcher, screenshots, Lock Screen,
@@ -50,29 +50,29 @@ public struct HotKeyShortcut: Equatable, Hashable, Sendable {
         case needsModifier
         /// ⌘ alone: those belong to the app in front.
         case commandOnly
-        /// ⌥S is the screen cut's.
-        case screenCut
+        /// MemeMe's other shortcut has it.
+        case inUse
         /// macOS uses it.
         case reserved
     }
 
-    /// Why this can't be the panel's shortcut; nil when it can.
-    public var problem: Problem? {
+    /// Why this can't be `role`'s shortcut while `other` is the other role's; nil when it can.
+    public func problem(as role: HotKeyRole, besides other: HotKeyShortcut) -> Problem? {
         let strong = HotKeyShortcut.command | HotKeyShortcut.option | HotKeyShortcut.control
         if modifiers & strong == 0 && !HotKeyShortcut.isFunctionKey(keyCode) { return .needsModifier }
         if modifiers == HotKeyShortcut.command && !HotKeyShortcut.isFunctionKey(keyCode) { return .commandOnly }
-        if self == HotKeyShortcut.screenCut { return .screenCut }
+        if self == other { return .inUse }
         if HotKeyShortcut.reserved.contains(self) { return .reserved }
         return nil
     }
 
-    /// What to tell someone who pressed it ("⌥S cuts stickers from the screen."); nil when it's fine.
-    /// `keyName` is the key as the current layout shows it (see `symbols(keyName:)`).
-    public func problemMessage(keyName: String? = nil) -> String? {
-        switch problem {
+    /// What to tell someone who pressed it for `role` ("⌥S cuts stickers from the screen. Pick another."); nil when
+    /// it's fine. `keyName` is the key as the current layout shows it (see `symbols(keyName:)`).
+    public func problemMessage(as role: HotKeyRole, besides other: HotKeyShortcut, keyName: String? = nil) -> String? {
+        switch problem(as: role, besides: other) {
         case .needsModifier: return "Add ⌃, ⌥ or ⌘ to the key."
         case .commandOnly: return "⌘ shortcuts belong to the app you’re in. Add ⌃, ⌥ or ⇧."
-        case .screenCut: return "⌥S cuts stickers from the screen. Pick another."
+        case .inUse: return "\(display(keyName: keyName)) \(role.other.use). Pick another."
         case .reserved: return "macOS uses \(display(keyName: keyName)). Pick another."
         case nil: return nil
         }
@@ -160,4 +160,34 @@ public struct HotKeyShortcut: Equatable, Hashable, Sendable {
         116: "Page Up", 117: "Forward Delete", 119: "End", 121: "Page Down", 123: "Left Arrow",
         124: "Right Arrow", 125: "Down Arrow", 126: "Up Arrow",
     ]
+}
+
+/// MemeMe's two shortcuts from any app.
+public enum HotKeyRole: String, CaseIterable, Sendable {
+    /// Opens the panel (⌥M).
+    case panel
+    /// Cuts a sticker from the screen, or takes Clip me while face search reads you (⌥S).
+    case screenCut
+
+    public var standard: HotKeyShortcut {
+        switch self {
+        case .panel: return .standard
+        case .screenCut: return .screenCut
+        }
+    }
+
+    public var other: HotKeyRole {
+        switch self {
+        case .panel: return .screenCut
+        case .screenCut: return .panel
+        }
+    }
+
+    /// What the shortcut does, after its keys: "⌥M opens MemeMe".
+    public var use: String {
+        switch self {
+        case .panel: return "opens MemeMe"
+        case .screenCut: return "cuts stickers from the screen"
+        }
+    }
 }
