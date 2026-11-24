@@ -16,6 +16,7 @@ import SwiftUI
 
     private var dropView: DropTargetView?
     private var updateObservation: AnyCancellable?
+    private var hotKeyObservation: AnyCancellable?
     private var popover: NSPopover?
     private var popoverWatch: Task<Void, Never>?
     private var popoverCloseObserver: NSObjectProtocol?
@@ -25,8 +26,11 @@ import SwiftUI
     private static let popoverIdleTimeout: TimeInterval = 8
     private static let popoverPollNanoseconds: UInt64 = 250_000_000
     private static let pauseInterval: TimeInterval = 3600
-    private static let defaultToolTip = "MemeMe (⌥M). Drop images here to keep them."
-    private static let updateToolTip = "MemeMe (⌥M). An update is ready."
+    /// "MemeMe (⌥M). Drop images here to keep them.", or that an update is ready.
+    private func toolTip(badged: Bool) -> String {
+        let name = model.hotKeyAvailable ? "MemeMe (\(model.hotKey.label))" : "MemeMe"
+        return badged ? "\(name). An update is ready." : "\(name). Drop images here to keep them."
+    }
 
     init(model: AppModel, popoverModel: StickerPopoverModel, openPanel: @escaping @MainActor () -> Void) {
         self.model = model
@@ -54,6 +58,14 @@ import SwiftUI
                     controller.showUpdateBadge(manifest != nil)
                 }
             }
+        hotKeyObservation = model.$hotKey.combineLatest(model.$hotKeyAvailable)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let controller = self else { return }
+                    controller.showUpdateBadge(controller.model.updates.available != nil)
+                }
+            }
 
         popoverModel.onClose = { [weak self] in
             self?.closePopover()
@@ -66,7 +78,7 @@ import SwiftUI
         guard let button = statusItem.button else { return }
         button.image = StatusItemController.statusImage(badged: false)
         button.imagePosition = .imageOnly
-        button.toolTip = StatusItemController.defaultToolTip
+        button.toolTip = toolTip(badged: false)
 
         let dropView = DropTargetView(frame: button.bounds)
         dropView.autoresizingMask = [.width, .height]
@@ -82,7 +94,7 @@ import SwiftUI
     private func showUpdateBadge(_ badged: Bool) {
         guard let button = statusItem.button else { return }
         button.image = StatusItemController.statusImage(badged: badged)
-        button.toolTip = badged ? StatusItemController.updateToolTip : StatusItemController.defaultToolTip
+        button.toolTip = toolTip(badged: badged)
         dropView?.toolTip = button.toolTip
     }
 
@@ -270,8 +282,10 @@ import SwiftUI
         }
 
         let open = makeItem("Open MemeMe", action: #selector(openMemeMe(_:)))
-        open.keyEquivalent = "m"
-        open.keyEquivalentModifierMask = [.option]
+        if model.hotKeyAvailable, let equivalent = model.hotKey.menuKeyEquivalent {
+            open.keyEquivalent = equivalent.key
+            open.keyEquivalentModifierMask = equivalent.modifiers
+        }
         menu.addItem(open)
 
         menu.addItem(.separator())
@@ -358,6 +372,10 @@ import SwiftUI
         let login = makeItem("Open at Login", action: #selector(toggleOpenAtLogin(_:)))
         login.state = settings.openAtLogin ? .on : .off
         menu.addItem(login)
+        let shortcutTitle = model.hotKeyAvailable
+            ? "Change Shortcut (\(model.hotKey.label))…"
+            : "Change Shortcut (\(model.hotKey.label) Is Taken)…"
+        menu.addItem(makeItem(shortcutTitle, action: #selector(changeShortcut(_:))))
         menu.addItem(makeItem("Show Library in Finder", action: #selector(showLibrary(_:))))
 
         if updates.isEnabled {
@@ -506,6 +524,10 @@ import SwiftUI
 
     @objc private func toggleOpenAtLogin(_ sender: Any?) {
         model.toggleOpenAtLogin()
+    }
+
+    @objc private func changeShortcut(_ sender: Any?) {
+        model.requestShortcutChange()
     }
 
     @objc private func showLibrary(_ sender: Any?) {

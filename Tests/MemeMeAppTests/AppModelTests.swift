@@ -614,4 +614,56 @@ final class AppModelTests: XCTestCase {
         XCTAssertNil(model.faceEdit)
         model.panelDidHide()
     }
+
+    // MARK: - Change Shortcut…
+
+    @MainActor
+    func testChangingTheShortcutKeepsItOnlyOnceRegistered() throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.remove() }
+        let model = try makeModel(in: sandbox, items: [])
+        let pick = HotKeyShortcut(keyCode: 40, modifiers: HotKeyShortcut.control | HotKeyShortcut.option)   // ⌃⌥K
+        var asked: [HotKeyShortcut] = []
+        var registers = false
+        model.onChangeHotKey = { shortcut in
+            asked.append(shortcut)
+            return registers
+        }
+        model.setHotKey(.standard, available: true)
+
+        // Taken by another app: nothing changes.
+        XCTAssertFalse(model.changeHotKey(to: pick))
+        XCTAssertEqual(model.hotKey, .standard)
+        XCTAssertEqual(model.store.settings.hotKey, .standard)
+        XCTAssertFalse(model.store.settings.hotKeyChosen)
+
+        // A shortcut that can't be used is never registered.
+        XCTAssertFalse(model.changeHotKey(to: .screenCut))
+        XCTAssertEqual(asked, [pick])
+
+        registers = true
+        XCTAssertTrue(model.changeHotKey(to: pick))
+        XCTAssertEqual(model.hotKey, pick)
+        XCTAssertTrue(model.hotKeyAvailable)
+        XCTAssertEqual(model.store.settings.hotKey, pick)
+        XCTAssertTrue(model.store.settings.hotKeyChosen)
+    }
+
+    @MainActor
+    func testResumingTheHotKeysReportsWhetherThePanelsCameBack() throws {
+        let sandbox = try TestSandbox()
+        defer { sandbox.remove() }
+        let model = try makeModel(in: sandbox, items: [])
+        var calls: [Bool] = []
+        model.onSuspendHotKeys = { suspended in
+            calls.append(suspended)
+            return false
+        }
+        model.setHotKey(.standard, available: true)
+        model.suspendHotKeys(true)
+        XCTAssertTrue(model.hotKeyAvailable)
+        model.suspendHotKeys(false)
+        XCTAssertFalse(model.hotKeyAvailable)
+        XCTAssertEqual(calls, [true, false])
+    }
 }

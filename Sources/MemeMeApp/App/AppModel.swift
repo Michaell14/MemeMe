@@ -460,6 +460,8 @@ private struct DescribedPhrase {
     /// flashes green when it changes.
     @Published private(set) var poseCatches = 0
     @Published private(set) var hotKeyAvailable: Bool = true
+    /// The shortcut that opens the panel (⌥M unless changed with Change Shortcut…).
+    @Published private(set) var hotKey: HotKeyShortcut = .standard
     @Published private(set) var isPanelVisible: Bool = false
     /// A tile of the panel is being dragged out: the panel takes no drop of its own tile (set and cleared by the
     /// panel controller, which watches the drag).
@@ -833,6 +835,48 @@ private struct DescribedPhrase {
         if hotKeyAvailable != available {
             hotKeyAvailable = available
         }
+    }
+
+    /// The app delegate's: registers `shortcut` as the panel's hot key in place of the current one; false when it
+    /// can't (another app holds it), and the current one stays.
+    var onChangeHotKey: ((HotKeyShortcut) -> Bool)?
+    /// The app delegate's: lets go of MemeMe's hot keys (true) while Change Shortcut… records keys, takes them back
+    /// (false) after, reporting whether the panel's could be registered.
+    var onSuspendHotKeys: ((Bool) -> Bool)?
+
+    /// At launch: the shortcut from settings and whether it could be registered.
+    func setHotKey(_ shortcut: HotKeyShortcut, available: Bool) {
+        if hotKey != shortcut {
+            hotKey = shortcut
+        }
+        setHotKeyAvailable(available)
+    }
+
+    /// Change Shortcut…: registers `shortcut` and keeps it in settings; false when another app holds it (nothing
+    /// changes then).
+    @discardableResult
+    func changeHotKey(to shortcut: HotKeyShortcut) -> Bool {
+        guard shortcut.problem == nil, let onChangeHotKey, onChangeHotKey(shortcut) else { return false }
+        var settings = store.settings
+        settings.hotKey = shortcut
+        settings.hotKeyChosen = true
+        store.settings = settings
+        saveSoon()
+        setHotKey(shortcut, available: true)
+        return true
+    }
+
+    func suspendHotKeys(_ suspended: Bool) {
+        guard let onSuspendHotKeys else { return }
+        let registered = onSuspendHotKeys(suspended)
+        if !suspended {
+            setHotKeyAvailable(registered)
+        }
+    }
+
+    /// Change Shortcut… from the menu or the setup card.
+    func requestShortcutChange() {
+        ShortcutPrompt.run(model: self)
     }
 
     // MARK: - Panel lifecycle

@@ -24,7 +24,7 @@ Read `docs/DESIGN.md` for behavior and exact UI strings.
 | Core | `Sources/MemeMeCore/*.swift`, `Tests/MemeMeCoreTests/*.swift` |
 | Vision & camera | `Sources/MemeMeApp/Vision/FaceFeatureExtractor.swift`, `Vision/ImageAnalyzer.swift`, `Vision/ThumbnailCache.swift`, `Camera/CameraController.swift`, `Camera/CameraPreviewView.swift`, `Camera/CameraFilter.swift`, `Camera/CaptureRenderer.swift`, `Vision/PoseNamer.swift` |
 | Library, web, stickers | `Sources/MemeMeApp/Library/LibraryIndexer.swift`, `Library/FolderWatcher.swift`, `Web/GIFProvider.swift`, `Web/GiphyProvider.swift`, `Web/WebDiscover.swift`, `Web/MemeTemplates.swift`, `Stickers/StickerMaker.swift`, `Stickers/FriendService.swift`, `Stickers/ClipSticker.swift`, `System/Clipboard.swift`, `System/SystemConditions.swift` |
-| Panel UI | `Sources/MemeMeApp/UI/PanelController.swift`, `UI/PanelView.swift`, `UI/FaceColumn.swift`, `UI/PickerGrid.swift`, `UI/Drawer.swift`, `UI/FooterView.swift`, `UI/SetupCardView.swift`, `UI/HUDController.swift`, `UI/StickerPopoverView.swift`, `UI/AnimatedImageView.swift`, `UI/Theme.swift` |
+| Panel UI | `Sources/MemeMeApp/UI/PanelController.swift`, `UI/PanelView.swift`, `UI/FaceColumn.swift`, `UI/PickerGrid.swift`, `UI/Drawer.swift`, `UI/FooterView.swift`, `UI/SetupCardView.swift`, `UI/ShortcutPrompt.swift`, `UI/HUDController.swift`, `UI/StickerPopoverView.swift`, `UI/AnimatedImageView.swift`, `UI/Theme.swift` |
 | App shell | `Sources/MemeMeApp/App/main.swift`, `App/AppDelegate.swift`, `App/AppModel.swift`, `App/CaptureModel.swift`, `App/HotKey.swift`, `App/StatusItemController.swift`, `App/StickerPopoverModel.swift`, `App/LoginItem.swift`, `Resources/Info.plist`, `scripts/build-app.sh`, `.github/workflows/ci.yml`, `README.md`, `.gitignore` |
 | Updates | `Sources/MemeMeApp/Update/UpdateChecker.swift`, `Update/UpdateInstaller.swift`, `Tests/MemeMeAppTests/UpdateCheckerTests.swift`, `Tests/MemeMeAppTests/UpdateInstallerTests.swift` |
 | Release | `VERSION`, `scripts/build-dmg.sh`, `scripts/dmg-settings.py`, `scripts/dmgbuild-requirements.txt`, `scripts/render-dmg-background.cjs`, `Resources/DMG/*`, `scripts/publish-release.sh`, `scripts/build-site.sh`, `site/index.html` |
@@ -862,6 +862,8 @@ public enum HeldFaceReading {
 public struct AppSettings: Codable, Equatable, Sendable {
     public var hotKeyKeyCode: UInt32            // 46 (kVK_ANSI_M)
     public var hotKeyModifiers: UInt32          // 2048 = Carbon optionKey
+    public var hotKeyChosen: Bool               // false; true once Change Shortcut… saved one
+    public var hotKey: HotKeyShortcut           // get/set over hotKeyKeyCode and hotKeyModifiers
     public var openAtLogin: Bool                // true
     public var stickerPolicy: StickerPolicy     // .automatic
     public var groupFaces: Bool?                // nil = not asked yet
@@ -877,7 +879,28 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public init()
 }
 ```
-Decoding uses `decodeIfPresent` with these defaults for every key.
+Decoding uses `decodeIfPresent` with these defaults for every key. A saved ⌃⌘M (the shortcut before ⌥M) moves to ⌥M unless `hotKeyChosen`.
+
+### HotKeyShortcut.swift
+
+```swift
+public struct HotKeyShortcut: Equatable, Hashable, Sendable {
+    public static let command, shift, option, control: UInt32   // Carbon cmdKey 256, shiftKey 512, optionKey 2048, controlKey 4096
+    public var keyCode: UInt32                       // kVK_*
+    public var modifiers: UInt32                     // only ⌘ ⇧ ⌥ ⌃ kept
+    public static let standard: HotKeyShortcut       // ⌥M
+    public static let screenCut: HotKeyShortcut      // ⌥S
+    public var problem: Problem?                     // .needsModifier (no ⌃/⌥/⌘, not F1–F20), .commandOnly (⌘ alone, not an F key), .screenCut, .reserved (macOS's: ⌘Space, ⌃Space, ⌥⌘Space, ⌃⌘Space, ⇧⌘Tab, ⇧⌘3/4/5, ⌃⌘Q, ⌥⌘⎋)
+    public func problemMessage(keyName: String? = nil) -> String?
+    public func symbols(keyName: String? = nil) -> [String]   // ["⌃", "⌥", "⇧", "⌘", key] in menu order
+    public func display(keyName: String? = nil) -> String     // "⌥M"
+    public func spokenName(keyName: String? = nil) -> String  // "Option M", "Control Left Arrow"
+    public static func isFunctionKey(_ keyCode: UInt32) -> Bool
+    public static func isCharacterKey(_ keyCode: UInt32) -> Bool   // the main block's letters, digits and symbols
+    public static func keyName(for keyCode: UInt32) -> String     // ANSI label; "Key 93" when unknown
+}
+```
+`keyName` replaces a character key's ANSI label (the app passes the current layout's, `KeyboardLayout.label(for:)` in UI/ShortcutPrompt.swift, via UCKeyTranslate); other keys keep their own ("Space", "F5", "←").
 
 ### Update.swift
 
@@ -1433,6 +1456,10 @@ enum Clipboard {
 ```
 Copy writes one `NSPasteboardItem` with `.fileURL` of a temp copy named by `neutralFileName` (in `~/Library/Caches/MemeMe/Clipboard/<uuid>/`), plus `com.compuserve.gif` data for GIFs, or `.png` data (converted with ImageIO) for stills; temp copies older than 1 h are deleted on each copy.
 
+### UI/ShortcutPrompt.swift
+
+`ShortcutPrompt.run(model:)` (Change Shortcut…): suspends the hot keys, then runs an NSAlert whose accessory view shows the keys pressed, read by a local key-down monitor on the alert's window (plain ↩ / ⌤ / ⎋ go on to the alert's buttons). Keys with a `problem` turn Save off and show its message. Save calls `changeHotKey(to:)`; when that fails the alert runs again with the keys and "… is taken by another app. Try another."; [Use ⌥M] (only when the shortcut isn't ⌥M) saves the standard one. `KeyboardLayout.label(for:)` reads a character key's label from the current ASCII-capable layout (UCKeyTranslate); `HotKeyShortcut`'s app extension gives `label`, `keycaps`, `accessibilityName`, `problemText` and `menuKeyEquivalent` with it.
+
 ### UI/Theme.swift
 
 ```swift
@@ -1791,6 +1818,7 @@ struct PickerLayout: Equatable {
     @Published private(set) var readout: MoodReadout?     // the face search's word (mood label, or a described pose's words) and source (.face / .pose / .faceAndPose) while live; nil for a word from the face (.face or .faceAndPose) while the face is missing (not while the editor is open: then it is the edited face's word)
     @Published private(set) var poseCatches: Int         // +1 when a new query (or Space) brings a heldPose other than the one before: the mirror's green flash
     @Published private(set) var hotKeyAvailable: Bool
+    @Published private(set) var hotKey: HotKeyShortcut   // the panel's shortcut (from settings at launch)
     @Published private(set) var isPanelVisible: Bool
     @Published var isDraggingTile: Bool                  // a tile is being dragged out (set by PanelController): the panel ignores its own drop
     @Published private(set) var isCutting: Bool          // Clip me is cutting you out
@@ -1813,6 +1841,12 @@ struct PickerLayout: Equatable {
     var requestsCameraAccessOnShow: Bool             // default true; tests turn it off
     func start()                                     // after launch: SystemConditions.startMonitoring(), indexer.startWatching(), a cleanup every 10 min (web.pruneCache(), templates.pruneCache(), Clipboard.removeStaleCopies()), updates.start()
     func setHotKeyAvailable(_ available: Bool)
+    func setHotKey(_ shortcut: HotKeyShortcut, available: Bool)   // at launch
+    var onChangeHotKey: ((HotKeyShortcut) -> Bool)?  // the app delegate's: registers a new panel hot key in place of the old, false (old kept) when taken
+    var onSuspendHotKeys: ((Bool) -> Bool)?          // the app delegate's: unregisters ⌥M and ⌥S (true), registers them again (false; returns whether the panel's came back)
+    func changeHotKey(to: HotKeyShortcut) -> Bool    // refuses a shortcut with a problem; on success saves it in settings (hotKeyChosen = true)
+    func suspendHotKeys(_ suspended: Bool)           // resuming sets hotKeyAvailable
+    func requestShortcutChange()                     // ShortcutPrompt.run(model:): the menu's Change Shortcut… and the setup card's Change…
 
     // Panel lifecycle
     func panelWillShow(previousApp: NSRunningApplication?)   // dismisses a HUD still showing and forgets kept files deleted in Finder (indexer.removeItemsWithMissingFiles) first

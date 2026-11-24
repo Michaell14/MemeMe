@@ -5,7 +5,7 @@ import os
 
 private let launchLog = Logger(subsystem: "com.mememe.app", category: "app")
 
-/// Builds the app at launch: library store, model, panel, menu-bar item and the ⌥M hot key.
+/// Builds the app at launch: library store, model, panel, menu-bar item and the panel's hot key (⌥M unless changed).
 @MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
     private var model: AppModel?
     private var panel: PanelController?
@@ -34,9 +34,7 @@ private let launchLog = Logger(subsystem: "com.mememe.app", category: "app")
         let statusItem = StatusItemController(model: model, popoverModel: popoverModel, openPanel: { [weak panel] in
             panel?.show()
         })
-        let hotKey = HotKey(keyCode: store.settings.hotKeyKeyCode, modifiers: store.settings.hotKeyModifiers, action: { [weak panel] in
-            panel?.toggle()
-        })
+        let hotKey = AppDelegate.makePanelHotKey(store.settings.hotKey, panel: panel)
 
         let screenCut = ScreenCutController(model: model)
         let startScreenCut: @MainActor () -> Void = { [weak panel, weak screenCut] in
@@ -63,7 +61,13 @@ private let launchLog = Logger(subsystem: "com.mememe.app", category: "app")
         self.statusItem = statusItem
         self.hotKey = hotKey
 
-        model.setHotKeyAvailable(hotKey.register())
+        model.setHotKey(store.settings.hotKey, available: hotKey.register())
+        model.onChangeHotKey = { [weak self] shortcut in
+            self?.rebindPanelHotKey(to: shortcut) ?? false
+        }
+        model.onSuspendHotKeys = { [weak self] suspended in
+            self?.suspendHotKeys(suspended) ?? false
+        }
         if !screenCutHotKey.register() {
             launchLog.error("⌥S is taken by another app: the screen cut opens from the panel's ✂ only")
         }
@@ -96,6 +100,44 @@ private let launchLog = Logger(subsystem: "com.mememe.app", category: "app")
     }
 
     // MARK: - Private
+
+    private static func makePanelHotKey(_ shortcut: HotKeyShortcut, panel: PanelController) -> HotKey {
+        HotKey(keyCode: shortcut.keyCode, modifiers: shortcut.modifiers, action: { [weak panel] in
+            panel?.toggle()
+        })
+    }
+
+    /// Change Shortcut…: the new shortcut replaces the panel's hot key only once it is registered; when another app
+    /// holds it, the old one stays (registered again unless the hot keys are suspended meanwhile).
+    private func rebindPanelHotKey(to shortcut: HotKeyShortcut) -> Bool {
+        guard let panel else { return false }
+        let old = hotKey
+        let oldWasRegistered = old?.isRegistered ?? false
+        old?.unregister()
+        let new = AppDelegate.makePanelHotKey(shortcut, panel: panel)
+        if new.register() {
+            hotKey = new
+            return true
+        }
+        if oldWasRegistered {
+            old?.register()
+        }
+        return false
+    }
+
+    /// Lets go of the hot keys while Change Shortcut… records keys, so they reach its alert; true after taking them
+    /// back when the panel's is registered.
+    private func suspendHotKeys(_ suspended: Bool) -> Bool {
+        if suspended {
+            hotKey?.unregister()
+            screenCutHotKey?.unregister()
+            return false
+        }
+        if screenCutHotKey?.register() == false {
+            launchLog.error("⌥S is taken by another app: the screen cut opens from the panel's ✂ only")
+        }
+        return hotKey?.register() ?? false
+    }
 
     /// An accessory app shows no menu bar, but AppKit still resolves ⌘Z/⌘X/⌘C/⌘V/⌘A through the main menu.
     /// Without this hidden Edit menu, text fields in alerts and open panels (such as "Set GIPHY API Key…")

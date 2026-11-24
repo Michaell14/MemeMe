@@ -4,6 +4,8 @@ import Foundation
 public struct AppSettings: Codable, Equatable, Sendable {
     public var hotKeyKeyCode: UInt32 = 46               // kVK_ANSI_M
     public var hotKeyModifiers: UInt32 = 2048           // Carbon optionKey (⌥M)
+    /// Set once a shortcut was picked with Change Shortcut…, so a picked ⌃⌘M isn't taken for the old default.
+    public var hotKeyChosen: Bool = false
     public var openAtLogin: Bool = true
     public var stickerPolicy: StickerPolicy = .automatic
     public var groupFaces: Bool? = nil                  // nil = not asked yet
@@ -21,16 +23,25 @@ public struct AppSettings: Codable, Equatable, Sendable {
     /// No menu item; `defaults write com.mememe.app MatchingModel classic` (or `hybrid`) sets it at the next launch.
     public var matchingModel: MatchingModel = .hybrid
 
-    /// The shortcut before ⌥M (⌃⌘M: Carbon controlKey | cmdKey). v1 has no rebinding UI, so a saved ⌃⌘M is the
-    /// old default and moves to the new one.
+    /// The shortcut before ⌥M (⌃⌘M: Carbon controlKey | cmdKey). A saved ⌃⌘M that nobody picked (`hotKeyChosen`
+    /// false: from before Change Shortcut…) is the old default and moves to the new one.
     static let legacyHotKeyModifiers: UInt32 = 4352
 
     public init() {}
 
+    /// The panel's shortcut, from `hotKeyKeyCode` and `hotKeyModifiers`.
+    public var hotKey: HotKeyShortcut {
+        get { HotKeyShortcut(keyCode: hotKeyKeyCode, modifiers: hotKeyModifiers) }
+        set {
+            hotKeyKeyCode = newValue.keyCode
+            hotKeyModifiers = newValue.modifiers
+        }
+    }
+
     // MARK: Codable (every key optional; missing or malformed keys keep their defaults)
 
     private enum CodingKeys: String, CodingKey {
-        case hotKeyKeyCode, hotKeyModifiers, openAtLogin, stickerPolicy, groupFaces, watchedFolders, collectingPausedUntil
+        case hotKeyKeyCode, hotKeyModifiers, hotKeyChosen, openAtLogin, stickerPolicy, groupFaces, watchedFolders, collectingPausedUntil
         case webDiscoverEnabled, giphyAPIKey, klipyAPIKey, hasCompletedFirstRun, libraryOfferDismissals, libraryOfferAccepted, baseline
         case skippedUpdateBuild, matchingModel
     }
@@ -40,7 +51,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
         let defaults = AppSettings()
         hotKeyKeyCode = container.decodeLenient(UInt32.self, forKey: .hotKeyKeyCode, default: defaults.hotKeyKeyCode)
         hotKeyModifiers = container.decodeLenient(UInt32.self, forKey: .hotKeyModifiers, default: defaults.hotKeyModifiers)
-        if hotKeyKeyCode == defaults.hotKeyKeyCode && hotKeyModifiers == AppSettings.legacyHotKeyModifiers {
+        hotKeyChosen = container.decodeLenient(Bool.self, forKey: .hotKeyChosen, default: defaults.hotKeyChosen)
+        if !hotKeyChosen && hotKeyKeyCode == defaults.hotKeyKeyCode && hotKeyModifiers == AppSettings.legacyHotKeyModifiers {
             hotKeyModifiers = defaults.hotKeyModifiers
         }
         openAtLogin = container.decodeLenient(Bool.self, forKey: .openAtLogin, default: defaults.openAtLogin)
@@ -63,6 +75,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(hotKeyKeyCode, forKey: .hotKeyKeyCode)
         try container.encode(hotKeyModifiers, forKey: .hotKeyModifiers)
+        try container.encode(hotKeyChosen, forKey: .hotKeyChosen)
         try container.encode(openAtLogin, forKey: .openAtLogin)
         try container.encode(stickerPolicy, forKey: .stickerPolicy)
         try container.encodeIfPresent(groupFaces, forKey: .groupFaces)
